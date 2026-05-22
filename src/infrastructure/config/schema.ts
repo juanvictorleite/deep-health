@@ -166,8 +166,8 @@ const NpmRunnerConfigSchema = z
     }
   });
 
-/** Output format — markdown for reports */
-const OutputFormatSchema = z.enum(["markdown"]);
+/** Output format — markdown or docx for reports */
+const OutputFormatSchema = z.enum(["markdown", "docx"]);
 
 /** Outputs config block */
 const OutputsConfigSchema = z
@@ -374,12 +374,6 @@ const ComposerRunnerConfigSchema = z
      * Example: 'Dockerfile', '.docker/php.Dockerfile'
      */
     dockerfile_path: z.string().optional(),
-    /**
-     * When true, passes --ignore-platform-reqs to all composer commands.
-     * Defaults to true in Docker mode (the container is not the production environment).
-     * Set to false to enforce strict platform checks even in Docker.
-     */
-    ignore_platform_reqs: z.boolean().optional(),
     /**
      * OS-level packages to install via apt-get before running composer commands.
      * Useful for PHP extensions that require system libraries.

@@ -17,7 +17,7 @@ export interface ProtectedPackage {
 export type FixerStrategyId = "osv" | "npm-audit" | "osv-then-audit";
 
 /** Output format for generated reports */
-export type OutputFormat = "markdown";
+export type OutputFormat = "markdown" | "docx";
 
 /** Per-ecosystem advisor configuration */
 export interface AdvisorConfig {
@@ -363,13 +363,6 @@ export interface ComposerRunnerConfig {
    * Example: 'Dockerfile', '.docker/php.Dockerfile'
    */
   dockerfile_path?: string;
-  /**
-   * When true, passes `--ignore-platform-reqs` to all composer commands.
-   * Defaults to true when mode is 'docker' (the Docker container is not the
-   * production environment — platform extension checks are irrelevant there).
-   * Set to false to enforce strict platform checks even in Docker mode.
-   */
-  ignore_platform_reqs?: boolean;
   /**
    * OS-level packages to install via apt-get before running composer commands.
    * Useful when a PHP extension requires system libraries not present in the
