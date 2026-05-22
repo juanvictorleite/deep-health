@@ -297,4 +297,95 @@ describe('generateExecutiveReportDocx() — table structure', () => {
 
     expect(pendingResult.length).toBeGreaterThan(emptyResult.length);
   });
+
+  it('does not leak markdown table separator (|---) into DOCX with fixed vulns (pt-br)', async () => {
+    const scanWithFixed: ScanResultJson = {
+      agent: 'osv-scanner',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: 1,
+          auto_safe: 1,
+          breaking: 0,
+          manual: 0,
+          auto_safe_packages: ['lodash'],
+          breaking_packages: [],
+          manual_packages: [],
+          vulnerabilities: [
+            {
+              ecosystem: 'npm',
+              package: 'lodash',
+              currentVersion: '4.17.11',
+              ghsaId: 'GHSA-abcd-1234-efgh',
+              cvss: '5.0',
+              risk: 'Medium',
+              safeVersion: '4.17.21',
+              classification: 'auto_safe',
+              reason: null,
+            },
+          ],
+        },
+      },
+      error: null,
+    };
+
+    const result = await generateExecutiveReportDocx({
+      ...baseOpts,
+      locale: 'pt-br',
+      scanBefore: scanWithFixed,
+      updates: {
+        npm: {
+          ecosystem: 'npm',
+          packages_updated: ['lodash@4.17.21'],
+          packages_skipped: [],
+          packages_failed: [],
+          validations: [{ name: 'tests', status: 'pass', detail: '42 tests passed' }],
+        },
+      },
+    });
+
+    expect(result.toString()).not.toContain('|---');
+  });
+
+  it('does not leak markdown table separator (|---) into DOCX with pending vulns (pt-br)', async () => {
+    const scanWithPending: ScanResultJson = {
+      agent: 'osv-scanner',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: 1,
+          auto_safe: 0,
+          breaking: 1,
+          manual: 0,
+          auto_safe_packages: [],
+          breaking_packages: ['express'],
+          manual_packages: [],
+          vulnerabilities: [
+            {
+              ecosystem: 'npm',
+              package: 'express',
+              currentVersion: '4.0.0',
+              ghsaId: 'GHSA-xxxx-yyyy-zzzz',
+              cvss: '9.8',
+              risk: 'Critical',
+              safeVersion: null,
+              classification: 'breaking',
+              reason: 'Major version bump 4 → 5',
+            },
+          ],
+        },
+      },
+      error: null,
+    };
+
+    const result = await generateExecutiveReportDocx({
+      ...baseOpts,
+      locale: 'pt-br',
+      scanBefore: scanWithPending,
+    });
+
+    expect(result.toString()).not.toContain('|---');
+  });
 });

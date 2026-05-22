@@ -253,14 +253,14 @@ function buildResolutionSection(ctx: Record<string, unknown>, tr: Record<string,
 
   const fixedVulns = (ctx['fixedVulns'] as Record<string, unknown>[]) ?? [];
   if (fixedVulns.length > 0) {
-    items.push(heading2(t(tr, 'table_fixed_header', 'Fixed Vulnerabilities')));
+    items.push(bodyText(t(tr, 'found_and_fixed', 'After running the scan, the following issues were found and fixed:')));
     items.push(buildFixedVulnsTable(fixedVulns));
     items.push(spacer());
   }
 
   const pendingVulns = (ctx['pendingVulns'] as Record<string, unknown>[]) ?? [];
   if (pendingVulns.length > 0) {
-    items.push(heading2(t(tr, 'table_pending_header', 'Pending Vulnerabilities')));
+    items.push(bodyText(t(tr, 'pending_intro', 'The following vulnerabilities could not be fixed automatically and remain pending:')));
     items.push(buildPendingVulnsTable(pendingVulns));
     items.push(spacer());
   }
