@@ -146,11 +146,19 @@ function evidenceVulnCells(ecoLabel: string, v: Record<string, unknown>) {
 
 /**
  * Fixed vulnerabilities table.
- * Columns: Ecosystem | GHSA | CVSS | Package | Affected Versions | Safe Version | Risk
+ * Columns: Ecosystem | GHSA | CVSS | Package | Old Version | Safe Version | Risk
  */
-function buildFixedVulnsTable(fixedVulns: Record<string, unknown>[]) {
+function buildFixedVulnsTable(fixedVulns: Record<string, unknown>[], tr: Record<string, unknown>) {
   const widths = colWidths([13, 14, 7, 20, 17, 13, 16]);
-  const headers = ['Ecosystem', 'GHSA', 'CVSS', 'Package', 'Affected Versions', 'Safe Version', 'Risk'];
+  const headers = [
+    t(tr, 'col_ecosystem', 'Type'),
+    t(tr, 'col_ghsa', 'CVE/GHSA'),
+    t(tr, 'col_cvss', 'CVSS'),
+    t(tr, 'col_package', 'Package'),
+    t(tr, 'col_old_version', 'Old Version'),
+    t(tr, 'col_safe_version', 'Fixed Version'),
+    t(tr, 'col_risk', 'Risk'),
+  ];
   const headerRow = buildHeaderRow(headers, widths, HEADER_FILL_BLUE);
   const dataRows = fixedVulns.map((v) =>
     buildDataRow([...baseVulnCells(v), strDash(v['safeVersion']), strDash(v['risk'])], widths),
@@ -160,11 +168,18 @@ function buildFixedVulnsTable(fixedVulns: Record<string, unknown>[]) {
 
 /**
  * Pending vulnerabilities table.
- * Columns: Ecosystem | GHSA | CVSS | Package | Affected Versions | Reason
+ * Columns: Ecosystem | GHSA | CVSS | Package | Current Version | Reason
  */
-function buildPendingVulnsTable(pendingVulns: Record<string, unknown>[]) {
+function buildPendingVulnsTable(pendingVulns: Record<string, unknown>[], tr: Record<string, unknown>) {
   const widths = colWidths([13, 14, 7, 20, 17, 29]);
-  const headers = ['Ecosystem', 'GHSA', 'CVSS', 'Package', 'Affected Versions', 'Reason'];
+  const headers = [
+    t(tr, 'col_ecosystem', 'Type'),
+    t(tr, 'col_ghsa', 'CVE/GHSA'),
+    t(tr, 'col_cvss', 'CVSS'),
+    t(tr, 'col_package', 'Package'),
+    t(tr, 'col_current_version', 'Current Version'),
+    t(tr, 'col_reason', 'Reason'),
+  ];
   const headerRow = buildHeaderRow(headers, widths, HEADER_FILL_ORANGE);
   const dataRows = pendingVulns.map((v) =>
     buildDataRow([...baseVulnCells(v), str(v['motivoPt'])], widths),
@@ -174,11 +189,19 @@ function buildPendingVulnsTable(pendingVulns: Record<string, unknown>[]) {
 
 /**
  * Evidence table (per-ecosystem post-fix scan summary).
- * Columns: Ecosystem | GHSA | CVSS | Package | Affected Versions | Status | Risk
+ * Columns: Ecosystem | GHSA | CVSS | Package | Version | Status after fixes | Risk
  */
-function buildEvidenceTable(ecoLabel: string, vulnsAfter: Record<string, unknown>[]) {
+function buildEvidenceTable(ecoLabel: string, vulnsAfter: Record<string, unknown>[], tr: Record<string, unknown>) {
   const widths = colWidths([13, 14, 7, 20, 17, 17, 12]);
-  const headers = ['Ecosystem', 'GHSA', 'CVSS', 'Package', 'Affected Versions', 'Status', 'Risk'];
+  const headers = [
+    t(tr, 'col_ecosystem', 'Type'),
+    t(tr, 'col_ghsa', 'CVE/GHSA'),
+    t(tr, 'col_cvss', 'CVSS'),
+    t(tr, 'col_package', 'Package'),
+    t(tr, 'col_affected_versions', 'Version'),
+    t(tr, 'col_status_after', 'Status after fixes'),
+    t(tr, 'col_risk', 'Risk'),
+  ];
   const headerRow = buildHeaderRow(headers, widths, HEADER_FILL_GREY);
   const dataRows = vulnsAfter.map((v) => buildDataRow(evidenceVulnCells(ecoLabel, v), widths));
   return buildVulnTable(headerRow, dataRows);
@@ -254,14 +277,14 @@ function buildResolutionSection(ctx: Record<string, unknown>, tr: Record<string,
   const fixedVulns = (ctx['fixedVulns'] as Record<string, unknown>[]) ?? [];
   if (fixedVulns.length > 0) {
     items.push(bodyText(t(tr, 'found_and_fixed', 'After running the scan, the following issues were found and fixed:')));
-    items.push(buildFixedVulnsTable(fixedVulns));
+    items.push(buildFixedVulnsTable(fixedVulns, tr));
     items.push(spacer());
   }
 
   const pendingVulns = (ctx['pendingVulns'] as Record<string, unknown>[]) ?? [];
   if (pendingVulns.length > 0) {
     items.push(bodyText(t(tr, 'pending_intro', 'The following vulnerabilities could not be fixed automatically and remain pending:')));
-    items.push(buildPendingVulnsTable(pendingVulns));
+    items.push(buildPendingVulnsTable(pendingVulns, tr));
     items.push(spacer());
   }
 
@@ -277,7 +300,7 @@ function buildEvidenceBeforeSection(ctx: Record<string, unknown>, tr: Record<str
   return items;
 }
 
-function appendEvidenceSection(section: Record<string, unknown>, ctx: Record<string, unknown>, items: DocxNode[]) {
+function appendEvidenceSection(section: Record<string, unknown>, ctx: Record<string, unknown>, tr: Record<string, unknown>, items: DocxNode[]) {
   const fallbackLabel = String(section['reportLabel'] ?? section['id']);
   const evidenceTitle = str(section['evidenceTitle'], fallbackLabel);
   const vulnsAfter = (section['vulnsAfter'] as Record<string, unknown>[]) ?? [];
@@ -286,7 +309,7 @@ function appendEvidenceSection(section: Record<string, unknown>, ctx: Record<str
   items.push(heading2(evidenceTitle));
 
   if (vulnsAfter.length > 0) {
-    items.push(buildEvidenceTable(reportLabel, vulnsAfter));
+    items.push(buildEvidenceTable(reportLabel, vulnsAfter, tr));
     items.push(spacer());
     return;
   }
@@ -297,11 +320,11 @@ function appendEvidenceSection(section: Record<string, unknown>, ctx: Record<str
   }
 }
 
-function buildEvidenceAfterSection(ctx: Record<string, unknown>) {
+function buildEvidenceAfterSection(ctx: Record<string, unknown>, tr: Record<string, unknown>) {
   const items: DocxNode[] = [];
   const evidenceSections = (ctx['evidenceSections'] as Record<string, unknown>[]) ?? [];
   for (const section of evidenceSections) {
-    appendEvidenceSection(section, ctx, items);
+    appendEvidenceSection(section, ctx, tr, items);
   }
   return items;
 }
@@ -343,7 +366,7 @@ function buildDocumentChildren(ctx: Record<string, unknown>) {
     ...metadata,
     ...buildResolutionSection(ctx, tr),
     ...buildEvidenceBeforeSection(ctx, tr),
-    ...buildEvidenceAfterSection(ctx),
+    ...buildEvidenceAfterSection(ctx, tr),
     ...buildSummarySection(ctx, tr),
   ];
 }

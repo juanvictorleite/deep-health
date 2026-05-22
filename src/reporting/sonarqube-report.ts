@@ -1,12 +1,14 @@
 import { CLI_NAME } from '@infra/brand';
 import type { ScanResultJson } from '@core/types/scan';
+import type { SupportedLocale } from '@core/types/locale';
+import { getLocale } from '@reporting/i18n';
 import { render } from './renderer';
 import sonarqubeHtmlTemplate from './templates/sonarqube-report-html.hbs';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function monthName(date: Date): string {
-  return date.toLocaleString('en-US', { month: 'long' });
+function htmlLangCode(locale: SupportedLocale): string {
+  return locale === 'pt-br' ? 'pt-BR' : 'en';
 }
 
 function severityClass(severity: string): string {
@@ -39,11 +41,13 @@ function qualityGateBadgeClass(status: string): string {
  * @param engineResults  Aggregated engine results from the orchestrator.
  * @param client         Client name (used in header and filename).
  * @param project        Project name (used in header and filename).
+ * @param locale         Optional locale code. Defaults to 'en'.
  */
 export function generateSonarQubeHtmlReport(
   engineResults: Record<string, ScanResultJson> | undefined,
   client: string,
   project: string,
+  locale?: SupportedLocale,
 ): string | null {
   if (!engineResults) return null;
 
@@ -51,9 +55,18 @@ export function generateSonarQubeHtmlReport(
   if (!sonarResult) return null;
   if (sonarResult.status === 'skipped') return null;
 
+  const resolvedLocale: SupportedLocale = locale ?? 'en';
+  const loc = getLocale(resolvedLocale);
+  const tr = loc.exec;
+
   const now = new Date();
-  const periodLabel = `${monthName(now)} ${now.getFullYear()}`;
+  const localeMonthName = loc.months[now.getMonth()];
+  const periodLabel = `${localeMonthName} ${now.getFullYear()}`;
   const exportedAt = now.toISOString().replace('T', ' ').slice(0, 19);
+
+  const htmlLang = htmlLangCode(resolvedLocale);
+  const reportTitle = tr.sonarqube_report_title;
+  const footerText = tr.sonarqube_report_footer.replace('{{cliName}}', CLI_NAME);
 
   // ── Error case ──────────────────────────────────────────────────────────────
   if (sonarResult.status === 'error') {
@@ -63,13 +76,25 @@ export function generateSonarQubeHtmlReport(
       client,
       periodLabel,
       exportedAt,
-      clientLabel: 'Client',
-      exportedAtLabel: 'Generated',
-      qualityGateLabel: 'Quality Gate',
-      conditionsLabel: 'Quality Gate Conditions',
-      metricsLabel: 'Metrics',
-      issuesLabel: 'Issues',
-      noIssuesLabel: 'No issues found.',
+      htmlLang,
+      reportTitle,
+      footerText,
+      clientLabel: tr.label_client,
+      exportedAtLabel: tr.sonarqube_report_generated,
+      qualityGateLabel: tr.sonarqube_report_quality_gate,
+      conditionsLabel: tr.sonarqube_report_conditions,
+      metricsLabel: tr.sonarqube_report_metrics,
+      issuesLabel: tr.sonarqube_report_issues,
+      noIssuesLabel: tr.sonarqube_no_issues.replace(/_/g, ''),
+      thMetric: tr.sonarqube_report_th_metric,
+      thActual: tr.sonarqube_report_th_actual,
+      thThreshold: tr.sonarqube_report_th_threshold,
+      thComparator: tr.sonarqube_report_th_comparator,
+      thValue: tr.sonarqube_report_th_value,
+      thSeverity: tr.sonarqube_report_th_severity,
+      thRule: tr.sonarqube_report_th_rule,
+      thLine: tr.sonarqube_report_th_line,
+      thMessage: tr.sonarqube_report_th_message,
       warning,
       qualityGateStatus: null,
       hasConditions: false,
@@ -78,7 +103,6 @@ export function generateSonarQubeHtmlReport(
       noIssues: false,
       issuesByFile: null,
       issueCountSuffix: null,
-      cliName: CLI_NAME,
     });
   }
 
@@ -89,7 +113,7 @@ export function generateSonarQubeHtmlReport(
   const rawQgStatus = meta?.qualityGateStatus;
   const rawQgPassed = meta?.qualityGatePassed;
   const qgDisplayStatus = rawQgStatus
-    ? (rawQgStatus === 'OK' ? 'PASSED' : rawQgStatus === 'ERROR' ? 'FAILED' : rawQgStatus)
+    ? (rawQgStatus === 'OK' ? tr.sonarqube_report_qg_passed : rawQgStatus === 'ERROR' ? tr.sonarqube_report_qg_failed : rawQgStatus)
     : null;
   const qgBadgeClass = rawQgStatus ? qualityGateBadgeClass(rawQgStatus) : 'qg-warn';
 
@@ -139,13 +163,25 @@ export function generateSonarQubeHtmlReport(
     client,
     periodLabel,
     exportedAt,
-    clientLabel: 'Client',
-    exportedAtLabel: 'Generated',
-    qualityGateLabel: 'Quality Gate',
-    conditionsLabel: 'Quality Gate Conditions',
-    metricsLabel: 'Metrics',
-    issuesLabel: 'Issues',
-    noIssuesLabel: 'No issues found.',
+    htmlLang,
+    reportTitle,
+    footerText,
+    clientLabel: tr.label_client,
+    exportedAtLabel: tr.sonarqube_report_generated,
+    qualityGateLabel: tr.sonarqube_report_quality_gate,
+    conditionsLabel: tr.sonarqube_report_conditions,
+    metricsLabel: tr.sonarqube_report_metrics,
+    issuesLabel: tr.sonarqube_report_issues,
+    noIssuesLabel: tr.sonarqube_no_issues.replace(/_/g, ''),
+    thMetric: tr.sonarqube_report_th_metric,
+    thActual: tr.sonarqube_report_th_actual,
+    thThreshold: tr.sonarqube_report_th_threshold,
+    thComparator: tr.sonarqube_report_th_comparator,
+    thValue: tr.sonarqube_report_th_value,
+    thSeverity: tr.sonarqube_report_th_severity,
+    thRule: tr.sonarqube_report_th_rule,
+    thLine: tr.sonarqube_report_th_line,
+    thMessage: tr.sonarqube_report_th_message,
     warning: null,
     qualityGateStatus: qgDisplayStatus,
     qualityGateBadgeClass: qgBadgeClass,
@@ -154,10 +190,9 @@ export function generateSonarQubeHtmlReport(
     metrics,
     noIssues,
     issuesByFile,
-    issueCountSuffix: totalIssues > 0 ? `${totalIssues} found` : null,
+    issueCountSuffix: totalIssues > 0 ? tr.sonarqube_report_issues_found.replace('{{n}}', String(totalIssues)) : null,
     // suppress unused warning via assignment
     _qualityGatePassed: rawQgPassed,
-    cliName: CLI_NAME,
   });
 }
 
@@ -172,5 +207,6 @@ export function sonarqubeHtmlReportFilename(client: string, project: string): st
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
-  return `[${client} ${project}] SonarQube Report - ${year}-${month} - ${monthName(now)}.html`;
+  const loc = getLocale('en');
+  return `[${client} ${project}] SonarQube Report - ${year}-${month} - ${loc.months[now.getMonth()]}.html`;
 }

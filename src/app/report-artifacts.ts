@@ -101,7 +101,7 @@ export async function generateAndSaveReportArtifacts(
   }
 
   // Standalone SonarQube HTML artifact — only when at least one format is enabled
-  const sonarHtml = generateSonarQubeHtmlReport(engineResults, client, project);
+  const sonarHtml = generateSonarQubeHtmlReport(engineResults, client, project, config.report_language);
   if (sonarHtml) {
     const htmlFilename = sonarqubeHtmlReportFilename(client, project);
     const sonarOutcome = await saveReport(

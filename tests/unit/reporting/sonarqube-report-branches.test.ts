@@ -198,3 +198,143 @@ describe('sonarqubeHtmlReportFilename()', () => {
     expect(name).toContain('.html');
   });
 });
+
+// ─── Locale-aware tests ───────────────────────────────────────────────────────
+
+const successWithQgResult: ScanResultJson = {
+  agent: 'sonarqube',
+  status: 'success',
+  environment: 'local',
+  ecosystems: {},
+  error: null,
+  metadata: {
+    qualityGateStatus: 'OK',
+    qualityGatePassed: true,
+    qualityGateConditions: [
+      { status: 'OK', metricKey: 'coverage', comparator: 'LT', errorThreshold: '80', actualValue: '90' },
+    ],
+    metrics: { bugs: '0', coverage: '90' },
+    issues: [],
+  },
+};
+
+const successWithFailedQgResult: ScanResultJson = {
+  agent: 'sonarqube',
+  status: 'success',
+  environment: 'local',
+  ecosystems: {},
+  error: null,
+  metadata: {
+    qualityGateStatus: 'ERROR',
+    qualityGatePassed: false,
+    qualityGateConditions: [],
+    metrics: {},
+    issues: [],
+  },
+};
+
+describe('generateSonarQubeHtmlReport() — locale support', () => {
+  it('uses pt-br locale labels when locale is pt-br (AC5)', () => {
+    const html = generateSonarQubeHtmlReport({ sonarqube: successWithQgResult }, 'Client', 'Project', 'pt-br');
+    expect(typeof html).toBe('string');
+    expect(html).toContain('Métrica');
+    expect(html).not.toContain('<th>Metric</th>');
+  });
+
+  it('uses pt-br quality gate status string APROVADO instead of PASSED (AC6)', () => {
+    const html = generateSonarQubeHtmlReport({ sonarqube: successWithQgResult }, 'Client', 'Project', 'pt-br');
+    expect(typeof html).toBe('string');
+    expect(html).toContain('APROVADO');
+    expect(html).not.toContain('PASSED');
+  });
+
+  it('uses pt-br quality gate failed status REPROVADO instead of FAILED', () => {
+    const html = generateSonarQubeHtmlReport({ sonarqube: successWithFailedQgResult }, 'Client', 'Project', 'pt-br');
+    expect(typeof html).toBe('string');
+    expect(html).toContain('REPROVADO');
+    expect(html).not.toContain('FAILED');
+  });
+
+  it('defaults to English labels when locale is omitted (AC7 regression guard)', () => {
+    const html = generateSonarQubeHtmlReport({ sonarqube: successWithQgResult }, 'Client', 'Project');
+    expect(typeof html).toBe('string');
+    // Template now uses {{thMetric}} — rendered value should contain English 'Metric' in <th>
+    expect(html).toContain('<th>Metric</th>');
+    // Should use English quality gate status
+    expect(html).toContain('PASSED');
+  });
+
+  it('sets html lang attribute to pt-BR for pt-br locale', () => {
+    const html = generateSonarQubeHtmlReport({ sonarqube: successWithQgResult }, 'Client', 'Project', 'pt-br');
+    expect(typeof html).toBe('string');
+    expect(html).toContain('lang="pt-BR"');
+  });
+
+  it('sets html lang attribute to en for en locale', () => {
+    const html = generateSonarQubeHtmlReport({ sonarqube: successWithQgResult }, 'Client', 'Project', 'en');
+    expect(typeof html).toBe('string');
+    expect(html).toContain('lang="en"');
+  });
+
+  it('uses pt-br month name in period label', () => {
+    const ptBrMonths = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+      'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+    const html = generateSonarQubeHtmlReport({ sonarqube: successWithQgResult }, 'Client', 'Project', 'pt-br');
+    expect(typeof html).toBe('string');
+    const containsMonth = ptBrMonths.some((m) => html!.includes(m));
+    expect(containsMonth).toBe(true);
+  });
+
+  it('uses pt-br locale report title (Relatório SonarQube)', () => {
+    const html = generateSonarQubeHtmlReport({ sonarqube: successWithQgResult }, 'Client', 'Project', 'pt-br');
+    expect(typeof html).toBe('string');
+    expect(html).toContain('Relatório SonarQube');
+  });
+
+  it('uses pt-br footer text (Gerado por)', () => {
+    const html = generateSonarQubeHtmlReport({ sonarqube: successWithQgResult }, 'Client', 'Project', 'pt-br');
+    expect(typeof html).toBe('string');
+    expect(html).toContain('Gerado por');
+  });
+
+  it('uses pt-br issue count suffix for issues found', () => {
+    const resultWithIssues: ScanResultJson = {
+      agent: 'sonarqube',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {},
+      error: null,
+      metadata: {
+        issues: [
+          { key: 'k1', rule: 'rule:S1', severity: 'CRITICAL', component: 'src/a.ts', message: 'msg', type: 'BUG', status: 'OPEN' },
+        ],
+      },
+    };
+    const html = generateSonarQubeHtmlReport({ sonarqube: resultWithIssues }, 'Client', 'Project', 'pt-br');
+    expect(typeof html).toBe('string');
+    expect(html).toContain('encontrado');
+    expect(html).not.toContain('found');
+  });
+
+  it('renders issue table headers with pt-br translations inside #each issuesByFile (FIX2 — Handlebars scope)', () => {
+    const resultWithIssues: ScanResultJson = {
+      agent: 'sonarqube',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {},
+      error: null,
+      metadata: {
+        issues: [
+          { key: 'k1', rule: 'rule:S1', severity: 'MAJOR', component: 'src/a.ts', message: 'some issue', type: 'BUG', status: 'OPEN', line: 5 },
+        ],
+      },
+    };
+    const html = generateSonarQubeHtmlReport({ sonarqube: resultWithIssues }, 'Client', 'Project', 'pt-br');
+    expect(typeof html).toBe('string');
+    // The issue table thead is inside {{#each issuesByFile}}; without {{../}} the headers would be empty.
+    expect(html).toContain('<th>Severidade</th>');
+    expect(html).toContain('<th>Regra</th>');
+    expect(html).toContain('<th>Linha</th>');
+    expect(html).toContain('<th>Mensagem</th>');
+  });
+});

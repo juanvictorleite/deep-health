@@ -84,5 +84,39 @@ export interface RawLocale {
     /** Branch/engine metadata labels */
     label_branch: string;
     label_scanners: string;
+    /** DOCX table column headers */
+    col_ecosystem: string;
+    col_ghsa: string;
+    col_cvss: string;
+    col_package: string;
+    col_old_version: string;
+    col_safe_version: string;
+    col_risk: string;
+    col_current_version: string;
+    col_reason: string;
+    col_affected_versions: string;
+    col_status_after: string;
+    /** SonarQube HTML report labels (used in Slice 2) */
+    sonarqube_report_title: string;
+    sonarqube_report_generated: string;
+    sonarqube_report_th_metric: string;
+    sonarqube_report_th_actual: string;
+    sonarqube_report_th_threshold: string;
+    sonarqube_report_th_comparator: string;
+    sonarqube_report_th_value: string;
+    sonarqube_report_th_severity: string;
+    sonarqube_report_th_rule: string;
+    sonarqube_report_th_line: string;
+    sonarqube_report_th_message: string;
+    sonarqube_report_qg_passed: string;
+    sonarqube_report_qg_failed: string;
+    /** vars: n */
+    sonarqube_report_issues_found: string;
+    /** vars: cliName */
+    sonarqube_report_footer: string;
+    sonarqube_report_quality_gate: string;
+    sonarqube_report_conditions: string;
+    sonarqube_report_metrics: string;
+    sonarqube_report_issues: string;
   };
 }

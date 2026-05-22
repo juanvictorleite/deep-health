@@ -5,10 +5,58 @@
  * AC6: executiveReportDocxFilename returns .docx extension
  */
 import { describe, it, expect } from 'vitest';
+import { inflateRawSync } from 'node:zlib';
 import { generateExecutiveReportDocx, executiveReportDocxFilename } from '@reporting/docx-executive';
 import { executiveReportFilename } from '@reporting/executive';
 import type { ExecutiveReportOptions } from '@core/types/report';
 import type { ScanResultJson } from '@core/types/scan';
+
+/**
+ * Extract all text content from a DOCX (ZIP) buffer by inflating each
+ * deflate-compressed entry and concatenating their raw bytes as utf8.
+ * Uses only the built-in node:zlib module — no third-party ZIP library needed.
+ */
+function extractDocxText(docxBuffer: Buffer): string {
+  const parts: string[] = [];
+  let offset = 0;
+
+  while (offset < docxBuffer.length - 4) {
+    // Local file header signature: PK\x03\x04
+    if (
+      docxBuffer[offset] === 0x50 &&
+      docxBuffer[offset + 1] === 0x4b &&
+      docxBuffer[offset + 2] === 0x03 &&
+      docxBuffer[offset + 3] === 0x04
+    ) {
+      const compressionMethod = docxBuffer.readUInt16LE(offset + 8);
+      const compressedSize = docxBuffer.readUInt32LE(offset + 18);
+      const filenameLen = docxBuffer.readUInt16LE(offset + 26);
+      const extraLen = docxBuffer.readUInt16LE(offset + 28);
+      const dataOffset = offset + 30 + filenameLen + extraLen;
+
+      if (compressedSize > 0) {
+        const compressedData = docxBuffer.slice(dataOffset, dataOffset + compressedSize);
+        try {
+          if (compressionMethod === 8) {
+            // deflate-compressed
+            parts.push(inflateRawSync(compressedData).toString('utf8'));
+          } else if (compressionMethod === 0) {
+            // stored (no compression)
+            parts.push(compressedData.toString('utf8'));
+          }
+        } catch {
+          // skip entries that can't be inflated
+        }
+      }
+
+      offset = dataOffset + compressedSize;
+    } else {
+      offset++;
+    }
+  }
+
+  return parts.join('');
+}
 
 const emptyScan: ScanResultJson = {
   agent: 'osv-scanner',
@@ -346,6 +394,58 @@ describe('generateExecutiveReportDocx() — table structure', () => {
     });
 
     expect(result.toString()).not.toContain('|---');
+  });
+
+  it('uses pt-br locale column names in fixed vulns table (contains Pacote, not Affected Versions)', async () => {
+    const scanWithFixed: ScanResultJson = {
+      agent: 'osv-scanner',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: 1,
+          auto_safe: 1,
+          breaking: 0,
+          manual: 0,
+          auto_safe_packages: ['lodash'],
+          breaking_packages: [],
+          manual_packages: [],
+          vulnerabilities: [
+            {
+              ecosystem: 'npm',
+              package: 'lodash',
+              currentVersion: '4.17.11',
+              ghsaId: 'GHSA-abcd-1234-efgh',
+              cvss: '5.0',
+              risk: 'Medium',
+              safeVersion: '4.17.21',
+              classification: 'auto_safe',
+              reason: null,
+            },
+          ],
+        },
+      },
+      error: null,
+    };
+
+    const result = await generateExecutiveReportDocx({
+      ...baseOpts,
+      locale: 'pt-br',
+      scanBefore: scanWithFixed,
+      updates: {
+        npm: {
+          ecosystem: 'npm',
+          packages_updated: ['lodash@4.17.21'],
+          packages_skipped: [],
+          packages_failed: [],
+          validations: [{ name: 'tests', status: 'pass', detail: '42 tests passed' }],
+        },
+      },
+    });
+
+    const docxXml = extractDocxText(result);
+    expect(docxXml).toContain('Pacote');
+    expect(docxXml).not.toContain('Affected Versions');
   });
 
   it('does not leak markdown table separator (|---) into DOCX with pending vulns (pt-br)', async () => {
