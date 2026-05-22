@@ -37,10 +37,10 @@ Breaking changes (constraint bumps, major versions) are never applied automatica
 
 ## Requirements
 
-| Tool | Version |
-|------|---------|
-| Node.js | ≥ 22.0.0 |
-| Docker | any recent version |
+| Tool | Version | Notes |
+|------|---------|-------|
+| Node.js | ≥ 26.0.0 | Required. Use `nvm use` to activate the correct version (`.nvmrc` included). |
+| Docker | any recent version | Required for all scan and fix operations. |
 
 Docker is used to run OSV Scanner (and optionally SonarQube) in ephemeral containers. No local installation of those tools is needed.
 
@@ -220,17 +220,17 @@ scanners:
   primary: 'osv'          # engine id to use as Gate A source (default: 'osv')
   osv:
     runner: 'docker'      # docker | local | auto
-  npm:
-    mode: 'docker'        # docker | local | auto
-    runtime_version: '20' # override Node version for Docker image
-  composer:
-    mode: 'docker'
-    runtime_version: '8.2'
-  pip:
-    mode: 'docker'
-    runtime_version: '3.11'
   sonarqube:
     enabled: false        # set true to enable SonarQube integration
+
+# Optional: per-ecosystem Docker runner configuration
+runners:
+  npm:
+    language_version: '20' # override Node version for Docker image
+  composer:
+    language_version: '8.2'
+  pip:
+    language_version: '3.11'
 
 # Optional: report output
 outputs:
@@ -306,7 +306,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '26'
       - run: npm install -g security-scan
       - run: security-scan scan --json --output scan-results.json
       # To apply fixes and open a PR automatically (requires GITHUB_TOKEN and gh CLI):

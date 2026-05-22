@@ -1,6 +1,6 @@
 # security-scan — Complete Usage Guide
 
-> Version 0.1.3 | Node.js ≥ 26 | Docker required
+> Version 0.1.9 | Docker required (Node.js ≥ 26 only for npm install)
 
 ---
 
@@ -15,39 +15,27 @@
    - [scan](#scan)
    - [fix](#fix)
    - [executive-report](#executive-report)
-   - [cloud-setup](#cloud-setup)
 6. [Configuration Reference](#configuration-reference)
    - [project](#project)
    - [report_language](#report_language)
    - [ecosystems](#ecosystems)
    - [protected_packages](#protected_packages)
    - [safe_update_policy](#safe_update_policy)
-   - [conflict_resolution](#conflict_resolution)
    - [scanners](#scanners)
    - [runners](#runners)
    - [scan (scan paths)](#scan-scan-paths)
    - [outputs](#outputs)
-   - [cloud_storage](#cloud_storage)
-   - [workflow](#workflow)
 7. [Docker and Runtime Strategies](#docker-and-runtime-strategies)
-   - [Image Source: pull vs dockerfile](#image-source-pull-vs-dockerfile)
-   - [Runtime Version Resolution](#runtime-version-resolution)
-   - [Native OS Dependencies](#native-os-dependencies)
 8. [Scanner Engines](#scanner-engines)
    - [OSV Scanner](#osv-scanner)
    - [SonarQube](#sonarqube)
 9. [Ecosystem Plugins and Fixer Strategies](#ecosystem-plugins-and-fixer-strategies)
-   - [npm](#npm)
-   - [composer](#composer)
-   - [pip](#pip)
-   - [Fixer Strategies](#fixer-strategies)
 10. [Protected Packages and Safe Update Policy](#protected-packages-and-safe-update-policy)
-11. [Git Branch and PR Workflow](#git-branch-and-pr-workflow)
-12. [CI/CD Integration](#cicd-integration)
-13. [Environment Variables](#environment-variables)
-14. [Exit Codes](#exit-codes)
-15. [Troubleshooting](#troubleshooting)
-16. [FAQ](#faq)
+11. [Environment Variables](#environment-variables)
+12. [Exit Codes](#exit-codes)
+13. [What to do after `fix`](#what-to-do-after-fix)
+14. [Troubleshooting](#troubleshooting)
+15. [FAQ](#faq)
 
 ---
 
@@ -61,8 +49,6 @@
 4. Run your validation commands (test suites) inside the same container to confirm nothing broke
 5. Revert all changes automatically if validation fails
 6. Generate an executive HTML report with a before/after vulnerability comparison
-7. Upload the report to Google Drive
-8. Open a GitHub pull request with the safe changes already validated
 
 Breaking changes (major version bumps, constraint changes) are never applied automatically. They require explicit per-ecosystem authorization via `--authorize-breaking`.
 
@@ -70,41 +56,52 @@ Breaking changes (major version bumps, constraint changes) are never applied aut
 
 ## Requirements
 
-| Tool    | Minimum version |
-|---------|----------------|
-| Node.js | ≥ 26.0.0       |
-| Docker  | any recent     |
+| Tool    | Minimum version | Notes |
+|---------|----------------|-------|
+| Docker  | any recent     | **Required.** All ecosystem runtimes and scanners run in containers. |
+| Node.js | ≥ 26.0.0       | **Required.** Use `nvm use` to activate the correct version (the project includes `.nvmrc`). |
 
-Docker is the only runtime requirement beyond Node.js. OSV Scanner, SonarQube, npm, PHP Composer, and pip all run inside ephemeral Docker containers. You do not need to install any of those tools locally.
-
-The `gh` CLI is required only if you use `--open-pr`. Install it from [cli.github.com](https://cli.github.com).
+Docker is the only mandatory runtime requirement. OSV Scanner, SonarQube, npm, PHP Composer, and pip all run inside ephemeral Docker containers. You do not need to install any of those tools locally.
 
 ---
 
 ## Installation
 
-Install globally with npm:
+### Prerequisite: Node.js ≥ 26 via nvm
+
+The project includes a `.nvmrc` file that pins the correct version. Before installing or running security-scan, make sure you're using the right version:
+
+```bash
+# Install the version if you don't have it yet
+nvm install
+
+# Activate the version (run this whenever you open a new terminal in the project)
+nvm use
+```
+
+> **Tip:** to activate automatically when entering the directory, add [nvm's auto-use](https://github.com/nvm-sh/nvm#deeper-shell-integration) to your `.bashrc` or `.zshrc`. That way you never forget to run `nvm use`.
+
+### Install via npm
 
 ```bash
 npm install -g security-scan
 ```
 
-Verify the installation:
+### Verify the installation
 
 ```bash
+node --version
+# v26.x.x (confirm it's ≥ 26)
+
 security-scan --version
-# security-scan/0.1.3
-```
-
-Run without installing (useful for one-off scans):
-
-```bash
-npx security-scan --help
+# security-scan/0.1.9
 ```
 
 ---
 
 ## Quick Start
+
+### First time in a project (setup)
 
 **Step 1: Generate a config file**
 
@@ -113,6 +110,10 @@ security-scan init
 ```
 
 This starts an interactive wizard that detects your ecosystems (npm, composer, pip), asks you to confirm or adjust the configuration, and writes a `project-config.yml` to the current directory.
+
+> **This step is done only once.** The generated `project-config.yml` is committed to the repository. On subsequent runs, skip straight to step 2.
+
+### Recurring usage
 
 **Step 2: Scan for vulnerabilities**
 
@@ -130,13 +131,7 @@ security-scan fix
 
 Runs the full pipeline: scan → apply safe updates → validate → revert if broken → generate executive report.
 
-**Step 4: Apply safe fixes and open a PR**
-
-```bash
-security-scan fix --open-pr
-```
-
-Same as above, plus creates a git branch, commits the changes, pushes, and opens a GitHub pull request.
+> **Typical workflow:** if the project already has `project-config.yml`, the day-to-day flow is just `security-scan fix`.
 
 ---
 
@@ -280,11 +275,6 @@ security-scan fix [options]
 | `-q, --quiet` | boolean | `false` | Suppress all output except errors and the final report |
 | `--json` | boolean | `false` | Output results as JSON |
 | `-o, --output <path>` | string | stdout | Write report to file |
-| `--create-branch` | boolean | `false` | Create a git branch before applying fixes and commit changes on success |
-| `--branch-prefix <prefix>` | string | `fix/security-scan-` | Branch name prefix |
-| `--open-pr` | boolean | `false` | Create a GitHub pull request after fix (implies `--create-branch`; requires `gh` CLI) |
-| `--pr-title <title>` | string | auto-generated | Pull request title |
-
 **Pipeline phases:**
 
 The fix command runs the following phases in order:
@@ -325,22 +315,6 @@ SECURITY_SCAN_NO_AUTO_FIX=1 security-scan fix
 ```
 
 This is useful in CI pipelines where you want the scan result logged but no files mutated.
-
-**Git/PR workflow:**
-
-```bash
-# Create a branch, apply fixes, commit on success
-security-scan fix --create-branch
-
-# Create a branch AND open a GitHub PR
-security-scan fix --open-pr
-
-# Custom branch prefix
-security-scan fix --create-branch --branch-prefix deps/security-fix-
-
-# Custom PR title
-security-scan fix --open-pr --pr-title "chore: security dependency updates"
-```
 
 **Exit codes:**
 
@@ -394,8 +368,6 @@ security-scan executive-report [options]
 2. Runs the full orchestrator pipeline.
 3. Renders the executive HTML report via Handlebars templates.
 4. Saves the report to the configured output directory.
-5. Optionally uploads to Google Drive if `cloud_storage` is configured.
-
 The report language is controlled by `report_language` in `project-config.yml` (`en` or `pt-br`).
 
 **Example:**
@@ -403,58 +375,6 @@ The report language is controlled by `report_language` in `project-config.yml` (
 ```bash
 # Generate report with a custom client name
 security-scan executive-report --client "Acme Corp" --output report.html
-```
-
----
-
-### `cloud-setup`
-
-Interactive Google Drive folder picker. Saves the chosen folder ID to `project-config.yml` so that future `fix` and `executive-report` runs automatically upload their reports.
-
-```
-security-scan cloud-setup [options]
-```
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `-c, --config <path>` | string | `./project-config.yml` | Path to config file |
-| `--cwd <path>` | string | current directory | Working directory |
-
-**Prerequisites:**
-
-Google OAuth credentials must be available. The CLI reads the following environment variables:
-
-- `GOOGLE_CLIENT_ID` — your OAuth 2.0 client ID
-- `GOOGLE_CLIENT_SECRET` — your OAuth 2.0 client secret
-
-To obtain credentials:
-1. Go to [Google Cloud Console](https://console.cloud.google.com)
-2. Create a project (or use an existing one)
-3. Enable the Google Drive API
-4. Create OAuth 2.0 credentials (Desktop app type)
-5. Copy the client ID and secret into your environment
-
-**What it does:**
-
-1. Checks for stored OAuth tokens (from a previous `cloud-setup` run).
-2. If not already authenticated, opens the Google OAuth 2.0 authorization URL in your browser using `execFile` with `shell: false` (no shell injection possible).
-3. After authentication, lists your Google Drive folders.
-4. Presents an interactive folder selector.
-5. Writes the selected `folder_id` to `cloud_storage.google_drive.folder_id` in `project-config.yml`.
-
-**Example workflow:**
-
-```bash
-# Set up Google Drive integration
-security-scan cloud-setup
-
-# After setup, fix runs will upload the report automatically
-security-scan fix
-
-# To require upload success (fail CI if upload fails)
-# Set in project-config.yml:
-#   cloud_storage:
-#     require_upload: true
 ```
 
 ---
@@ -578,12 +498,6 @@ safe_update_policy:
 | `allow_patch_and_minor_within_constraints` | `true` | Automatically apply patch and minor updates that stay within current `^` / `~` / `>=` constraints |
 | `require_authorization_for_constraint_change` | `true` | Require `--authorize-breaking` for any update that would change the declared version constraint |
 
-### `conflict_resolution`
-
-```yaml
-conflict_resolution: 'manual'  # currently only 'manual' is supported
-```
-
 ### `scanners`
 
 Controls which scanning engines are used and how they are configured.
@@ -629,53 +543,43 @@ Per-ecosystem container configuration. Controls which Docker image is used, the 
 ```yaml
 runners:
   npm:
-    mode: 'docker'            # docker (default) | local | auto
     language_version: '20'    # inferred from .nvmrc / package.json if absent
-    image: 'node:20'          # explicit override; takes precedence over language_version
+    # image: 'node:20'        # explicit override; takes precedence over language_version
     image_source: 'pull'      # pull (default) | dockerfile
-    dockerfile_path: './Dockerfile'   # required when image_source='dockerfile'
-    build_context: '.'                # defaults to project root
-    build_args:                       # passed as --build-arg KEY=VALUE to docker build
-      NODE_VERSION: '20'
+    # dockerfile_path: './Dockerfile'   # required when image_source='dockerfile'
+    # build_context: '.'                # defaults to project root
+    # build_args:                       # passed as --build-arg KEY=VALUE to docker build
+    #   NODE_VERSION: '20'
     native_deps:              # OS packages to apt-get install before npm commands
       - libvips-dev           # required by sharp@0.x
       - build-essential       # required by native addons using node-gyp
       - python3               # required by node-gyp on some distros
-    allow_build_context_escape: false   # security: allow build context outside project root
+    # allow_build_context_escape: false   # security: allow build context outside project root
 
   composer:
-    mode: 'docker'
     language_version: '8.1'   # inferred from .php-version / composer.json if absent
-    image: 'php:8.1-cli'      # explicit override
+    # image: 'php:8.1-cli'    # explicit override
     image_source: 'pull'      # pull | dockerfile
-    dockerfile_path: './Dockerfile'
-    build_context: '.'
-    build_args: {}
-    ignore_platform_reqs: true   # default true in docker mode; passes --ignore-platform-reqs
+    # dockerfile_path: './Dockerfile'
+    # build_context: '.'
+    # build_args: {}
     native_deps:
       - imagemagick
       - libmagickwand-dev
 
   pip:
-    mode: 'docker'
     language_version: '3.11'  # inferred from runtime.txt / .python-version if absent
-    image: 'python:3.11-slim' # explicit override
+    # image: 'python:3.11-slim' # explicit override
     image_source: 'pull'      # pull | dockerfile
-    dockerfile_path: './Dockerfile'
-    build_context: '.'
-    build_args: {}
+    # dockerfile_path: './Dockerfile'
+    # build_context: '.'
+    # build_args: {}
     native_deps:
       - libjpeg-dev            # required by Pillow
       - libpq-dev              # required by psycopg2
 ```
 
-**Runner mode options (same for npm, composer, pip):**
-
-| Mode | Behavior |
-|------|----------|
-| `docker` | Run inside an ephemeral Docker container. **Default and recommended.** |
-| `local` | Use the locally installed binary. Emits a warning. |
-| `auto` | Try local first; fall back to Docker. **Deprecated — emits a warning.** |
+All runners execute inside ephemeral Docker containers. There is no `local` mode for ecosystem runners — that option exists only for the OSV scanner (`scanners.osv.runner`).
 
 ### `scan` (scan paths)
 
@@ -703,38 +607,11 @@ outputs:
   dir: './reports'            # output directory; default: .security-scan/reports
   sub_folders: false          # when true, engine reports go into sub-folders (sonarqube/)
   formats:
-    - 'markdown'              # HTML is always generated; markdown is opt-in
+    - 'markdown'              # HTML is always generated; markdown and docx are opt-in
+    # - 'docx'               # generate DOCX executive report
 ```
 
-The executive HTML report is always generated. Markdown is generated only when `markdown` is included in `formats`.
-
-### `cloud_storage`
-
-Configures automatic report upload to Google Drive after each `fix` or `executive-report` run.
-
-```yaml
-cloud_storage:
-  provider: 'google_drive'    # only google_drive is supported
-  google_drive:
-    folder_id: 'YOUR_FOLDER_ID'    # set by cloud-setup command
-  require_upload: false            # if true, exit 1 when upload fails
-```
-
-Run `security-scan cloud-setup` to authenticate and select the folder interactively.
-
-### `workflow`
-
-Git/PR workflow configuration. CLI flags always override these values.
-
-```yaml
-workflow:
-  create_branch: false              # create a git branch before applying fixes
-  open_pr: false                    # push branch and open a GitHub PR on success
-  branch_prefix: 'fix/security-scan-' # prefix for auto-generated branch names
-  pr_title: ''                      # custom PR title; auto-generated when absent
-```
-
-CLI flags (`--create-branch`, `--open-pr`, `--branch-prefix`, `--pr-title`) take precedence over these values per invocation.
+The executive HTML report is always generated. Markdown and DOCX are generated only when included in `formats`.
 
 ---
 
@@ -949,7 +826,7 @@ Scans `composer.lock` and applies PHP package updates using Composer.
 
 **Default image:** `php:<version>-cli` (e.g. `php:8.2-cli`)
 
-**Platform requirements:** `ignore_platform_reqs: true` is set by default in Docker mode because the container is not the production environment — PHP extension checks against the container's PHP build are irrelevant.
+**Platform requirements:** The CLI automatically ignores irrelevant platform requirements (production-specific PHP extensions) when running inside Docker containers, using granular `--ignore-platform-req` flags per extension. No manual configuration is needed.
 
 ### pip
 
@@ -1005,177 +882,14 @@ With the defaults above:
 
 ---
 
-## Git Branch and PR Workflow
-
-By default, `security-scan fix` mutates the working tree directly (in-place). Use `--create-branch` to wrap the fix in a reviewable git branch.
-
-### Branch Lifecycle
-
-```bash
-security-scan fix --create-branch
-```
-
-1. Detects the current git branch.
-2. Creates a new branch: `fix/security-scan-<ISO-timestamp>` (e.g. `fix/security-scan-2026-05-06T14:30:00.000Z`).
-3. Runs the full fix pipeline on the new branch.
-4. On success: stages all changes and commits with message: `fix: apply safe dependency updates [security-scan]`
-5. On failure: checks out the original branch and deletes the fix branch. No commit is made.
-
-### PR Creation
-
-```bash
-security-scan fix --open-pr
-```
-
-Implies `--create-branch`. After a successful commit:
-
-1. Runs `git push origin <branch>`.
-2. Runs `gh pr create` with an auto-generated title and body.
-
-The PR body includes:
-- Ecosystem summary (which ecosystems were updated)
-- security-scan version attribution
-- `Co-authored with security-scan v<version>`
-
-**Prerequisites:** `gh` CLI installed and authenticated (`gh auth login`).
-
-### Custom Configuration
-
-```bash
-# Custom branch prefix
-security-scan fix --create-branch --branch-prefix deps/security-fix-
-
-# Custom PR title
-security-scan fix --open-pr --pr-title "chore: automated security dependency updates"
-```
-
-Or set in `project-config.yml` (CLI flags always override):
-
-```yaml
-workflow:
-  create_branch: true
-  open_pr: true
-  branch_prefix: 'deps/security-'
-  pr_title: 'chore: security dependency updates'
-```
-
----
-
-## CI/CD Integration
-
-### GitHub Actions — Scan Only
-
-The simplest CI integration: scan on a schedule and on lockfile changes.
-
-```yaml
-# .github/workflows/security-scan.yml
-name: Security scan
-
-on:
-  schedule:
-    - cron: '0 6 * * 1'  # Every Monday at 6am UTC
-  push:
-    paths:
-      - 'composer.lock'
-      - 'package-lock.json'
-      - 'requirements.txt'
-      - 'Pipfile.lock'
-
-jobs:
-  scan:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '26'
-
-      - name: Install security-scan
-        run: npm install -g security-scan
-
-      - name: Run vulnerability scan
-        run: security-scan scan --json --output scan-results.json
-
-      - name: Upload scan results
-        uses: actions/upload-artifact@v4
-        with:
-          name: scan-results
-          path: scan-results.json
-```
-
-### GitHub Actions — Auto-fix with PR
-
-Full automation: scan, fix, and open a PR when vulnerabilities are found.
-
-```yaml
-# .github/workflows/security-fix.yml
-name: Security auto-fix
-
-on:
-  schedule:
-    - cron: '0 6 * * 1'  # Every Monday at 6am UTC
-
-jobs:
-  fix:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '26'
-
-      - name: Install security-scan
-        run: npm install -g security-scan
-
-      - name: Apply safe fixes and open PR
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: security-scan fix --open-pr
-```
-
-### GitHub Actions — Scan Only (Kill-switch)
-
-Use the kill-switch to get the scan result in CI without applying any fixes:
-
-```yaml
-- name: Scan (no fixes)
-  run: SECURITY_SCAN_NO_AUTO_FIX=1 security-scan fix --json --output scan-results.json
-```
-
-### CI exit code handling
-
-security-scan exit codes integrate naturally with CI pipelines:
-
-```bash
-# Fail the pipeline if vulnerabilities are found
-security-scan scan
-echo "Exit code: $?"
-
-# Allow exit 1 (vulnerabilities) but fail on config errors (3)
-security-scan scan || [ $? -le 1 ]
-```
-
----
-
 ## Environment Variables
 
 | Variable | Effect |
 |----------|--------|
 | `SECURITY_SCAN_NO_AUTO_FIX=1` | Skips all automated fixes after the scan phase. The scan still runs and the exit code still reflects vulnerability status. Useful in pipelines where you want the scan result without file mutations. |
 | `NPM_DEFAULT_FIXER` | Overrides the default npm fixer strategy. Valid values: `osv`, `npm-audit`, `osv-then-audit`. Default: `osv-then-audit`. |
-| `CLI_NAME` | Overrides the CLI binary name used in user-visible output and the kill-switch variable name. Default: `security-scan`. When set to `security-scan`, the kill-switch becomes `SECURITY_SCAN_NO_AUTO_FIX`. |
 | `LOG_LEVEL=debug` | Enables debug-level logging for detailed internal output. |
 | `SONAR_TOKEN` | Authentication token for SonarQube in `external` mode. Required when SonarQube is enabled with `mode: external`. |
-| `GOOGLE_CLIENT_ID` | Google OAuth 2.0 client ID. Required for `cloud-setup` and Google Drive upload. |
-| `GOOGLE_CLIENT_SECRET` | Google OAuth 2.0 client secret. Required for `cloud-setup` and Google Drive upload. |
 
 ---
 
@@ -1198,6 +912,69 @@ security-scan scan && echo "Clean!" || echo "Issues found (code $?)"
 
 ---
 
+## What to do after `fix`
+
+After running `security-scan fix`, follow this checklist to make sure everything is correct before merging:
+
+### 1. Review the modified files
+
+```bash
+git diff --stat
+```
+
+Confirm that only lockfiles and expected files were changed (`package-lock.json`, `composer.lock`, `requirements.txt`).
+
+### 2. Review the executive report
+
+Open the generated HTML report (by default in `./reports/`) and check:
+- Which vulnerabilities were resolved
+- Whether any pending vulnerabilities remain (classified as `breaking`)
+- Whether any ecosystem was reverted due to validation failure
+
+### 3. Run your tests locally
+
+After the fix, lockfiles were changed in the current working tree. Run your tests locally to confirm:
+
+```bash
+# npm
+npm ci && npm test
+
+# composer
+composer install && php artisan test
+
+# pip
+pip install -r requirements.txt && pytest
+```
+
+### 4. Validate `composer.lock` in the correct environment
+
+If the project uses Composer, make sure `composer.lock` is consistent with `composer.json`:
+
+```bash
+composer validate
+```
+
+If you see "lock file is not up to date" errors, run `composer update --lock` in the same PHP environment as the project (or inside the Docker container).
+
+### 5. Create a branch and push
+
+```bash
+git checkout -b fix/security-scan-$(date +%Y%m%d)
+git add package-lock.json composer.lock requirements.txt
+git commit -m "fix: apply safe dependency updates [security-scan]"
+git push origin HEAD
+```
+
+### 6. Handle pending vulnerabilities
+
+If the report shows unresolved `breaking` vulnerabilities:
+
+1. **Evaluate each one** — read the reason in the report and decide if the major update is feasible now.
+2. **Authorize if safe** — `security-scan fix --authorize-breaking npm composer`
+3. **Create a ticket** — for major updates that need planning (e.g., Laravel 10→11 migration, React 18→19).
+
+---
+
 ## Troubleshooting
 
 ### "security-scan requires Node.js >=26"
@@ -1207,12 +984,28 @@ security-scan requires Node.js >=26. Detected: v20.x.x
 Please upgrade Node.js and try again.
 ```
 
-Upgrade Node.js to version 26 or later. Use [nvm](https://github.com/nvm-sh/nvm) for easy version management:
+The project includes a `.nvmrc` with the correct version. Run:
 
 ```bash
-nvm install 26
-nvm use 26
+nvm install    # installs the .nvmrc version if not already present
+nvm use        # activates the correct version
 ```
+
+To never forget again, set up nvm's auto-use in your shell. Add to your `~/.zshrc` (or `~/.bashrc`):
+
+```bash
+# Automatically activate .nvmrc version when entering a directory
+autoload -U add-zsh-hook
+load-nvmrc() {
+  if [[ -f .nvmrc && -r .nvmrc ]]; then
+    nvm use
+  fi
+}
+add-zsh-hook chpwd load-nvmrc
+load-nvmrc
+```
+
+Then restart your terminal. From that point on, whenever you enter a directory with `.nvmrc`, the correct version will be activated automatically.
 
 ### "Config file not found"
 
@@ -1290,6 +1083,34 @@ export SONAR_TOKEN=squ_your_new_token
 
 Also remove any `sonar.login` or `sonar.password` lines from `sonar-project.properties` — these are deprecated and sonar-scanner 5+ rejects them.
 
+### `composer.lock` inconsistent between environments
+
+```
+The lock file is not up to date with the latest changes in composer.json
+```
+
+This happens when `composer.lock` was generated in an environment with a different PHP version than the one used in deploy or CI. security-scan runs Composer inside a Docker container with the PHP version configured in `runners.composer.language_version`.
+
+**Solutions:**
+
+1. **Make sure the PHP version is correct in the config:**
+   ```yaml
+   runners:
+     composer:
+       language_version: '8.2'  # should match the production version
+   ```
+
+2. **Regenerate the lockfile in the correct environment:**
+   ```bash
+   # Inside a container with the right PHP version
+   docker run --rm -v $(pwd):/app -w /app php:8.2-cli composer update --lock
+   ```
+
+3. **Validate before committing:**
+   ```bash
+   composer validate
+   ```
+
 ### Breaking vulnerabilities not fixed
 
 This is expected behavior. Vulnerabilities classified as `breaking` require explicit authorization:
@@ -1303,30 +1124,6 @@ Check the scan output for which packages need authorization.
 ### npm audit fix causes validation failure
 
 When using `osv-then-audit` strategy and `npm audit fix` breaks validation, security-scan automatically reverts the `npm audit fix` portion and re-validates against the OSV-only state. If the OSV-only state also fails validation, all npm changes are reverted.
-
-### `gh` CLI not found for PR creation
-
-```
---open-pr requires the GitHub CLI (gh). Install it from https://cli.github.com and run: gh auth login
-```
-
-Install `gh` and authenticate:
-
-```bash
-# macOS
-brew install gh
-
-# Linux
-# See https://github.com/cli/cli/blob/trunk/docs/install_linux.md
-
-gh auth login
-```
-
-### Google Drive upload fails
-
-If `require_upload: false` (default), upload failures are non-fatal — a warning is printed to stderr. If `require_upload: true`, the command exits with code `1`.
-
-Run `security-scan cloud-setup` to re-authenticate if tokens have expired.
 
 ### Validation commands time out
 
@@ -1347,7 +1144,7 @@ ecosystems:
 
 **Q: Does security-scan modify my lockfiles directly?**
 
-Yes. When you run `security-scan fix`, it modifies `package-lock.json`, `composer.lock`, and `requirements.txt` / `Pipfile.lock` inside ephemeral Docker containers. Use `--create-branch` to contain those changes to a reviewable branch, or `--dry-run` to see what would happen without making changes.
+Yes. When you run `security-scan fix`, it modifies `package-lock.json`, `composer.lock`, and `requirements.txt` / `Pipfile.lock` inside ephemeral Docker containers. Use `--dry-run` to see what would happen without making changes.
 
 **Q: What happens if my test suite fails after an update?**
 

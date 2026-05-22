@@ -6,7 +6,7 @@
 security-scan <command> [options]
 ```
 
-All commands require Node ≥ 22 and Docker. See [ADR-0001](./adr/0001-docker-only-runtime.md) for why Docker is required — no local mode is supported for ecosystem CLIs.
+All commands require Docker and Node.js ≥ 26. Use `nvm use` to activate the correct version (the project includes `.nvmrc`). See [ADR-0001](./adr/0001-docker-only-runtime.md) for why Docker is required — no local mode is supported for ecosystem CLIs.
 
 ---
 
@@ -185,19 +185,18 @@ project:
 
 report_language: 'en'       # 'en' | 'pt-br'
 
-runtime:
-  php: '8.1'
-  python: '3.11'            # required when using pip ecosystem
-  node: '20.x'
-  package_manager_php: 'composer'
-  package_manager_js: 'npm'
-  package_manager_python: 'pip'   # pip | pipenv | poetry
-  execution: 'docker'             # docker | local
-  docker_service: 'app'           # docker-compose service name
-  test_command: 'php artisan test --compact'
-  build_commands:
-    frontend: 'npm run build'
-    backend: 'npm run build:backend'
+# Per-ecosystem configuration (at least one required)
+ecosystems:
+  - id: npm
+    fixer: 'osv-then-audit'   # osv | npm-audit | osv-then-audit
+    validationCommands:
+      - name: 'Tests'
+        command: 'npm test'
+        timeout_seconds: 120  # optional; default: 300 (5 min)
+  - id: composer
+    fixer: 'osv'
+  - id: pip
+    fixer: 'osv'
 
 # Packages that must never be updated beyond their stated constraint.
 protected_packages:
@@ -218,32 +217,23 @@ safe_update_policy:
   allow_patch_and_minor_within_constraints: true
   require_authorization_for_constraint_change: true
 
-# Per-ecosystem configuration
-ecosystems:
-  - id: npm
-    fixer: 'osv-then-audit'   # osv | npm-audit | osv-then-audit
-    validationCommands:
-      - name: 'Tests'
-        command: 'npm test'
-        on_failure: 'revert'  # revert | warn | fail
-  - id: composer
-    fixer: 'osv'
-  - id: pip
-    fixer: 'osv'
+conflict_resolution: 'manual'
 
 # Scanner settings
 scanners:
+  primary: 'osv'              # engine id to use as Gate A source (default: 'osv')
   osv:
-    runner: 'docker'          # docker | local (separate seam — see ADR-0001)
+    runner: 'docker'          # docker | local | auto (separate seam — see ADR-0001)
     image: 'ghcr.io/google/osv-scanner:latest'   # optional override
   sonarqube:
     enabled: false            # set true to run SonarQube scan
     on_failure: 'warn'        # warn | fail
 
-# Runner settings (ecosystem container configuration)
+# Runner settings (per-ecosystem Docker container configuration)
 runners:
   npm:
     language_version: '20'    # optional; inferred from .nvmrc / package.json#engines.node
+    image_source: 'pull'      # pull (default) | dockerfile
     # image: 'node:20'        # optional explicit override; resolved from language_version otherwise
     # native_deps:            # OS packages to apt-get install before npm ci runs
     #   - libvips-dev         # required by sharp@0.x on glibc 2.28 images (e.g. node:14)
@@ -265,14 +255,14 @@ outputs:
   dir: './reports'
   sub_folders: false
   formats:
-    - 'markdown'              # HTML is always generated; markdown is opt-in
+    - 'markdown'              # HTML is always generated; markdown and docx are opt-in
+    # - 'docx'               # Generate DOCX executive report
 
 # Cloud storage (optional)
 cloud_storage:
   provider: 'google_drive'
-  google_drive:
-    folder_id: 'YOUR_FOLDER_ID'
-  require_upload: false       # if true, fix exits 1 when upload fails
+  folder_id: 'YOUR_FOLDER_ID'  # set via: security-scan cloud-setup
+  require_upload: false         # if true, fix exits 1 when upload fails
 ```
 
 ---
@@ -312,7 +302,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '26'
       - run: npm install -g security-scan
       - run: security-scan scan --json --output scan-results.json
       - uses: actions/upload-artifact@v4
