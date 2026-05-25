@@ -4,7 +4,7 @@
  * residualVerification, conditionStatusIcon, severityIcon.
  */
 import { describe, it, expect } from 'vitest';
-import { generateExecutiveReport, executiveReportFilename, escapeMdTableCell } from '@reporting/executive';
+import { generateExecutiveReport, executiveReportFilename, escapeMdTableCell, vulnLink } from '@reporting/executive';
 import type { ExecutiveReportOptions } from '@core/types/report';
 import type { ScanResultJson } from '@core/types/scan';
 
@@ -1255,8 +1255,9 @@ describe('generateExecutiveReport() — audit findings pipe escaping and CVE ren
     expect(rowWithBrokenLink).toBeUndefined();
   });
 
-  it('(AC2-b) audit finding with a valid CVE renders a proper osv.dev link', () => {
-    // Covers AC2 scenario 2: cve='CVE-2024-28858' → ghsaId='CVE-2024-28858' → link rendered
+  it('(AC2-b) audit finding with a valid CVE renders plain text (no hyperlink)', () => {
+    // Covers AC2 scenario 2: cve='CVE-2024-28858' → ghsaId='CVE-2024-28858' → plain text (no link)
+    // CVE IDs don't reliably exist in any public database so we display them as plain text only.
     const result = generateExecutiveReport({
       ...baseOpts,
       scanBefore: cleanScanWithComposer,
@@ -1287,14 +1288,18 @@ describe('generateExecutiveReport() — audit findings pipe escaping and CVE ren
 
     expect(typeof result).toBe('string');
 
-    // The CVE must appear in the report
+    // The CVE must appear in the report as plain text
     expect(result).toContain('CVE-2024-28858');
 
-    // The row for this package must contain the CVE-based osv.dev link
+    // The row must contain the CVE as plain text — no NVD link and no osv.dev link
     const rows = result.split('\n').filter((l) => l.startsWith('|') && !l.includes('---') && l.includes('vendor/cve-link-pkg'));
     expect(rows.length).toBeGreaterThanOrEqual(1);
-    const rowWithCveLink = rows.find((r) => r.includes('CVE-2024-28858') && r.includes('osv.dev'));
-    expect(rowWithCveLink).toBeDefined();
+    const rowWithCve = rows.find((r) => r.includes('CVE-2024-28858'));
+    expect(rowWithCve).toBeDefined();
+    const rowWithNvdLink = rows.find((r) => r.includes('CVE-2024-28858') && r.includes('nvd.nist.gov'));
+    expect(rowWithNvdLink).toBeUndefined();
+    const rowWithOsvLink = rows.find((r) => r.includes('CVE-2024-28858') && r.includes('osv.dev'));
+    expect(rowWithOsvLink).toBeUndefined();
   });
 
   it('(AC2-c) audit finding with cve="" (empty string) renders "—" in the link column', () => {
@@ -1494,5 +1499,36 @@ describe('generateExecutiveReport() — audit findings installedVersion field', 
 
     const rowWithRange = rows.find((r) => r.includes('>=3.0.0 <4.0.0'));
     expect(rowWithRange).toBeDefined();
+  });
+});
+
+// ── vulnLink() unit tests ─────────────────────────────────────────────────────
+
+describe('vulnLink()', () => {
+  it('CVE ID → plain text (no hyperlink)', () => {
+    expect(vulnLink('CVE-2026-45068')).toBe('CVE-2026-45068');
+  });
+
+  it('GHSA ID → osv.dev/vulnerability/ URL', () => {
+    expect(vulnLink('GHSA-1234-5678-abcd')).toBe('[GHSA-1234-5678-abcd](https://osv.dev/vulnerability/GHSA-1234-5678-abcd)');
+  });
+
+  it('empty string → "—"', () => {
+    expect(vulnLink('')).toBe('—');
+  });
+
+  it('null-ish (empty via falsy) → "—"', () => {
+    // The function accepts string; callers coerce null/undefined to '' via `|| ''`
+    // but we also verify that an empty-string-coerced call returns dash
+    expect(vulnLink('' as string)).toBe('—');
+  });
+
+  it('unknown prefix → osv.dev/vulnerability/ fallback', () => {
+    expect(vulnLink('PYSEC-2023-1234')).toBe('[PYSEC-2023-1234](https://osv.dev/vulnerability/PYSEC-2023-1234)');
+  });
+
+  it('CVE- prefix matching is case-sensitive (lowercase cve- is treated as unknown)', () => {
+    // 'cve-' does not start with 'CVE-', so it falls back to osv.dev
+    expect(vulnLink('cve-2026-45068')).toBe('[cve-2026-45068](https://osv.dev/vulnerability/cve-2026-45068)');
   });
 });

@@ -74,8 +74,10 @@ function monthName(date: Date): string {
   return date.toLocaleString('en-US', { month: 'long' });
 }
 
-function ghsaLink(id: string): string {
-  return id ? `[${id}](https://osv.dev/${id})` : '—';
+export function vulnLink(id: string): string {
+  if (!id) return '—';
+  if (id.startsWith('CVE-')) return id;
+  return `[${id}](https://osv.dev/vulnerability/${id})`;
 }
 
 function parsePackageName(ref: string): string {
@@ -210,7 +212,7 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
     const residualWarning = residualVerification.status === 'unverified' && residualCount !== null && residualCount > 0;
     return {
       ecoLabel: plugin?.reportLabel ?? v.ecosystem,
-      ghsaLink: ghsaLink(v.ghsaId),
+      ghsaLink: vulnLink(v.ghsaId),
       ghsaId: v.ghsaId,
       cvss: v.cvss,
       package: v.package,
@@ -231,7 +233,7 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
     const plugin = defaultRegistry.findByOsvEcosystem(v.ecosystem) ?? defaultRegistry.get(v.ecosystem);
     return {
       ecoLabel: plugin?.reportLabel ?? v.ecosystem,
-      ghsaLink: ghsaLink(v.ghsaId),
+      ghsaLink: vulnLink(v.ghsaId),
       ghsaId: v.ghsaId,
       cvss: v.cvss,
       package: v.package,
