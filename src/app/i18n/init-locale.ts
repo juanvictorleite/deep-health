@@ -28,6 +28,8 @@ export interface InitLocale {
   // ── Per-ecosystem validation commands ────────────────────────────────────────
   includeValidationCommandPrompt: (pluginName: string, cmdName: string) => string;
   validationCommandValuePrompt: (pluginName: string, cmdName: string) => string;
+  validationScriptsDetectedPrompt: (pluginName: string, count: number) => string;
+  noScriptsDetectedFallback: (pluginName: string) => string;
 
   // ── Per-ecosystem advisors ────────────────────────────────────────────────────
   includeAdvisorPrompt: (pluginName: string, advisorName: string) => string;

@@ -7,6 +7,7 @@ import { writeSonarPropertiesTemplateIfMissing } from './sonar-properties-templa
 import { prompt } from '@infra/utils/prompt';
 import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
 import { detectEcosystems } from '@infra/utils/detect-ecosystems';
+import { detectProjectScripts } from '@infra/utils/detect-scripts';
 import { defaultRegistry } from '@modules/ecosystem/index';
 import { ConfigLoadError } from '@core/errors';
 import { resolveDefaultLocale } from '@core/locale-detect';
@@ -182,24 +183,63 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
 
     // Validation commands
     const validationCommands: Array<{ name: string; command: string }> = [];
+    const detectedScripts = await detectProjectScripts(opts.cwd, id);
+
     if (!opts.nonInteractive) {
-      for (const defaultCmd of plugin.defaultValidationCommands) {
-        const include = await confirmPrompt(
-          t.includeValidationCommandPrompt(plugin.name, defaultCmd.name),
-          true,
+      if (detectedScripts.length > 0) {
+        // Merge detected scripts with any plugin defaults not already covered
+        const detectedNames = new Set(detectedScripts.map((s) => s.name));
+        const uncoveredDefaults = plugin.defaultValidationCommands.filter(
+          (d) => !detectedNames.has(d.name),
         );
-        if (include) {
-          const cmdAnswer = await prompt(
-            t.validationCommandValuePrompt(plugin.name, defaultCmd.name),
-            defaultCmd.command,
+        const allChoices = [
+          ...detectedScripts.map((s) => ({
+            name: `${s.name} (${s.command})`,
+            value: JSON.stringify({ name: s.name, command: s.command }),
+            checked: s.recommended,
+          })),
+          ...uncoveredDefaults.map((d) => ({
+            name: `${d.name} (${d.command})`,
+            value: JSON.stringify({ name: d.name, command: d.command }),
+            checked: true,
+          })),
+        ];
+        const selected = await checkboxPrompt(
+          t.validationScriptsDetectedPrompt(plugin.name, detectedScripts.length),
+          allChoices,
+        );
+        for (const raw of selected) {
+          const parsed = JSON.parse(raw) as { name: string; command: string };
+          validationCommands.push(parsed);
+        }
+      } else {
+        // No scripts detected — fall back to the original confirm-each flow
+        for (const defaultCmd of plugin.defaultValidationCommands) {
+          const include = await confirmPrompt(
+            t.includeValidationCommandPrompt(plugin.name, defaultCmd.name),
+            true,
           );
-          if (cmdAnswer.trim()) {
-            validationCommands.push({ name: defaultCmd.name, command: cmdAnswer.trim() });
+          if (include) {
+            const cmdAnswer = await prompt(
+              t.validationCommandValuePrompt(plugin.name, defaultCmd.name),
+              defaultCmd.command,
+            );
+            if (cmdAnswer.trim()) {
+              validationCommands.push({ name: defaultCmd.name, command: cmdAnswer.trim() });
+            }
           }
         }
       }
     } else {
-      validationCommands.push(...plugin.defaultValidationCommands);
+      // Non-interactive: prefer detected+recommended scripts, else use plugin defaults
+      const recommended = detectedScripts.filter((s) => s.recommended);
+      if (recommended.length > 0) {
+        for (const s of recommended) {
+          validationCommands.push({ name: s.name, command: s.command });
+        }
+      } else {
+        validationCommands.push(...plugin.defaultValidationCommands);
+      }
     }
 
     // Advisors

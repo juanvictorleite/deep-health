@@ -31,12 +31,17 @@ vi.mock('@infra/utils/detect-ecosystems', () => ({
   detectEcosystems: vi.fn(),
 }));
 
+vi.mock('@infra/utils/detect-scripts', () => ({
+  detectProjectScripts: vi.fn(),
+}));
+
 import { writeFile, mkdir, access } from 'node:fs/promises';
 import { generateConfigJson } from '@infra/config/generator';
 import { generateJsonSchema } from '@infra/config/schema-export';
 import { prompt } from '@infra/utils/prompt';
 import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
 import { detectEcosystems } from '@infra/utils/detect-ecosystems';
+import { detectProjectScripts } from '@infra/utils/detect-scripts';
 import { runInitCommand } from '@app/commands/init';
 import { ConfigLoadError } from '@core/errors';
 
@@ -46,6 +51,7 @@ const mockConfirm = vi.mocked(confirmPrompt);
 const mockSelect = vi.mocked(selectPrompt);
 const mockCheckbox = vi.mocked(checkboxPrompt);
 const mockDetectEcosystems = vi.mocked(detectEcosystems);
+const mockDetectProjectScripts = vi.mocked(detectProjectScripts);
 
 // ─── Non-interactive mode ─────────────────────────────────────────────────────
 
@@ -54,6 +60,8 @@ describe('runInitCommand — non-interactive', () => {
     vi.clearAllMocks();
     // Default: no ecosystems detected → fallback to all (preserves pre-detection behavior)
     mockDetectEcosystems.mockResolvedValue(new Set());
+    // Default: no scripts detected → use plugin defaults
+    mockDetectProjectScripts.mockResolvedValue([]);
   });
 
   it('generates declarative config via ecosystemConfigs in non-interactive mode', async () => {
@@ -166,6 +174,8 @@ describe('runInitCommand — interactive version prompts', () => {
     vi.clearAllMocks();
     // Default: no ecosystems detected → nothing pre-selected (checkboxPrompt mock controls selection)
     mockDetectEcosystems.mockResolvedValue(new Set());
+    // Default: no scripts detected → fall back to confirm flow
+    mockDetectProjectScripts.mockResolvedValue([]);
   });
 
   it('shows inferred version as default and uses it when user accepts', async () => {
@@ -333,6 +343,8 @@ describe('runInitCommand — interactive dockerfile image_source prompts', () =>
     vi.clearAllMocks();
     // Default: no ecosystems detected → nothing pre-selected (checkboxPrompt mock controls selection)
     mockDetectEcosystems.mockResolvedValue(new Set());
+    // Default: no scripts detected → fall back to confirm flow
+    mockDetectProjectScripts.mockResolvedValue([]);
   });
 
   it('wires image_source -> dockerfile_path -> build_context -> build_args for npm/pip/composer', async () => {
@@ -425,6 +437,8 @@ describe('runInitCommand — existing file guard', () => {
     mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     // Default: no ecosystems detected → fallback to all
     mockDetectEcosystems.mockResolvedValue(new Set());
+    // Default: no scripts detected → use plugin defaults
+    mockDetectProjectScripts.mockResolvedValue([]);
   });
 
   it('throws ConfigLoadError (exit code 3 semantics) when output file exists and --force is not set', async () => {
@@ -537,6 +551,8 @@ describe('runInitCommand — ecosystem detection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    // Default: no scripts detected → use plugin defaults / confirm flow
+    mockDetectProjectScripts.mockResolvedValue([]);
   });
 
   it('pre-selects only detected ecosystems in the checkbox prompt (interactive)', async () => {
@@ -656,6 +672,8 @@ describe('runInitCommand — SonarQube mode selection', () => {
     vi.clearAllMocks();
     mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     mockDetectEcosystems.mockResolvedValue(new Set());
+    // Default: no scripts detected → use plugin defaults / confirm flow
+    mockDetectProjectScripts.mockResolvedValue([]);
   });
 
   it('prompts for mode when SonarQube is enabled in interactive mode and passes managed to generateConfigJson', async () => {
@@ -827,6 +845,8 @@ describe('runInitCommand — i18n', () => {
     vi.clearAllMocks();
     mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     mockDetectEcosystems.mockResolvedValue(new Set());
+    // Default: no scripts detected → use plugin defaults / confirm flow
+    mockDetectProjectScripts.mockResolvedValue([]);
   });
 
   it('language prompt is the FIRST selectPrompt call (before any ecosystem or project prompts)', async () => {
@@ -1021,6 +1041,8 @@ describe('runInitCommand — schema file write', () => {
     vi.clearAllMocks();
     mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     mockDetectEcosystems.mockResolvedValue(new Set());
+    // Default: no scripts detected → use plugin defaults
+    mockDetectProjectScripts.mockResolvedValue([]);
   });
 
   it('writes the JSON Schema file to .security-scan/config-schema.json during init', async () => {
@@ -1111,5 +1133,329 @@ describe('runInitCommand — schema file write', () => {
     );
     expect(securityScanMkdirCall).toBeDefined();
     expect(securityScanMkdirCall![1]).toEqual({ recursive: true });
+  });
+});
+
+// ─── Script detection flow ────────────────────────────────────────────────────
+
+describe('runInitCommand — script detection flow (interactive)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    mockDetectEcosystems.mockResolvedValue(new Set());
+    // Default: no scripts detected (tests override this as needed)
+    mockDetectProjectScripts.mockResolvedValue([]);
+  });
+
+  it('when scripts are detected, checkboxPrompt is called with detected scripts as choices', async () => {
+    mockDetectProjectScripts.mockImplementation(async (_cwd, ecosystemId) => {
+      if (ecosystemId === 'npm') {
+        return [
+          { name: 'test', command: 'npm test', recommended: true },
+          { name: 'build', command: 'npm run build', recommended: true },
+          { name: 'format', command: 'npm run format', recommended: false },
+        ];
+      }
+      return [];
+    });
+
+    let capturedScriptChoices: Array<{ name: string; value: string; checked: boolean }> = [];
+    let capturedScriptMessage = '';
+
+    // Ecosystem selection → scripts checkbox: two sequential checkboxPrompt calls
+    mockCheckbox
+      .mockImplementationOnce(async () => ['npm']) // first call: ecosystem selection
+      .mockImplementationOnce(async (msg: string, choices: any[]) => {
+        // second call: scripts checkbox
+        capturedScriptMessage = msg;
+        capturedScriptChoices = choices;
+        return choices.filter((c: any) => c.checked).map((c: any) => c.value);
+      });
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
+    mockConfirm.mockImplementation(async (msg: string) => {
+      if (msg.includes('SonarQube')) return false;
+      if (msg.includes('markdown')) return true;
+      return false;
+    });
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Script Detection Project',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    // The script checkbox prompt message should mention the count
+    expect(capturedScriptMessage).toMatch(/Found 3 scripts/);
+    // Choices should include detected scripts
+    const choiceNames = capturedScriptChoices.map((c) => c.name);
+    expect(choiceNames.some((n) => n.includes('test'))).toBe(true);
+    expect(choiceNames.some((n) => n.includes('build'))).toBe(true);
+    expect(choiceNames.some((n) => n.includes('format'))).toBe(true);
+  });
+
+  it('recommended scripts are pre-checked, non-recommended are unchecked', async () => {
+    mockDetectProjectScripts.mockImplementation(async (_cwd, ecosystemId) => {
+      if (ecosystemId === 'npm') {
+        return [
+          { name: 'test', command: 'npm test', recommended: true },
+          { name: 'build', command: 'npm run build', recommended: true },
+          { name: 'format', command: 'npm run format', recommended: false },
+        ];
+      }
+      return [];
+    });
+
+    let capturedChoices: Array<{ name: string; value: string; checked: boolean }> = [];
+    mockCheckbox
+      .mockImplementationOnce(async () => ['npm']) // ecosystem selection
+      .mockImplementationOnce(async (_msg: string, choices: any[]) => {
+        capturedChoices = choices;
+        return choices.filter((c: any) => c.checked).map((c: any) => c.value);
+      });
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
+    mockConfirm.mockImplementation(async (msg: string) => {
+      if (msg.includes('SonarQube')) return false;
+      if (msg.includes('markdown')) return true;
+      return false;
+    });
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Recommended Pre-check Project',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    const testChoice = capturedChoices.find((c) => c.name.includes('test'));
+    const buildChoice = capturedChoices.find((c) => c.name.includes('build'));
+    const formatChoice = capturedChoices.find((c) => c.name.includes('format'));
+
+    expect(testChoice?.checked).toBe(true);
+    expect(buildChoice?.checked).toBe(true);
+    expect(formatChoice?.checked).toBe(false);
+  });
+
+  it('when no scripts detected, falls back to existing confirm-each flow', async () => {
+    // No scripts for any ecosystem
+    mockDetectProjectScripts.mockResolvedValue([]);
+
+    const confirmMessages: string[] = [];
+    mockCheckbox.mockImplementationOnce(async () => ['npm']); // ecosystem selection
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
+    mockConfirm.mockImplementation(async (msg: string) => {
+      confirmMessages.push(msg);
+      if (msg.includes('SonarQube')) return false;
+      if (msg.includes('markdown')) return false;
+      return true; // include validation commands
+    });
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Fallback Confirm Project',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    // The confirm flow should have been used for validation commands
+    expect(confirmMessages.some((m) => m.includes('Include') && m.includes('validation command'))).toBe(true);
+  });
+
+  it('selected scripts appear in the ecosystemConfigs validationCommands', async () => {
+    mockDetectProjectScripts.mockImplementation(async (_cwd, ecosystemId) => {
+      if (ecosystemId === 'npm') {
+        return [
+          { name: 'test', command: 'npm test', recommended: true },
+          { name: 'build', command: 'npm run build', recommended: true },
+        ];
+      }
+      return [];
+    });
+
+    // Return only the test script as selected
+    const testValue = JSON.stringify({ name: 'test', command: 'npm test' });
+    mockCheckbox
+      .mockImplementationOnce(async () => ['npm']) // ecosystem selection
+      .mockImplementationOnce(async () => [testValue]); // scripts selection
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
+    mockConfirm.mockImplementation(async (msg: string) => {
+      if (msg.includes('SonarQube')) return false;
+      if (msg.includes('markdown')) return false;
+      return false;
+    });
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Scripts In Config Project',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
+    const npmEntry = call.ecosystemConfigs?.find((e) => e.id === 'npm');
+    expect(npmEntry?.validationCommands).toEqual([{ name: 'test', command: 'npm test' }]);
+  });
+
+  it('uncovered plugin defaults are appended to the checkbox choices when scripts are detected', async () => {
+    // npm plugin has { name: 'build', command: 'npm run build' } as defaultValidationCommands
+    // Detected scripts include 'test' but not 'build' → 'build' from defaults gets added
+    mockDetectProjectScripts.mockImplementation(async (_cwd, ecosystemId) => {
+      if (ecosystemId === 'npm') {
+        return [
+          { name: 'test', command: 'npm test', recommended: true },
+        ];
+      }
+      return [];
+    });
+
+    let capturedChoices: Array<{ name: string; value: string; checked: boolean }> = [];
+    mockCheckbox
+      .mockImplementationOnce(async () => ['npm']) // ecosystem selection
+      .mockImplementationOnce(async (_msg: string, choices: any[]) => {
+        capturedChoices = choices;
+        return [];
+      });
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
+    mockConfirm.mockImplementation(async (msg: string) => {
+      if (msg.includes('SonarQube')) return false;
+      if (msg.includes('markdown')) return false;
+      return false;
+    });
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Uncovered Defaults Project',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    // Should have 'test' from detected + 'build' from plugin defaults (not covered by detected)
+    const choiceNames = capturedChoices.map((c) => c.name);
+    expect(choiceNames.some((n) => n.includes('test'))).toBe(true);
+    expect(choiceNames.some((n) => n.includes('build'))).toBe(true);
+    // Plugin default 'build' is already in detected? No — detected only has 'test'
+    // So build comes from uncoveredDefaults, pre-checked true
+    const buildChoice = capturedChoices.find((c) => c.name.includes('build'));
+    expect(buildChoice?.checked).toBe(true);
+  });
+});
+
+describe('runInitCommand — script detection flow (non-interactive)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    mockDetectEcosystems.mockResolvedValue(new Set());
+  });
+
+  it('non-interactive mode uses detected+recommended scripts when available', async () => {
+    mockDetectProjectScripts.mockImplementation(async (_cwd, ecosystemId) => {
+      if (ecosystemId === 'npm') {
+        return [
+          { name: 'test', command: 'npm test', recommended: true },
+          { name: 'build', command: 'npm run build', recommended: true },
+          { name: 'format', command: 'npm run format', recommended: false },
+        ];
+      }
+      return [];
+    });
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      projectName: 'Non-interactive Scripts Project',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
+    const npmEntry = call.ecosystemConfigs?.find((e) => e.id === 'npm');
+
+    // Only recommended scripts should be included
+    expect(npmEntry?.validationCommands).toEqual(
+      expect.arrayContaining([
+        { name: 'test', command: 'npm test' },
+        { name: 'build', command: 'npm run build' },
+      ]),
+    );
+    // Non-recommended script 'format' should NOT be included
+    expect(npmEntry?.validationCommands?.some((v) => v.name === 'format')).toBe(false);
+  });
+
+  it('non-interactive mode falls back to plugin defaults when no scripts detected', async () => {
+    // No scripts detected for any ecosystem
+    mockDetectProjectScripts.mockResolvedValue([]);
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      projectName: 'Non-interactive Fallback Project',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
+    const npmEntry = call.ecosystemConfigs?.find((e) => e.id === 'npm');
+
+    // Should fall back to plugin.defaultValidationCommands (npm has 'build')
+    expect(npmEntry?.validationCommands).toEqual(
+      expect.arrayContaining([{ name: 'build', command: 'npm run build' }]),
+    );
+  });
+
+  it('non-interactive mode falls back to plugin defaults when detected scripts have no recommended ones', async () => {
+    mockDetectProjectScripts.mockImplementation(async (_cwd, ecosystemId) => {
+      if (ecosystemId === 'npm') {
+        // All scripts are non-recommended
+        return [
+          { name: 'format', command: 'npm run format', recommended: false },
+          { name: 'docs', command: 'npm run docs', recommended: false },
+        ];
+      }
+      return [];
+    });
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      projectName: 'No Recommended Scripts Project',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
+    const npmEntry = call.ecosystemConfigs?.find((e) => e.id === 'npm');
+
+    // Falls back to plugin defaults since no recommended scripts found
+    expect(npmEntry?.validationCommands).toEqual(
+      expect.arrayContaining([{ name: 'build', command: 'npm run build' }]),
+    );
   });
 });

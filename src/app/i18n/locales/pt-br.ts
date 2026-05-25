@@ -22,6 +22,10 @@ export const ptBr: InitLocale = {
     `  [${pluginName}] Incluir comando de validação "${cmdName}"?`,
   validationCommandValuePrompt: (pluginName, cmdName) =>
     `  [${pluginName}] Comando de validação "${cmdName}"`,
+  validationScriptsDetectedPrompt: (pluginName, count) =>
+    `  [${pluginName}] Encontrados ${count} scripts. Selecione os comandos de validação (Espaço para marcar):`,
+  noScriptsDetectedFallback: (pluginName) =>
+    `  [${pluginName}] Nenhum script detectado, usando padrões.`,
 
   // ── Per-ecosystem advisors ────────────────────────────────────────────────────
   includeAdvisorPrompt: (pluginName, advisorName) =>

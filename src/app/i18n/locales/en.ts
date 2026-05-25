@@ -21,6 +21,10 @@ export const en: InitLocale = {
     `  [${pluginName}] Include "${cmdName}" validation command?`,
   validationCommandValuePrompt: (pluginName, cmdName) =>
     `  [${pluginName}] Validation command "${cmdName}"`,
+  validationScriptsDetectedPrompt: (pluginName, count) =>
+    `  [${pluginName}] Found ${count} scripts. Select validation commands (Space to toggle):`,
+  noScriptsDetectedFallback: (pluginName) =>
+    `  [${pluginName}] No scripts detected, using defaults.`,
 
   // ── Per-ecosystem advisors ────────────────────────────────────────────────────
   includeAdvisorPrompt: (pluginName, advisorName) =>
