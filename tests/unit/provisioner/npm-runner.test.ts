@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { resolveNpmDockerImage, NPM_DEFAULT_IMAGE } from '@infra/provisioner/npm-runner';
 import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
+import { setLogLevel } from '@infra/utils/logger';
 
 vi.mock('node:child_process', () => ({
   execFile: vi.fn(),
@@ -41,11 +42,13 @@ describe('EphemeralEcosystemContainer runStreaming (npm mode)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    setLogLevel('info');
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
 
   afterEach(() => {
     stderrSpy.mockRestore();
+    setLogLevel('error');
   });
 
   it('streams stdout/stderr as info logs and returns captured output', async () => {

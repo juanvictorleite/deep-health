@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { COMPOSER_BOOTSTRAP, isPhpCliImage } from '@infra/provisioner/composer-runner';
 import { COMPOSER_DEFAULT_IMAGE } from '@infra/provisioner/php-profiles';
 import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
+import { setLogLevel } from '@infra/utils/logger';
 
 vi.mock('node:child_process', () => ({
   execFile: vi.fn(),
@@ -45,11 +46,13 @@ describe('EphemeralEcosystemContainer runStreaming (composer mode)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    setLogLevel('info');
     stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
 
   afterEach(() => {
     stderrSpy.mockRestore();
+    setLogLevel('error');
   });
 
   it('streams stdout/stderr and returns captured output', async () => {
