@@ -8,6 +8,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube';
 
+// ─── Mock node:net to avoid real socket binding in findFreePort ──────────────
+
+vi.mock('node:net', () => ({
+  createServer: vi.fn().mockImplementation(function () { return {
+    listen: vi.fn((_port: number, _host: string, cb: () => void) => { cb(); }),
+    address: vi.fn(() => ({ port: 19999 })),
+    close: vi.fn((cb?: (err?: Error) => void) => { cb?.(); }),
+    on: vi.fn(),
+  }; }),
+}));
+
 // ─── Mock execFile (docker commands) ──────────────────────────────────────────
 
 // We mock the entire child_process module so docker is never actually called.

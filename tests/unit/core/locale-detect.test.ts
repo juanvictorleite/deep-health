@@ -87,18 +87,18 @@ describe('detectSystemLocale()', () => {
 
   it('uses Intl fallback when no env var is set', () => {
     clearLocaleEnv();
-    vi.spyOn(Intl, 'DateTimeFormat').mockReturnValue({
+    vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function () { return {
       resolvedOptions: () => ({ locale: 'pt-BR' } as Intl.ResolvedDateTimeFormatOptions),
-    } as Intl.DateTimeFormat);
+    } as Intl.DateTimeFormat; });
     // Intl returns 'pt-BR', normalized → 'pt-br'
     expect(detectSystemLocale()).toBe('pt-br');
   });
 
   it('returns empty string when Intl.locale is empty', () => {
     clearLocaleEnv();
-    vi.spyOn(Intl, 'DateTimeFormat').mockReturnValue({
+    vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function () { return {
       resolvedOptions: () => ({ locale: '' } as Intl.ResolvedDateTimeFormatOptions),
-    } as Intl.DateTimeFormat);
+    } as Intl.DateTimeFormat; });
     expect(detectSystemLocale()).toBe('');
   });
 });

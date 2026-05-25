@@ -1451,14 +1451,17 @@ describe('runComposerUpdater — audit_findings in result (AC6)', () => {
 function baseConfigWithImageSource(imageSource?: 'pull' | 'dockerfile'): ProjectConfig {
   return {
     project: { name: 'test-project', client: 'test-client' },
-    ecosystems: [{ id: 'composer' }],
+    ecosystems: [
+      imageSource !== undefined
+        ? { id: 'composer', runner: { image_source: imageSource } }
+        : { id: 'composer' },
+    ],
     protected_packages: { composer: [], npm: [] },
     safe_update_policy: {
       allow_patch_and_minor_within_constraints: true,
       require_authorization_for_constraint_change: false,
     },
     conflict_resolution: 'fail',
-    runners: imageSource !== undefined ? { composer: { image_source: imageSource } } : undefined,
   };
 }
 
