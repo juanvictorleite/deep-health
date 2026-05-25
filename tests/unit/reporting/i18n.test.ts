@@ -5,81 +5,15 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { getLocale } from '@reporting/i18n/index';
 import { buildLocale } from '@reporting/i18n/loader';
-import type { RawLocale } from '@reporting/i18n/raw-locale';
+import { setLocale } from '@core/i18n';
 
-const rawEn: RawLocale = {
-  months: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
-  pkg_count: {
-    one: '{{vulnCount}} vuln in {{pkgCount}} pkg ({{ecosystem}}){{namesSuffix}}',
-    other: '{{vulnCount}} vulns in {{pkgCount}} pkgs ({{ecosystem}}){{namesSuffix}}',
-  },
-  reason: {
-    no_safe_version: 'No safe version available',
-    major_bump: 'Major bump to {{version}}',
-    major_bump_generic: 'Major bump required',
-    protected_constraint: 'Protected by constraint {{constraint}}',
-  },
-  status: {
-    no_fix: 'No fix',
-    needs_auth: 'Needs auth',
-    pending: 'Pending',
-  },
-  exec: {
-    report_title: 'Security Report',
-    label_client: 'Client',
-    label_project: 'Project',
-    label_period: 'Period',
-    section_task: 'Task',
-    task_title: 'Security Audit',
-    task_description: 'Description',
-    section_resolution: 'Resolution',
-    no_vulns: 'No vulnerabilities',
-    found_and_fixed: 'Found and fixed',
-    pending_intro: 'Pending',
-    table_fixed_header: '| Package |',
-    table_pending_header: '| Package |',
-    section_evidence_before: 'Before',
-    table_before_header: '| Package |',
-    scan_summary: 'Found {{total}} vulns: {{ecoLabels}}',
-    section_evidence_after: 'After',
-    ecosystem_evidence_title: '{{ecoLabel}} — post-fix',
-    table_after_header: '| Package |',
-    scan_after_summary_generic: '{{total}} remaining: {{ecoLabels}}',
-    tests_verified_intro: 'Tests verified',
-    validation_verified: '{{validationLabel}}: {{detail}}',
-    section_summary: 'Summary',
-    all_fixed: 'All fixed',
-    pending_needs_action_intro: 'Needs action',
-    pending_manual: 'Manual',
-    fixed_version: 'Fixed to {{version}}',
-    sonarqube_title: 'SonarQube',
-    sonarqube_quality_gate: 'Quality Gate: {{status}}',
-    sonarqube_conditions: 'Conditions',
-    sonarqube_metrics: 'Metrics',
-    sonarqube_issues_by_file: 'Issues by File',
-    sonarqube_no_issues: 'No issues',
-    sonarqube_issue_count: '{{n}} issues found',
-    sonarqube_skipped: 'Skipped',
-    sonarqube_warning: 'Warning: {{message}}',
-    advisors_title: 'Advisors',
-    advisor_header: 'Advisor: {{name}}',
-    advisor_pass: 'Pass',
-    advisor_fail: 'Fail',
-    advisor_skipped: 'Skipped',
-    advisor_clean: 'Clean',
-    advisor_findings: 'Findings',
-    advisor_error: 'Error',
-    advisor_output: 'Output: {{output}}',
-    advisor_findings_label: 'Findings',
-    advisor_no_findings: 'No findings',
-    advisor_col_ecosystem: 'Ecosystem',
-    advisor_col_advisor: 'Advisor',
-    advisor_col_status: 'Status',
-    advisor_col_findings: 'Findings',
-    label_branch: 'Branch',
-    label_scanners: 'Scanners',
-  },
-};
+beforeEach(() => {
+  setLocale('en');
+});
+
+afterEach(() => {
+  setLocale('en');
+});
 
 describe('getLocale()', () => {
   let savedLang: string | undefined;
@@ -127,112 +61,235 @@ describe('getLocale()', () => {
     const locale = getLocale('pt-br');
     expect(locale).toBeDefined();
   });
+
+  it('returns PT-BR translations for pt-br locale', () => {
+    const locale = getLocale('pt-br');
+    expect(locale.exec.report_title).toBe('Relatório de Segurança');
+    expect(locale.months[0]).toBe('Janeiro');
+  });
+
+  it('returns English text for en locale', () => {
+    const locale = getLocale('en');
+    expect(locale.exec.report_title).toBe('Security Report');
+    expect(locale.months[0]).toBe('January');
+  });
+
+  it('restores previous locale after getLocale() returns', () => {
+    setLocale('en');
+    getLocale('pt-br');
+    // After getLocale, the active locale should be restored to 'en'
+    import('@core/i18n').then(({ getActiveLocale }) => {
+      expect(getActiveLocale()).toBe('en');
+    });
+  });
 });
 
-describe('buildLocale()', () => {
+describe('buildLocale() — English locale', () => {
+  beforeEach(() => {
+    setLocale('en');
+  });
+
   it('returns a Locale with 12 months', () => {
-    const locale = buildLocale(rawEn);
+    const locale = buildLocale();
     expect(locale.months).toHaveLength(12);
   });
 
-  it('pkg_count uses "one" template when pkgCount=1', () => {
-    const locale = buildLocale(rawEn);
-    const result = locale.pkg_count(1, 1, 'npm');
-    expect(result).toContain('1 vuln in 1 pkg');
+  it('months are English names', () => {
+    const locale = buildLocale();
+    expect(locale.months[0]).toBe('January');
+    expect(locale.months[11]).toBe('December');
   });
 
-  it('pkg_count uses "other" template when pkgCount>1', () => {
-    const locale = buildLocale(rawEn);
+  it('pkg_count uses singular template when pkgCount=1', () => {
+    const locale = buildLocale();
+    const result = locale.pkg_count(1, 1, 'npm');
+    expect(result).toContain('1');
+    expect(result).toContain('npm');
+    expect(result).toContain('package');
+    // should NOT contain "packages"
+    expect(result).not.toMatch(/packages[^)]/);
+  });
+
+  it('pkg_count uses plural template when pkgCount>1', () => {
+    const locale = buildLocale();
     const result = locale.pkg_count(3, 2, 'npm');
-    expect(result).toContain('3 vulns in 2 pkgs');
+    expect(result).toContain('3');
+    expect(result).toContain('2');
+    expect(result).toContain('packages');
   });
 
   it('pkg_count appends names suffix when names is provided', () => {
-    const locale = buildLocale(rawEn);
+    const locale = buildLocale();
     const result = locale.pkg_count(1, 1, 'npm', 'lodash');
     expect(result).toContain(': lodash');
   });
 
   it('pkg_count has no suffix when names is omitted', () => {
-    const locale = buildLocale(rawEn);
+    const locale = buildLocale();
     const result = locale.pkg_count(1, 1, 'npm');
-    // namesSuffix should be empty
     expect(result).not.toContain(': ');
   });
 
   it('reason.major_bump interpolates version', () => {
-    const locale = buildLocale(rawEn);
+    const locale = buildLocale();
     expect(locale.reason.major_bump('2.0.0')).toContain('2.0.0');
   });
 
   it('reason.protected_constraint interpolates constraint', () => {
-    const locale = buildLocale(rawEn);
+    const locale = buildLocale();
     expect(locale.reason.protected_constraint('^1.0.0')).toContain('^1.0.0');
   });
 
+  it('reason.no_safe_version is a string', () => {
+    const locale = buildLocale();
+    expect(typeof locale.reason.no_safe_version).toBe('string');
+    expect(locale.reason.no_safe_version).toBe('No upstream fix available');
+  });
+
+  it('reason.major_bump_generic is a string', () => {
+    const locale = buildLocale();
+    expect(typeof locale.reason.major_bump_generic).toBe('string');
+  });
+
+  it('status fields are strings', () => {
+    const locale = buildLocale();
+    expect(locale.status.no_fix).toBe('pending (no fix available)');
+    expect(locale.status.needs_auth).toBe('pending (authorization required)');
+    expect(locale.status.pending).toBe('pending');
+  });
+
   it('exec.scan_summary interpolates total and ecoLabels', () => {
-    const locale = buildLocale(rawEn);
+    const locale = buildLocale();
     const result = locale.exec.scan_summary(5, 'npm, composer');
     expect(result).toContain('5');
     expect(result).toContain('npm, composer');
   });
 
+  it('exec.scan_after_summary_generic interpolates total and ecoLabels', () => {
+    const locale = buildLocale();
+    const result = locale.exec.scan_after_summary_generic(2, 'npm');
+    expect(result).toContain('2');
+    expect(result).toContain('npm');
+  });
+
+  it('exec.ecosystem_evidence_title interpolates ecoLabel', () => {
+    const locale = buildLocale();
+    const result = locale.exec.ecosystem_evidence_title('npm');
+    expect(result).toContain('npm');
+  });
+
   it('exec.fixed_version interpolates version', () => {
-    const locale = buildLocale(rawEn);
+    const locale = buildLocale();
     expect(locale.exec.fixed_version('1.2.3')).toContain('1.2.3');
   });
 
   it('exec.sonarqube_quality_gate interpolates status', () => {
-    const locale = buildLocale(rawEn);
+    const locale = buildLocale();
     expect(locale.exec.sonarqube_quality_gate('OK')).toContain('OK');
   });
 
   it('exec.sonarqube_issue_count interpolates n', () => {
-    const locale = buildLocale(rawEn);
+    const locale = buildLocale();
     expect(locale.exec.sonarqube_issue_count(7)).toContain('7');
   });
 
   it('exec.sonarqube_warning interpolates message', () => {
-    const locale = buildLocale(rawEn);
+    const locale = buildLocale();
     expect(locale.exec.sonarqube_warning('scan failed')).toContain('scan failed');
   });
 
   it('exec.advisor_header interpolates name', () => {
-    const locale = buildLocale(rawEn);
+    const locale = buildLocale();
     expect(locale.exec.advisor_header('npm-audit')).toContain('npm-audit');
   });
 
   it('exec.advisor_output interpolates output', () => {
-    const locale = buildLocale(rawEn);
+    const locale = buildLocale();
     expect(locale.exec.advisor_output('some output')).toContain('some output');
   });
 
   it('exec.validation_verified interpolates label and detail', () => {
-    const locale = buildLocale(rawEn);
+    const locale = buildLocale();
     expect(locale.exec.validation_verified('tests', 'passed')).toContain('tests');
     expect(locale.exec.validation_verified('tests', 'passed')).toContain('passed');
   });
+
+  it('exec.sonarqube_metric_labels contains expected keys', () => {
+    const locale = buildLocale();
+    expect(locale.exec.sonarqube_metric_labels).toBeDefined();
+    expect(locale.exec.sonarqube_metric_labels!['alert_status']).toBe('Quality Gate Status');
+    expect(locale.exec.sonarqube_metric_labels!['bugs']).toBe('Bugs');
+  });
+
+  it('exec static string fields are populated', () => {
+    const locale = buildLocale();
+    expect(locale.exec.report_title).toBe('Security Report');
+    expect(locale.exec.label_client).toBe('Client');
+    expect(locale.exec.label_project).toBe('Project');
+    expect(locale.exec.sonarqube_report_qg_passed).toBe('PASSED');
+    expect(locale.exec.sonarqube_report_qg_failed).toBe('FAILED');
+  });
 });
 
-describe('interp ?? empty string fallback (line 5)', () => {
-  it('substitutes empty string when template variable key is missing from vars', () => {
-    const locale = buildLocale(rawEn);
-    // pkg_count uses interp internally — if namesSuffix has a missing key via a custom raw
-    // Simplest: call a function that calls interp with a missing key.
-    // We can do this by directly calling buildLocale with a raw that has a template
-    // referencing an undefined var key. But buildLocale calls interp with specific vars,
-    // so instead use an existing function and verify the fallback fires gracefully.
-    // The cleanest way: create a minimal raw with a custom template that has an unknown var.
-    const rawWithUnknown = {
-      ...rawEn,
-      pkg_count: {
-        one: '{{vulnCount}} vuln in {{unknownVar}} package',
-        other: '{{vulnCount}} vulns in {{pkgCount}} packages',
-      },
-    };
-    const loc = buildLocale(rawWithUnknown as any);
-    const result = loc.pkg_count(1, 1, 'npm', null);
-    // {{unknownVar}} not in vars → replaced with ''
-    expect(result).toContain('1 vuln in  package');
+describe('buildLocale() — PT-BR locale', () => {
+  beforeEach(() => {
+    setLocale('pt-br');
+  });
+
+  it('returns a Locale with 12 Portuguese month names', () => {
+    const locale = buildLocale();
+    expect(locale.months).toHaveLength(12);
+    expect(locale.months[0]).toBe('Janeiro');
+    expect(locale.months[11]).toBe('Dezembro');
+  });
+
+  it('exec.report_title is translated', () => {
+    const locale = buildLocale();
+    expect(locale.exec.report_title).toBe('Relatório de Segurança');
+  });
+
+  it('reason.no_safe_version is translated', () => {
+    const locale = buildLocale();
+    expect(locale.reason.no_safe_version).toBe('Sem correção disponível upstream');
+  });
+
+  it('status.no_fix is translated', () => {
+    const locale = buildLocale();
+    expect(locale.status.no_fix).toBe('pendente (sem correção disponível)');
+  });
+
+  it('pkg_count singular template is translated', () => {
+    const locale = buildLocale();
+    const result = locale.pkg_count(1, 1, 'npm');
+    expect(result).toContain('pacote');
+  });
+
+  it('pkg_count plural template is translated', () => {
+    const locale = buildLocale();
+    const result = locale.pkg_count(3, 2, 'npm');
+    expect(result).toContain('pacotes');
+  });
+
+  it('exec.fixed_version is translated and interpolates version', () => {
+    const locale = buildLocale();
+    const result = locale.exec.fixed_version('2.0.0');
+    expect(result).toContain('corrigido');
+    expect(result).toContain('2.0.0');
+  });
+
+  it('exec.sonarqube_metric_labels contains translated keys', () => {
+    const locale = buildLocale();
+    expect(locale.exec.sonarqube_metric_labels!['alert_status']).toBe('Status do Quality Gate');
+    expect(locale.exec.sonarqube_metric_labels!['coverage']).toBe('Cobertura');
+  });
+
+  it('exec.sonarqube_report_qg_passed is translated', () => {
+    const locale = buildLocale();
+    expect(locale.exec.sonarqube_report_qg_passed).toBe('APROVADO');
+  });
+
+  it('exec.sonarqube_report_qg_failed is translated', () => {
+    const locale = buildLocale();
+    expect(locale.exec.sonarqube_report_qg_failed).toBe('REPROVADO');
   });
 });

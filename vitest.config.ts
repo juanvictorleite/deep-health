@@ -22,7 +22,6 @@ export default defineConfig({
         'src/modules/scanner/types.ts',
         'src/infrastructure/storage/provider.ts',
         'src/infrastructure/provisioner/types.ts',
-        'src/reporting/i18n/raw-locale.ts',
         'src/reporting/i18n/types.ts',
       ],
       thresholds: {
