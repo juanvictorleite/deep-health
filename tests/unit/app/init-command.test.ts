@@ -833,7 +833,7 @@ describe('runInitCommand — SonarQube mode selection', () => {
     expect(mockSelect).not.toHaveBeenCalled();
   });
 
-  it('mode select choices include descriptions mentioning ephemeral container and existing server', async () => {
+  it('mode select choices have short names and descriptions mentioning ephemeral container and existing server', async () => {
     mockCheckbox.mockResolvedValue(['npm']);
     mockConfirm.mockImplementation(async (msg: string) => {
       if (msg.includes('SonarQube')) return true;
@@ -864,10 +864,13 @@ describe('runInitCommand — SonarQube mode selection', () => {
 
     expect(managedChoice).toBeDefined();
     expect(externalChoice).toBeDefined();
-    // managed choice should mention ephemeral container
-    expect(managedChoice?.name).toMatch(/ephemeral|container/i);
-    // external choice should mention existing server or better performance
-    expect(externalChoice?.name).toMatch(/existing|performance/i);
+    // managed choice description should mention ephemeral container
+    expect(managedChoice?.description).toMatch(/ephemeral|container/i);
+    // external choice description should mention existing server or better performance
+    expect(externalChoice?.description).toMatch(/existing|performance/i);
+    // names are now short labels (not full descriptions)
+    expect(managedChoice?.name).toMatch(/Managed/i);
+    expect(externalChoice?.name).toMatch(/External/i);
   });
 });
 
@@ -1232,7 +1235,7 @@ describe('runInitCommand — script detection flow (interactive)', () => {
     expect(choiceNames.some((n) => n.includes('format'))).toBe(true);
   });
 
-  it('recommended scripts are pre-checked, non-recommended are unchecked', async () => {
+  it('recommended scripts are pre-checked except test-matching ones, non-recommended are unchecked', async () => {
     mockDetectProjectScripts.mockImplementation(async (_cwd, ecosystemId) => {
       if (ecosystemId === 'npm') {
         return [
@@ -1270,12 +1273,17 @@ describe('runInitCommand — script detection flow (interactive)', () => {
       output: 'security-scan.config.json',
     });
 
-    const testChoice = capturedChoices.find((c) => c.name.includes('test'));
-    const buildChoice = capturedChoices.find((c) => c.name.includes('build'));
-    const formatChoice = capturedChoices.find((c) => c.name.includes('format'));
+    // Skip the first 'None' sentinel choice when finding script choices
+    const scriptChoices = capturedChoices.filter((c) => c.value !== '__none__');
+    const testChoice = scriptChoices.find((c) => c.name.includes('test'));
+    const buildChoice = scriptChoices.find((c) => c.name.includes('build'));
+    const formatChoice = scriptChoices.find((c) => c.name.includes('format'));
 
-    expect(testChoice?.checked).toBe(true);
+    // test scripts are NOT pre-checked even though recommended=true
+    expect(testChoice?.checked).toBe(false);
+    // build is recommended and not test-matching → pre-checked
     expect(buildChoice?.checked).toBe(true);
+    // format is not recommended → not pre-checked
     expect(formatChoice?.checked).toBe(false);
   });
 
@@ -1388,13 +1396,291 @@ describe('runInitCommand — script detection flow (interactive)', () => {
     });
 
     // Should have 'test' from detected + 'build' from plugin defaults (not covered by detected)
-    const choiceNames = capturedChoices.map((c) => c.name);
+    const scriptChoices = capturedChoices.filter((c) => c.value !== '__none__');
+    const choiceNames = scriptChoices.map((c) => c.name);
     expect(choiceNames.some((n) => n.includes('test'))).toBe(true);
     expect(choiceNames.some((n) => n.includes('build'))).toBe(true);
     // Plugin default 'build' is already in detected? No — detected only has 'test'
     // So build comes from uncoveredDefaults, pre-checked true
-    const buildChoice = capturedChoices.find((c) => c.name.includes('build'));
+    const buildChoice = scriptChoices.find((c) => c.name.includes('build'));
     expect(buildChoice?.checked).toBe(true);
+  });
+
+  it('script choices are sorted alphabetically by name (case-insensitive)', async () => {
+    mockDetectProjectScripts.mockImplementation(async (_cwd, ecosystemId) => {
+      if (ecosystemId === 'npm') {
+        return [
+          { name: 'test', command: 'npm test', recommended: true },
+          { name: 'build', command: 'npm run build', recommended: true },
+          { name: 'lint', command: 'npm run lint', recommended: true },
+          { name: 'format', command: 'npm run format', recommended: false },
+        ];
+      }
+      return [];
+    });
+
+    let capturedChoices: Array<{ name: string; value: string; checked: boolean }> = [];
+    mockCheckbox
+      .mockImplementationOnce(async () => ['npm'])
+      .mockImplementationOnce(async (_msg: string, choices: any[]) => {
+        capturedChoices = choices;
+        return [];
+      });
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
+    mockConfirm.mockImplementation(async (msg: string) => {
+      if (msg.includes('SonarQube')) return false;
+      if (msg.includes('markdown')) return false;
+      return false;
+    });
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Sorted Scripts Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    // First choice is the 'None' sentinel, then scripts in alphabetical order
+    expect(capturedChoices[0]!.value).toBe('__none__');
+    const scriptChoices = capturedChoices.slice(1);
+    const scriptNames = scriptChoices.map((c) => {
+      // Extract script name from "name (command)" format
+      return c.name.split(' (')[0]!;
+    });
+    const sortedNames = [...scriptNames].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+    expect(scriptNames).toEqual(sortedNames);
+  });
+
+  it('test-matching scripts are NOT pre-checked (AC4)', async () => {
+    mockDetectProjectScripts.mockImplementation(async (_cwd, ecosystemId) => {
+      if (ecosystemId === 'npm') {
+        return [
+          { name: 'test', command: 'npm test', recommended: true },
+          { name: 'test:unit', command: 'npm run test:unit', recommended: true },
+          { name: 'test:e2e', command: 'npm run test:e2e', recommended: true },
+          { name: 'lint', command: 'npm run lint', recommended: true },
+          { name: 'build', command: 'npm run build', recommended: true },
+        ];
+      }
+      return [];
+    });
+
+    let capturedChoices: Array<{ name: string; value: string; checked: boolean }> = [];
+    mockCheckbox
+      .mockImplementationOnce(async () => ['npm'])
+      .mockImplementationOnce(async (_msg: string, choices: any[]) => {
+        capturedChoices = choices;
+        return [];
+      });
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
+    mockConfirm.mockResolvedValue(false);
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Test Not Pre-checked Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const scriptChoices = capturedChoices.filter((c) => c.value !== '__none__');
+    const testChoice = scriptChoices.find((c) => c.name.startsWith('test '));
+    const testUnitChoice = scriptChoices.find((c) => c.name.startsWith('test:unit'));
+    const testE2eChoice = scriptChoices.find((c) => c.name.startsWith('test:e2e'));
+    const lintChoice = scriptChoices.find((c) => c.name.startsWith('lint'));
+    const buildChoice = scriptChoices.find((c) => c.name.startsWith('build'));
+
+    // test-matching scripts are NOT pre-checked
+    expect(testChoice?.checked).toBe(false);
+    expect(testUnitChoice?.checked).toBe(false);
+    expect(testE2eChoice?.checked).toBe(false);
+    // non-test recommended scripts remain pre-checked
+    expect(lintChoice?.checked).toBe(true);
+    expect(buildChoice?.checked).toBe(true);
+  });
+
+  it("'None' option is the FIRST choice in the scripts checkbox (AC5)", async () => {
+    mockDetectProjectScripts.mockImplementation(async (_cwd, ecosystemId) => {
+      if (ecosystemId === 'npm') {
+        return [
+          { name: 'build', command: 'npm run build', recommended: true },
+        ];
+      }
+      return [];
+    });
+
+    let capturedChoices: Array<{ name: string; value: string; checked: boolean }> = [];
+    mockCheckbox
+      .mockImplementationOnce(async () => ['npm'])
+      .mockImplementationOnce(async (_msg: string, choices: any[]) => {
+        capturedChoices = choices;
+        return [];
+      });
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
+    mockConfirm.mockResolvedValue(false);
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'None First Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    expect(capturedChoices[0]!.value).toBe('__none__');
+    expect(capturedChoices[0]!.name).toMatch(/None|Nenhum/i);
+    expect(capturedChoices[0]!.checked).toBe(false);
+  });
+
+  it("selecting only '__none__' yields empty validationCommands (AC5)", async () => {
+    mockDetectProjectScripts.mockImplementation(async (_cwd, ecosystemId) => {
+      if (ecosystemId === 'npm') {
+        return [
+          { name: 'build', command: 'npm run build', recommended: true },
+        ];
+      }
+      return [];
+    });
+
+    mockCheckbox
+      .mockImplementationOnce(async () => ['npm'])
+      .mockImplementationOnce(async () => ['__none__']); // user picks only None
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
+    mockConfirm.mockResolvedValue(false);
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'None Selected Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
+    const npmEntry = call.ecosystemConfigs?.find((e) => e.id === 'npm');
+    expect(npmEntry?.validationCommands).toEqual([]);
+  });
+
+  it('selecting nothing (empty array) yields empty validationCommands (AC5)', async () => {
+    mockDetectProjectScripts.mockImplementation(async (_cwd, ecosystemId) => {
+      if (ecosystemId === 'npm') {
+        return [
+          { name: 'build', command: 'npm run build', recommended: true },
+        ];
+      }
+      return [];
+    });
+
+    mockCheckbox
+      .mockImplementationOnce(async () => ['npm'])
+      .mockImplementationOnce(async () => []); // user selects nothing
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
+    mockConfirm.mockResolvedValue(false);
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Empty Selection Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
+    const npmEntry = call.ecosystemConfigs?.find((e) => e.id === 'npm');
+    expect(npmEntry?.validationCommands).toEqual([]);
+  });
+});
+
+describe('runInitCommand — description fields on prompt choices (AC1/AC2)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    mockDetectEcosystems.mockResolvedValue(new Set());
+    mockDetectProjectScripts.mockResolvedValue([]);
+  });
+
+  it('build mode select choices have description fields', async () => {
+    mockCheckbox.mockResolvedValue(['npm']);
+    const capturedBuildChoices: any[] = [];
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      if (msg.includes('Image mode') || msg.includes('Modo de imagem')) {
+        capturedBuildChoices.push(...choices);
+        return 'build';
+      }
+      return choices[0].value;
+    });
+    mockConfirm.mockResolvedValue(false);
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Build Descriptions Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    expect(capturedBuildChoices.length).toBeGreaterThanOrEqual(2);
+    const buildChoice = capturedBuildChoices.find((c: any) => c.value === 'build');
+    const pullChoice = capturedBuildChoices.find((c: any) => c.value === 'pull');
+    expect(buildChoice?.description).toBeTruthy();
+    expect(pullChoice?.description).toBeTruthy();
+  });
+
+  it("'None' sentinel choice in script checkbox has a description field", async () => {
+    mockDetectProjectScripts.mockImplementation(async (_cwd, ecosystemId) => {
+      if (ecosystemId === 'npm') {
+        return [{ name: 'build', command: 'npm run build', recommended: true }];
+      }
+      return [];
+    });
+
+    let capturedChoices: any[] = [];
+    mockCheckbox
+      .mockImplementationOnce(async () => ['npm'])
+      .mockImplementationOnce(async (_msg: string, choices: any[]) => {
+        capturedChoices = choices;
+        return [];
+      });
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
+    mockConfirm.mockResolvedValue(false);
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'None Desc Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const noneChoice = capturedChoices.find((c: any) => c.value === '__none__');
+    expect(noneChoice?.description).toBeTruthy();
   });
 });
 

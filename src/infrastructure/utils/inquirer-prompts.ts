@@ -12,7 +12,7 @@ export async function confirmPrompt(message: string, defaultValue = false): Prom
 
 export async function selectPrompt<T extends string>(
   message: string,
-  choices: Array<{ name: string; value: T }>,
+  choices: Array<{ name: string; value: T; description?: string }>,
   defaultValue?: T,
 ): Promise<T> {
   return select<T>({ message, choices, default: defaultValue });
@@ -20,7 +20,7 @@ export async function selectPrompt<T extends string>(
 
 export async function checkboxPrompt<T extends string>(
   message: string,
-  choices: Array<{ name: string; value: T; checked?: boolean }>,
+  choices: Array<{ name: string; value: T; checked?: boolean; description?: string }>,
 ): Promise<T[]> {
   return checkbox<T>({ message, choices });
 }

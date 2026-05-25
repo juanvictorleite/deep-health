@@ -12,7 +12,7 @@ import { defaultRegistry } from '@modules/ecosystem/index';
 import { ConfigLoadError } from '@core/errors';
 import { resolveDefaultLocale } from '@core/locale-detect';
 import { CLI_NAME, DEFAULT_AUDIT_SUBDIR, DEFAULT_REPORTS_SUBDIR } from '@infra/brand';
-import { getInitLocale, type InitLocale } from '@app/i18n/init-locale';
+import { __, setLocale } from '@core/i18n';
 
 export interface InitCommandOptions {
   projectName?: string;
@@ -44,9 +44,8 @@ interface CollectRunnerConfigOpts {
   pluginName: string;
   nonInteractive: boolean | undefined;
   inferredVersion: string | undefined;
-  t: InitLocale;
-  versionPromptWithInferred: (pluginName: string, inferred: string) => string;
-  versionPromptBlank: (pluginName: string) => string;
+  versionPromptWithInferred: string;
+  versionPromptBlank: string;
 }
 
 /**
@@ -56,14 +55,12 @@ interface CollectRunnerConfigOpts {
  * attach it to the ecosystem entry.
  */
 async function collectRunnerConfig(opts: CollectRunnerConfigOpts): Promise<EcosystemRunnerConfig> {
-  const { pluginName, nonInteractive, inferredVersion, t, versionPromptWithInferred, versionPromptBlank } = opts;
+  const { pluginName, nonInteractive, inferredVersion, versionPromptWithInferred, versionPromptBlank } = opts;
   const runnerData: EcosystemRunnerConfig = {};
 
   if (!nonInteractive) {
     const versionDefault = inferredVersion ?? '';
-    const versionPromptMsg = inferredVersion
-      ? versionPromptWithInferred(pluginName, inferredVersion)
-      : versionPromptBlank(pluginName);
+    const versionPromptMsg = inferredVersion ? versionPromptWithInferred : versionPromptBlank;
     const versionAnswer = await prompt(versionPromptMsg, versionDefault);
     const resolvedVersion = versionAnswer.trim() || undefined;
     if (resolvedVersion) runnerData.language_version = resolvedVersion;
@@ -73,18 +70,18 @@ async function collectRunnerConfig(opts: CollectRunnerConfigOpts): Promise<Ecosy
 
   if (!nonInteractive) {
     const buildMode = await selectPrompt(
-      t.buildModePrompt(pluginName),
+      __('  [{{plugin}}] Image mode', { plugin: pluginName }),
       [
-        { name: t.buildModeBuild, value: 'build' as const },
-        { name: t.buildModePull, value: 'pull' as const },
+        { name: __('build (recommended)'), value: 'build' as const, description: __('Builds from your project Dockerfile with all tools pre-installed') },
+        { name: __('pull'), value: 'pull' as const, description: __('Uses a standard registry image (may lack project-specific tools)') },
       ],
       'build',
     );
     if (buildMode === 'build') {
-      const dfPath = await prompt(t.buildDockerfilePrompt(pluginName), 'Dockerfile');
-      const ctxAnswer = await prompt(t.buildContextPrompt(pluginName), '');
-      const targetAnswer = await prompt(t.buildTargetPrompt(pluginName), '');
-      const buildArgsAnswer = await prompt(t.buildArgsPrompt(pluginName), '');
+      const dfPath = await prompt(__('  [{{plugin}}] Dockerfile path', { plugin: pluginName }), 'Dockerfile');
+      const ctxAnswer = await prompt(__("  [{{plugin}}] Build context (blank for '.')", { plugin: pluginName }), '');
+      const targetAnswer = await prompt(__('  [{{plugin}}] Build target stage (blank to skip)', { plugin: pluginName }), '');
+      const buildArgsAnswer = await prompt(__('  [{{plugin}}] Build args (KEY=VALUE comma-separated, blank to skip)', { plugin: pluginName }), '');
       const parsedArgs = parseBuildArgs(buildArgsAnswer);
 
       const buildConfig: NonNullable<EcosystemRunnerConfig['build']> = {
@@ -145,13 +142,13 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     );
   }
 
-  // Load the locale object for all subsequent prompts and messages
-  const t = getInitLocale(reportLanguage);
+  // Set the active locale so all __() calls below return the right language
+  setLocale(reportLanguage);
 
   // ─── Project name and client ──────────────────────────────────────────────────
 
-  const projectName = opts.projectName ?? await prompt(t.projectNamePrompt, 'Project');
-  const client = opts.client ?? await prompt(t.clientNamePrompt, 'Client Name');
+  const projectName = opts.projectName ?? await prompt(__('Project name'), 'Project');
+  const client = opts.client ?? await prompt(__('Client name'), 'Client Name');
 
   // ─── Ecosystem selection (registry-driven) ───────────────────────────────────
 
@@ -166,7 +163,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       : allPlugins.map((p) => p.id);
   } else {
     selectedEcosystemIds = await checkboxPrompt(
-      t.ecosystemSelectPrompt,
+      __('Select ecosystems to configure (Space to toggle, Enter to confirm)'),
       allPlugins.map((p) => ({ name: `${p.name} (${p.id})`, value: p.id, checked: detectedIds.has(p.id) })),
     );
   }
@@ -175,14 +172,25 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
 
   const ecosystemConfigs: GenerateConfigOptions['ecosystemConfigs'] = [];
 
+  // Fixer strategy descriptions (looked up by fixer ID)
+  const fixerDescriptions: Record<string, string> = {
+    osv: __('Uses the OSV database to find and apply fixes for known vulnerabilities'),
+    'npm-audit': __('Runs npm audit fix to resolve vulnerabilities reported by the npm registry'),
+    'osv-then-audit': __('Tries OSV first, then falls back to npm audit fix if needed'),
+  };
+
   for (const id of selectedEcosystemIds) {
     const plugin = defaultRegistry.get(id)!;
 
     let fixerStrategy: string | undefined;
     if (plugin.supportedFixers.length > 0 && !opts.nonInteractive) {
       fixerStrategy = await selectPrompt(
-        t.fixerStrategyPrompt(plugin.name),
-        plugin.supportedFixers.map((f) => ({ name: f, value: f })),
+        __('  [{{plugin}}] Fixer strategy', { plugin: plugin.name }),
+        plugin.supportedFixers.map((f) => ({
+          name: f,
+          value: f,
+          description: fixerDescriptions[f],
+        })),
       );
     } else if (plugin.supportedFixers.length > 0) {
       fixerStrategy = plugin.supportedFixers[0];
@@ -192,6 +200,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     const validationCommands: Array<{ name: string; command: string }> = [];
     const detectedScripts = await detectProjectScripts(opts.cwd, id);
 
+    const NONE_SENTINEL = '__none__';
     if (!opts.nonInteractive) {
       if (detectedScripts.length > 0) {
         // Merge detected scripts with any plugin defaults not already covered
@@ -199,36 +208,63 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
         const uncoveredDefaults = plugin.defaultValidationCommands.filter(
           (d) => !detectedNames.has(d.name),
         );
-        const allChoices = [
-          ...detectedScripts.map((s) => ({
+
+        // Sort all script entries alphabetically (case-insensitive) by name
+        const detectedSorted = [...detectedScripts].sort((a, b) =>
+          a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
+        );
+        const uncoveredSorted = [...uncoveredDefaults].sort((a, b) =>
+          a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
+        );
+
+        const scriptChoices = [
+          ...detectedSorted.map((s) => ({
             name: `${s.name} (${s.command})`,
             value: JSON.stringify({ name: s.name, command: s.command }),
-            checked: s.recommended,
+            // Scripts matching 'test' are NOT pre-checked regardless of recommended flag
+            checked: s.recommended && !s.name.toLowerCase().includes('test'),
           })),
-          ...uncoveredDefaults.map((d) => ({
+          ...uncoveredSorted.map((d) => ({
             name: `${d.name} (${d.command})`,
             value: JSON.stringify({ name: d.name, command: d.command }),
-            checked: true,
+            // Uncovered defaults: follow same rule — not pre-checked if name includes 'test'
+            checked: !d.name.toLowerCase().includes('test'),
           })),
         ];
+
+        // 'None' sentinel is the FIRST choice, never pre-checked
+        const allChoices = [
+          {
+            name: __('None — skip validation'),
+            value: NONE_SENTINEL,
+            checked: false,
+            description: __('Do not run any validation commands after fixing'),
+          },
+          ...scriptChoices,
+        ];
+
         const selected = await checkboxPrompt(
-          t.validationScriptsDetectedPrompt(plugin.name, detectedScripts.length),
+          __('  [{{plugin}}] Found {{count}} scripts. Select validation commands (Space to toggle):', { plugin: plugin.name, count: detectedScripts.length }),
           allChoices,
         );
-        for (const raw of selected) {
-          const parsed = JSON.parse(raw) as { name: string; command: string };
-          validationCommands.push(parsed);
+
+        // If '__none__' selected (or nothing selected), skip validation entirely
+        if (!selected.includes(NONE_SENTINEL) && selected.length > 0) {
+          for (const raw of selected) {
+            const parsed = JSON.parse(raw) as { name: string; command: string };
+            validationCommands.push(parsed);
+          }
         }
       } else {
         // No scripts detected — fall back to the original confirm-each flow
         for (const defaultCmd of plugin.defaultValidationCommands) {
           const include = await confirmPrompt(
-            t.includeValidationCommandPrompt(plugin.name, defaultCmd.name),
+            __('  [{{plugin}}] Include "{{cmdName}}" validation command?', { plugin: plugin.name, cmdName: defaultCmd.name }),
             true,
           );
           if (include) {
             const cmdAnswer = await prompt(
-              t.validationCommandValuePrompt(plugin.name, defaultCmd.name),
+              __('  [{{plugin}}] Validation command "{{cmdName}}"', { plugin: plugin.name, cmdName: defaultCmd.name }),
               defaultCmd.command,
             );
             if (cmdAnswer.trim()) {
@@ -254,12 +290,12 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     if (!opts.nonInteractive) {
       for (const defaultAdvisor of plugin.defaultAdvisors) {
         const include = await confirmPrompt(
-          t.includeAdvisorPrompt(plugin.name, defaultAdvisor.name),
+          __('  [{{plugin}}] Include "{{advisorName}}" advisor?', { plugin: plugin.name, advisorName: defaultAdvisor.name }),
           true,
         );
         if (include) {
           const advisorAnswer = await prompt(
-            t.advisorCommandPrompt(plugin.name, defaultAdvisor.name),
+            __('  [{{plugin}}] Advisor "{{advisorName}}" command', { plugin: plugin.name, advisorName: defaultAdvisor.name }),
             defaultAdvisor.command,
           );
           if (advisorAnswer.trim()) {
@@ -278,12 +314,21 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
 
     // Build per-ecosystem runner object
     const ecosystemVersionPrompts: Record<string, {
-      withInferred: (pluginName: string, inferred: string) => string;
-      blank: (pluginName: string) => string;
+      withInferred: string;
+      blank: string;
     }> = {
-      npm: { withInferred: t.languageVersionPromptWithInferred, blank: t.languageVersionPromptBlank },
-      composer: { withInferred: t.phpVersionPromptWithInferred, blank: t.phpVersionPromptBlank },
-      pip: { withInferred: t.pythonVersionPromptWithInferred, blank: t.pythonVersionPromptBlank },
+      npm: {
+        withInferred: __('  [{{plugin}}] Language version (inferred: {{inferred}}, blank to use detected)', { plugin: plugin.name, inferred: inferredVersion ?? '' }),
+        blank: __('  [{{plugin}}] Language version (blank to skip)', { plugin: plugin.name }),
+      },
+      composer: {
+        withInferred: __('  [{{plugin}}] PHP language version (inferred: {{inferred}}, blank to use detected)', { plugin: plugin.name, inferred: inferredVersion ?? '' }),
+        blank: __('  [{{plugin}}] PHP language version (blank to skip)', { plugin: plugin.name }),
+      },
+      pip: {
+        withInferred: __('  [{{plugin}}] Python language version (inferred: {{inferred}}, blank to use detected)', { plugin: plugin.name, inferred: inferredVersion ?? '' }),
+        blank: __('  [{{plugin}}] Python language version (blank to skip)', { plugin: plugin.name }),
+      },
     };
 
     const versionPrompts = ecosystemVersionPrompts[id];
@@ -292,7 +337,6 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
           pluginName: plugin.name,
           nonInteractive: opts.nonInteractive,
           inferredVersion,
-          t,
           versionPromptWithInferred: versionPrompts.withInferred,
           versionPromptBlank: versionPrompts.blank,
         })
@@ -314,18 +358,20 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   let enableSonarQube = false;
   let sonarQubeMode: 'managed' | 'external' = 'managed';
   if (!opts.nonInteractive) {
-    enableSonarQube = await confirmPrompt(t.enableSonarQubePrompt, false);
+    enableSonarQube = await confirmPrompt(__('Enable SonarQube scanner?'), false);
     if (enableSonarQube) {
       sonarQubeMode = await selectPrompt<'managed' | 'external'>(
-        t.sonarQubeModePrompt,
+        __('SonarQube mode'),
         [
           {
-            name: t.sonarQubeModeManaged,
+            name: __('Managed (recommended)'),
             value: 'managed',
+            description: __('Provisions an ephemeral SonarQube container via Docker, no server setup needed'),
           },
           {
-            name: t.sonarQubeModeExternal,
+            name: __('External'),
             value: 'external',
+            description: __('Connects to an existing SonarQube server (better performance, no container overhead)'),
           },
         ],
         'managed',
@@ -339,10 +385,10 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   let enableMarkdown = true;
 
   if (!opts.nonInteractive) {
-    enableMarkdown = await confirmPrompt(t.generateMarkdownPrompt, true);
+    enableMarkdown = await confirmPrompt(__('Generate markdown reports?'), true);
 
     if (enableMarkdown) {
-      const dirAnswer = await prompt(t.reportsOutputDirPrompt, DEFAULT_REPORTS_SUBDIR);
+      const dirAnswer = await prompt(__('Reports output directory'), DEFAULT_REPORTS_SUBDIR);
       outputsDir = dirAnswer.trim() || DEFAULT_REPORTS_SUBDIR;
     }
   } else {
@@ -367,7 +413,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
 
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, json, 'utf-8');
-  process.stdout.write(t.createdFile(outputPath));
+  process.stdout.write(__('Created: {{path}}\n', { path: outputPath }));
 
   // Write the JSON Schema file so IDEs can provide autocomplete and validation.
   const schemaDir = resolve(opts.cwd, DEFAULT_AUDIT_SUBDIR);
@@ -375,7 +421,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   await mkdir(schemaDir, { recursive: true });
   const schema = generateJsonSchema();
   await writeFile(schemaOutputPath, JSON.stringify(schema, null, 2), 'utf-8');
-  process.stdout.write(t.createdFile(schemaOutputPath));
+  process.stdout.write(__('Created: {{path}}\n', { path: schemaOutputPath }));
 
   // When SonarQube is enabled, make sure the project has a sonar-project.properties.
   // That file is SonarQube's convention for project-level analysis config (sources,
@@ -388,20 +434,20 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     });
     if (status === 'created') {
       sonarPropsCreated = true;
-      process.stdout.write(t.createdFile(resolve(opts.cwd, 'sonar-project.properties')));
+      process.stdout.write(__('Created: {{path}}\n', { path: resolve(opts.cwd, 'sonar-project.properties') }));
     } else {
-      process.stdout.write(t.foundExistingSonarProps);
+      process.stdout.write(__('Found existing sonar-project.properties (not overwritten)\n'));
     }
   }
 
-  process.stdout.write(t.nextStepsHeader);
-  process.stdout.write(t.nextStepEditConfig(outputPath));
-  process.stdout.write(t.nextStepReviewProtectedPackages);
+  process.stdout.write(__('\nNext steps:\n'));
+  process.stdout.write(__('  1. Edit {{path}} to match your project\n', { path: outputPath }));
+  process.stdout.write(__('  2. Review protected_packages — add any packages that must not be auto-upgraded\n'));
   if (sonarPropsCreated) {
-    process.stdout.write(t.nextStepReviewSonarProps);
-    process.stdout.write(t.nextStepRunScanStep4(CLI_NAME));
+    process.stdout.write(__('  3. Review sonar-project.properties — adjust sonar.sources and sonar.exclusions for your layout\n'));
+    process.stdout.write(__('  4. Run: {{cliName}} scan --cwd <your-project-dir>\n', { cliName: CLI_NAME }));
   } else {
-    process.stdout.write(t.nextStepRunScanStep3(CLI_NAME));
+    process.stdout.write(__('  3. Run: {{cliName}} scan --cwd <your-project-dir>\n', { cliName: CLI_NAME }));
   }
-  process.stdout.write(t.nextStepConfigNote);
+  process.stdout.write(__('     (config will be loaded from project-config.yml at project root by default)\n'));
 }
