@@ -7,7 +7,6 @@ export default defineConfig({
   },
   test: {
     globals: true,
-    silent: true,
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
@@ -33,7 +32,7 @@ export default defineConfig({
         branches: 88,
       },
     },
-    reporters: ['vitest-llm-reporter'],
+    reporters: ['default'],
     // Named projects for targeted runs: npm run test:unit, npm run test:integration, npm run test:smoke
     // vitest 4 inline-project mode supports `--project <name>` CLI filtering.
     projects: [
@@ -43,7 +42,10 @@ export default defineConfig({
           name: 'unit',
           include: ['tests/unit/**/*.test.ts'],
           globals: true,
-          setupFiles: ['tests/helpers/silence-logger.ts', 'tests/helpers/silence-stdout.ts'],
+          setupFiles: [
+            'tests/helpers/silence-logger.ts',
+            'tests/helpers/silence-stdout.ts',
+          ],
         },
       },
       {
@@ -52,7 +54,10 @@ export default defineConfig({
           name: 'integration',
           include: ['tests/integration/**/*.test.ts'],
           globals: true,
-          setupFiles: ['tests/helpers/silence-logger.ts', 'tests/helpers/silence-stdout.ts'],
+          setupFiles: [
+            'tests/helpers/silence-logger.ts',
+            'tests/helpers/silence-stdout.ts',
+          ],
         },
       },
       {
@@ -61,7 +66,10 @@ export default defineConfig({
           name: 'smoke',
           include: ['tests/smoke/**/*.test.ts'],
           globals: true,
-          setupFiles: ['tests/helpers/silence-logger.ts', 'tests/helpers/silence-stdout.ts'],
+          setupFiles: [
+            'tests/helpers/silence-logger.ts',
+            'tests/helpers/silence-stdout.ts',
+          ],
           // Smoke tests perform real Docker operations (container pull + start).
           // Per-test timeouts are declared inline with { timeout: N } but we
           // also raise the suite-level hook timeout so beforeAll skip probes
