@@ -1,10 +1,8 @@
-import Handlebars from 'handlebars';
 import type { SupportedLocale } from '@core/types/locale';
 import type { OutputFormat } from '@core/types/config';
-import configTemplate from './templates/project-config.hbs';
 
 /**
- * Config / init scaffolding generates a declarative project-config.yml.
+ * Config / init scaffolding generates a declarative security-scan.config.json.
  *
  * The generated file uses the ecosystems[] format — each ecosystem entry
  * declares its id, fixer strategy, validation commands, and advisors.
@@ -56,15 +54,13 @@ export interface GenerateConfigOptions {
   outputs?: { formats?: OutputFormat[]; dir?: string };
 }
 
-const compiled = Handlebars.compile(configTemplate, { noEscape: true });
-
 /**
- * Build the template-friendly runner context for a single ecosystem entry.
+ * Build the runner object for a single ecosystem entry.
  *
  * Returns undefined when no meaningful runner configuration is present so the
- * template can skip the runner block entirely.
+ * object can skip the runner field entirely.
  */
-function buildRunnerContext(
+function buildRunnerObject(
   runner: EcosystemRunnerConfig,
 ): Record<string, unknown> | undefined {
   const isDockerfile = runner.image_source === 'dockerfile';
@@ -77,42 +73,56 @@ function buildRunnerContext(
 
   if (!hasRunner) return undefined;
 
-  const buildArgsList =
-    isDockerfile && runner.build_args && Object.keys(runner.build_args).length > 0
-      ? Object.entries(runner.build_args).map(([k, v]) => ({ key: k, value: v }))
-      : undefined;
+  const result: Record<string, unknown> = {};
 
-  return {
-    language_version: runner.language_version,
-    // Only emit image_source when it is 'dockerfile'
-    image_source: isDockerfile ? 'dockerfile' : undefined,
-    dockerfile_path: isDockerfile ? runner.dockerfile_path : undefined,
-    build_context: isDockerfile ? runner.build_context : undefined,
-    build_args: buildArgsList,
-    allow_build_context_escape: isDockerfile ? runner.allow_build_context_escape : undefined,
-  };
+  if (runner.language_version !== undefined) {
+    result['language_version'] = runner.language_version;
+  }
+
+  // Only emit image_source when it is 'dockerfile'
+  if (isDockerfile) {
+    result['image_source'] = 'dockerfile';
+    if (runner.dockerfile_path !== undefined) {
+      result['dockerfile_path'] = runner.dockerfile_path;
+    }
+    if (runner.build_context !== undefined) {
+      result['build_context'] = runner.build_context;
+    }
+    if (runner.build_args && Object.keys(runner.build_args).length > 0) {
+      result['build_args'] = runner.build_args;
+    }
+    if (runner.allow_build_context_escape !== undefined) {
+      result['allow_build_context_escape'] = runner.allow_build_context_escape;
+    }
+  }
+
+  return result;
 }
 
 /**
- * Build the template-friendly context object for a single ecosystem config entry.
- *
- * Separating this from the map callback keeps generateConfigYaml readable and
- * ensures per-ecosystem logic can be tested in isolation.
+ * Build the ecosystem object for a single ecosystem config entry.
  */
-function buildEcosystemTemplateContext(entry: EcosystemConfigEntry): Record<string, unknown> {
-  const runnerContext = entry.runner ? buildRunnerContext(entry.runner) : undefined;
+function buildEcosystemObject(entry: EcosystemConfigEntry): Record<string, unknown> {
+  const obj: Record<string, unknown> = { id: entry.id };
 
-  return {
-    id: entry.id,
-    hasFixer: !!entry.fixerStrategy,
-    fixer: entry.fixerStrategy,
-    hasValidationCommands: (entry.validationCommands?.length ?? 0) > 0,
-    validationCommands: entry.validationCommands ?? [],
-    hasAdvisors: (entry.advisors?.length ?? 0) > 0,
-    advisors: entry.advisors ?? [],
-    hasRunner: runnerContext !== undefined,
-    runner: runnerContext,
-  };
+  if (entry.fixerStrategy !== undefined) {
+    obj['fixer'] = entry.fixerStrategy;
+  }
+
+  obj['validationCommands'] = entry.validationCommands ?? [];
+
+  if (entry.advisors && entry.advisors.length > 0) {
+    obj['advisors'] = entry.advisors;
+  }
+
+  if (entry.runner) {
+    const runnerObj = buildRunnerObject(entry.runner);
+    if (runnerObj !== undefined) {
+      obj['runner'] = runnerObj;
+    }
+  }
+
+  return obj;
 }
 
 /**
@@ -195,53 +205,78 @@ const DEFAULT_ECOSYSTEM_CONFIGS: EcosystemConfigEntry[] = [
   },
 ];
 
-export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
-  // Resolve ecosystem entries — default to composer+npm when not provided
+export function generateConfigJson(opts: GenerateConfigOptions = {}): string {
+  // Resolve ecosystem entries — default to composer+npm+pip when not provided
   const configEntries =
     opts.ecosystemConfigs && opts.ecosystemConfigs.length > 0
       ? opts.ecosystemConfigs
       : DEFAULT_ECOSYSTEM_CONFIGS;
 
-  const ecosystems = configEntries.map(buildEcosystemTemplateContext);
+  const ecosystems = configEntries.map(buildEcosystemObject);
 
   // Resolve selected ecosystem ids for protected_packages
-  const selectedIds = ecosystems.map((e) => e.id as string);
+  const selectedIds = configEntries.map((e) => e.id);
 
   // Always emit all known ecosystem keys in protected_packages for schema compatibility.
   const allKnownIds = ['composer', 'npm', 'pip'];
   const allIds = [...new Set([...allKnownIds, ...selectedIds])];
-  const protectedPackageEcosystems = allIds.map((id) => ({
-    id,
-    active: selectedIds.includes(id),
-    ...(ECOSYSTEM_EXAMPLES[id] ?? {
-      examplePackage: 'example/package',
-      exampleConstraint: '^1.0',
-      exampleReason: 'Version constraint reason',
-    }),
-  }));
 
-  const outputsConfig = opts.outputs;
-  const hasOutputs = !!outputsConfig;
-  const outputFormats = outputsConfig?.formats ?? [];
-  const outputsDir = outputsConfig?.dir;
+  const protectedPackages: Record<string, unknown[]> = {};
+  for (const id of allIds) {
+    protectedPackages[id] = [];
+  }
 
-  const rawProjectName = opts.projectName ?? 'My Project';
+  // Build optional scanners block
+  const scanners: Record<string, unknown> = {};
+  if (opts.enableSonarQube) {
+    scanners['sonarqube'] = {
+      enabled: true,
+      mode: opts.sonarQubeMode ?? 'managed',
+      on_failure: 'warn',
+    };
+  }
 
-  // Escape single quotes for YAML single-quoted string safety ('' is the only valid escape).
-  // Prevents injection via values like O'Brien → O''Brien in the generated YAML.
-  const safeProjectName = rawProjectName.replace(/'/g, "''");
-  const safeClient = (opts.client ?? 'Client Name').replace(/'/g, "''");
+  // Build optional outputs block
+  let outputsObj: Record<string, unknown> | undefined;
+  if (opts.outputs) {
+    outputsObj = {};
+    if (opts.outputs.formats && opts.outputs.formats.length > 0) {
+      outputsObj['formats'] = opts.outputs.formats;
+    }
+    if (opts.outputs.dir !== undefined) {
+      outputsObj['dir'] = opts.outputs.dir;
+    }
+  }
 
-  return compiled({
-    projectName: safeProjectName,
-    client: safeClient,
+  // Assemble the full config object — $schema field goes first for IDE autocomplete
+  const config: Record<string, unknown> = {
+    $schema: './node_modules/@anthropic/osv-security-cli/config-schema.json',
+    config_version: '1',
+    project: {
+      name: opts.projectName ?? 'My Project',
+      client: opts.client ?? 'Client Name',
+    },
     ecosystems,
-    reportLanguage: opts.reportLanguage ?? 'pt-br',
-    protectedPackageEcosystems,
-    enableSonarQube: opts.enableSonarQube ?? false,
-    sonarQubeMode: opts.sonarQubeMode ?? 'managed',
-    hasOutputs,
-    outputFormats,
-    outputsDir,
-  });
+    protected_packages: protectedPackages,
+    safe_update_policy: {
+      allow_patch_and_minor_within_constraints: true,
+      require_authorization_for_constraint_change: true,
+    },
+    conflict_resolution: 'stop_and_ask',
+    report_language: opts.reportLanguage ?? 'pt-br',
+  };
+
+  if (outputsObj !== undefined) {
+    config['outputs'] = outputsObj;
+  }
+
+  if (Object.keys(scanners).length > 0) {
+    config['scanners'] = scanners;
+  }
+
+  return JSON.stringify(config, null, 2);
 }
+
+// Re-export under legacy name for any callers that haven't been updated yet
+// (removed when all call sites are migrated)
+export { generateConfigJson as generateConfigYaml };

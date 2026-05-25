@@ -1,41 +1,75 @@
 import { describe, it, expect } from 'vitest';
-import { generateConfigYaml, normalizeSonarProjectKey } from '@infra/config/generator';
-import { parse } from 'yaml';
+import { generateConfigJson, normalizeSonarProjectKey } from '@infra/config/generator';
 import { ProjectConfigSchema } from '@infra/config/schema';
 
-describe('generateConfigYaml', () => {
-  it('generates valid YAML that passes schema validation', () => {
-    const yaml = generateConfigYaml();
-    const parsed = parse(yaml);
+/**
+ * Strip $schema before Zod validation.
+ * The Zod schema uses .strict() which rejects unknown keys. $schema is a JSON
+ * IDE-autocomplete hint — the loader strips it before safeParse, so tests
+ * that directly call ProjectConfigSchema.safeParse must do the same.
+ */
+function parseForSchema(json: string): unknown {
+  const obj = JSON.parse(json) as Record<string, unknown>;
+  const { $schema: _removed, ...rest } = obj;
+  return rest;
+}
+
+describe('generateConfigJson', () => {
+  it('generates valid JSON that passes schema validation', () => {
+    const json = generateConfigJson();
+    const parsed = parseForSchema(json);
     const result = ProjectConfigSchema.safeParse(parsed);
     expect(result.success).toBe(true);
   });
 
+  it('output is valid JSON (parseable without errors)', () => {
+    const json = generateConfigJson();
+    expect(() => JSON.parse(json)).not.toThrow();
+  });
+
+  it('includes $schema field as the first property', () => {
+    const json = generateConfigJson();
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    expect(parsed['$schema']).toBeDefined();
+    expect(typeof parsed['$schema']).toBe('string');
+    // $schema appears first in the serialized JSON
+    expect(json.trim().startsWith('{\n  "$schema"')).toBe(true);
+  });
+
   it('uses provided project name and client', () => {
-    const yaml = generateConfigYaml({ projectName: 'My App', client: 'ACME Corp' });
-    const parsed = parse(yaml) as { project: { name: string; client: string } };
+    const json = generateConfigJson({ projectName: 'My App', client: 'ACME Corp' });
+    const parsed = JSON.parse(json) as { project: { name: string; client: string } };
     expect(parsed.project.name).toBe('My App');
     expect(parsed.project.client).toBe('ACME Corp');
   });
 
-  it('includes empty protected_packages arrays with example comments', () => {
-    const yaml = generateConfigYaml();
-    const parsed = parse(yaml) as {
+  it('includes empty protected_packages arrays for known ecosystems', () => {
+    const json = generateConfigJson();
+    const parsed = JSON.parse(json) as {
       protected_packages: { composer: unknown[]; npm: unknown[]; pip: unknown[] };
     };
     expect(Array.isArray(parsed.protected_packages.composer)).toBe(true);
     expect(Array.isArray(parsed.protected_packages.npm)).toBe(true);
     expect(Array.isArray(parsed.protected_packages.pip)).toBe(true);
-    expect(yaml).toContain('# - package:');
   });
 
-  it('includes a header comment', () => {
-    const yaml = generateConfigYaml();
-    expect(yaml).toContain('# security-scan');
+  it('includes ecosystems[] with at least one entry by default', () => {
+    const json = generateConfigJson();
+    const parsed = JSON.parse(json) as { ecosystems: unknown[] };
+    expect(Array.isArray(parsed.ecosystems)).toBe(true);
+    expect(parsed.ecosystems.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('generates valid YAML with custom PHP version reflected in ecosystems via ecosystemConfigs', () => {
-    const yaml = generateConfigYaml({
+  it('defaults npm fixer to "osv" in generated config', () => {
+    const json = generateConfigJson();
+    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string; fixer?: string }> };
+    const npm = parsed.ecosystems.find((e) => e.id === 'npm');
+    expect(npm).toBeDefined();
+    expect(npm?.fixer).toBe('osv');
+  });
+
+  it('generates valid JSON with custom PHP version reflected in ecosystems via ecosystemConfigs', () => {
+    const json = generateConfigJson({
       ecosystemConfigs: [
         {
           id: 'composer',
@@ -44,28 +78,13 @@ describe('generateConfigYaml', () => {
         },
       ],
     });
-    const parsed = parse(yaml) as { ecosystems: Array<{ id: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string }> };
     const composer = parsed.ecosystems.find((e) => e.id === 'composer');
     expect(composer).toBeDefined();
   });
 
-  it('includes ecosystems[] with at least one entry by default', () => {
-    const yaml = generateConfigYaml();
-    const parsed = parse(yaml) as { ecosystems: unknown[] };
-    expect(Array.isArray(parsed.ecosystems)).toBe(true);
-    expect(parsed.ecosystems.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('defaults npm fixer to "osv" in generated config', () => {
-    const yaml = generateConfigYaml();
-    const parsed = parse(yaml) as { ecosystems: Array<{ id: string; fixer?: string }> };
-    const npm = parsed.ecosystems.find((e) => e.id === 'npm');
-    expect(npm).toBeDefined();
-    expect(npm?.fixer).toBe('osv');
-  });
-
   it('includes both composer and npm ecosystems when both provided via ecosystemConfigs', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       ecosystemConfigs: [
         {
           id: 'composer',
@@ -80,26 +99,26 @@ describe('generateConfigYaml', () => {
         },
       ],
     });
-    const parsed = parse(yaml) as { ecosystems: Array<{ id: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string }> };
     const ids = parsed.ecosystems.map((e) => e.id);
     expect(ids).toContain('composer');
     expect(ids).toContain('npm');
   });
 
   it('includes markdown in outputs.formats when enableSonarQube and ecosystemConfigs provided', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       enableSonarQube: true,
       outputs: { formats: ['markdown'], dir: '.security-scan/reports' },
       ecosystemConfigs: [{ id: 'npm', fixerStrategy: 'npm-audit' }],
     });
-    const parsed = parse(yaml) as { outputs?: { formats?: string[] } };
+    const parsed = JSON.parse(json) as { outputs?: { formats?: string[] } };
     expect(parsed.outputs?.formats).toContain('markdown');
     // 'sonarqube' is not an output format — it is not a toggle in formats
     expect(parsed.outputs?.formats).not.toContain('sonarqube');
   });
 
   it('includes pip ecosystem entry when specified in ecosystemConfigs', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       ecosystemConfigs: [
         {
           id: 'pip',
@@ -108,60 +127,68 @@ describe('generateConfigYaml', () => {
         },
       ],
     });
-    const parsed = parse(yaml) as { ecosystems: Array<{ id: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string }> };
     const pip = parsed.ecosystems.find((e) => e.id === 'pip');
     expect(pip).toBeDefined();
   });
 
   it('always emits pip: [] in protected_packages even when pip not in ecosystemConfigs', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       ecosystemConfigs: [{ id: 'npm', fixerStrategy: 'osv' }],
     });
-    const parsed = parse(yaml) as { protected_packages: Record<string, unknown[]> };
+    const parsed = JSON.parse(json) as { protected_packages: Record<string, unknown[]> };
     expect(Array.isArray(parsed.protected_packages['pip'])).toBe(true);
   });
 
   it('passes schema validation when pip runner.language_version provided (no sonarqube)', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       ecosystemConfigs: [{ id: 'pip', runner: { language_version: '3.11' } }],
     });
-    const parsed = parse(yaml);
-    const result = ProjectConfigSchema.safeParse(parsed);
-    // runner block is generated inline under ecosystem entry
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 
   it('passes schema validation when both npm and pip runner.language_version provided', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       ecosystemConfigs: [
         { id: 'npm', runner: { language_version: '20' } },
         { id: 'pip', runner: { language_version: '3.11' } },
       ],
     });
-    const parsed = parse(yaml);
-    const result = ProjectConfigSchema.safeParse(parsed);
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 
   it('passes schema validation when composer runner.language_version provided (without SonarQube)', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       ecosystemConfigs: [{ id: 'composer', runner: { language_version: '8.2' } }],
     });
-    const parsed = parse(yaml);
-    const result = ProjectConfigSchema.safeParse(parsed);
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 
   it('passes schema validation when npm + pip + composer runner.language_version provided together', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       ecosystemConfigs: [
         { id: 'npm', runner: { language_version: '20' } },
         { id: 'pip', runner: { language_version: '3.11' } },
         { id: 'composer', runner: { language_version: '8.3' } },
       ],
     });
-    const parsed = parse(yaml);
-    const result = ProjectConfigSchema.safeParse(parsed);
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
+    expect(result.success).toBe(true);
+  });
+
+  it('project names with special chars produce valid JSON that passes schema validation', () => {
+    const json = generateConfigJson({
+      projectName: "O'Brien",
+      client: "Client's Co.",
+    });
+    const parsed = JSON.parse(json) as { project: { name: string; client: string } };
+    // JSON handles special chars natively — no escaping needed
+    expect(parsed.project.name).toBe("O'Brien");
+    expect(parsed.project.client).toBe("Client's Co.");
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 });
@@ -201,20 +228,19 @@ describe('normalizeSonarProjectKey', () => {
   });
 
   it('generated config with enableSonarQube=true passes schema validation (no project_key in config anymore)', () => {
-    // project_key moved to sonar-project.properties — config.yml only contains
-    // CLI-layer fields. Still worth a round-trip check to confirm the template
-    // emits valid YAML + a valid sonarqube block when the flag is on.
-    const yaml = generateConfigYaml({
+    // project_key moved to sonar-project.properties — config.json only contains
+    // CLI-layer fields. Still worth a round-trip check to confirm the generator
+    // emits valid JSON + a valid sonarqube block when the flag is on.
+    const json = generateConfigJson({
       projectName: 'My Project',
       enableSonarQube: true,
       ecosystemConfigs: [{ id: 'npm', fixerStrategy: 'npm-audit' }],
     });
-    const parsed = parse(yaml);
-    const result = ProjectConfigSchema.safeParse(parsed);
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
 
-    const sonarBlock = (parsed as { scanners?: { sonarqube?: Record<string, unknown> } })
-      .scanners?.sonarqube;
+    const parsed = JSON.parse(json) as { scanners?: { sonarqube?: Record<string, unknown> } };
+    const sonarBlock = parsed.scanners?.sonarqube;
     expect(sonarBlock).toBeDefined();
     expect(sonarBlock).toHaveProperty('enabled', true);
     expect(sonarBlock).toHaveProperty('mode', 'managed');
@@ -225,99 +251,93 @@ describe('normalizeSonarProjectKey', () => {
     expect(sonarBlock).not.toHaveProperty('exclusions');
   });
 
-  it('project names with special chars still produce valid YAML when enableSonarQube=true', () => {
-    const yaml = generateConfigYaml({
+  it('project names with special chars still produce valid JSON when enableSonarQube=true', () => {
+    const json = generateConfigJson({
       projectName: 'My App (v2)!',
       enableSonarQube: true,
       ecosystemConfigs: [{ id: 'npm' }],
     });
-    const parsed = parse(yaml);
-    const result = ProjectConfigSchema.safeParse(parsed);
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 
   it('defaults sonarQubeMode to managed when enableSonarQube=true and no mode provided', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       projectName: 'My Project',
       enableSonarQube: true,
       ecosystemConfigs: [{ id: 'npm', fixerStrategy: 'npm-audit' }],
     });
-    const parsed = parse(yaml) as { scanners?: { sonarqube?: Record<string, unknown> } };
+    const parsed = JSON.parse(json) as { scanners?: { sonarqube?: Record<string, unknown> } };
     expect(parsed.scanners?.sonarqube?.mode).toBe('managed');
   });
 
   it('emits mode: external when sonarQubeMode is external', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       projectName: 'External Sonar Project',
       enableSonarQube: true,
       sonarQubeMode: 'external',
       ecosystemConfigs: [{ id: 'npm', fixerStrategy: 'npm-audit' }],
     });
-    const parsed = parse(yaml) as { scanners?: { sonarqube?: Record<string, unknown> } };
+    const parsed = JSON.parse(json) as { scanners?: { sonarqube?: Record<string, unknown> } };
     expect(parsed.scanners?.sonarqube?.mode).toBe('external');
   });
 
   it('generated config with sonarQubeMode external passes schema validation', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       projectName: 'External Sonar Project',
       enableSonarQube: true,
       sonarQubeMode: 'external',
       ecosystemConfigs: [{ id: 'npm' }],
     });
-    const parsed = parse(yaml);
-    const result = ProjectConfigSchema.safeParse(parsed);
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 });
 
-describe('generateConfigYaml — dockerfile image_source options', () => {
+describe('generateConfigJson — dockerfile image_source options', () => {
   it('generated config with npm runner image_source="dockerfile" passes schema validation', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       ecosystemConfigs: [{
         id: 'npm',
         runner: { language_version: '20', image_source: 'dockerfile', dockerfile_path: 'Dockerfile' },
       }],
     });
-    const parsed = parse(yaml);
-    const result = ProjectConfigSchema.safeParse(parsed);
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 
   it('generated config with npm runner (language_version only, no image_source) passes schema validation', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       ecosystemConfigs: [{ id: 'npm', runner: { language_version: '20' } }],
     });
-    const parsed = parse(yaml);
-    const result = ProjectConfigSchema.safeParse(parsed);
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 
   it('generated config with pip runner image_source="dockerfile" passes schema validation', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       ecosystemConfigs: [{
         id: 'pip',
         runner: { language_version: '3.11', image_source: 'dockerfile', dockerfile_path: 'Dockerfile' },
       }],
     });
-    const parsed = parse(yaml);
-    const result = ProjectConfigSchema.safeParse(parsed);
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 
   it('generated config with composer runner image_source="dockerfile" passes schema validation', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       ecosystemConfigs: [{
         id: 'composer',
         runner: { language_version: '8.2', image_source: 'dockerfile', dockerfile_path: '.docker/php.Dockerfile' },
       }],
     });
-    const parsed = parse(yaml);
-    const result = ProjectConfigSchema.safeParse(parsed);
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 
   it('generated config with npm runner build_context and build_args passes schema validation', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       ecosystemConfigs: [{
         id: 'npm',
         runner: {
@@ -329,13 +349,12 @@ describe('generateConfigYaml — dockerfile image_source options', () => {
         },
       }],
     });
-    const parsed = parse(yaml);
-    const result = ProjectConfigSchema.safeParse(parsed);
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 
   it('generated config with pip runner build_context and build_args passes schema validation', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       ecosystemConfigs: [{
         id: 'pip',
         runner: {
@@ -347,13 +366,12 @@ describe('generateConfigYaml — dockerfile image_source options', () => {
         },
       }],
     });
-    const parsed = parse(yaml);
-    const result = ProjectConfigSchema.safeParse(parsed);
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 
   it('generated config with composer runner build_context and build_args passes schema validation', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       ecosystemConfigs: [{
         id: 'composer',
         runner: {
@@ -365,13 +383,12 @@ describe('generateConfigYaml — dockerfile image_source options', () => {
         },
       }],
     });
-    const parsed = parse(yaml);
-    const result = ProjectConfigSchema.safeParse(parsed);
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 
-  it('AC7: full inline runner (all fields) generates valid YAML with runner nested under ecosystem entry, not top-level', () => {
-    const yaml = generateConfigYaml({
+  it('AC7: full inline runner (all fields) generates valid JSON with runner nested under ecosystem entry, not top-level', () => {
+    const json = generateConfigJson({
       ecosystemConfigs: [{
         id: 'npm',
         runner: {
@@ -385,14 +402,14 @@ describe('generateConfigYaml — dockerfile image_source options', () => {
       }],
     });
 
-    // Must parse as valid YAML
-    const parsed = parse(yaml) as {
+    // Must parse as valid JSON
+    const parsed = JSON.parse(json) as {
       ecosystems: Array<{ id: string; runner?: Record<string, unknown> }>;
       runners?: unknown;
     };
 
     // Must pass ProjectConfigSchema validation
-    const result = ProjectConfigSchema.safeParse(parsed);
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
 
     // Runner block must be nested under the ecosystem entry, NOT as a top-level runners: section
@@ -406,16 +423,16 @@ describe('generateConfigYaml — dockerfile image_source options', () => {
     expect(npmEntry?.runner?.build_context).toBe('.');
     expect(npmEntry?.runner?.allow_build_context_escape).toBe(true);
 
-    // build_args must be present (rendered as YAML mapping)
+    // build_args must be present (rendered as JSON object)
     const buildArgs = npmEntry?.runner?.build_args as Record<string, string> | undefined;
     expect(buildArgs?.NODE_ENV).toBe('production');
     expect(buildArgs?.APP_VERSION).toBe('1.0');
   });
 });
 
-describe('generateConfigYaml — empty validationCommands', () => {
-  it('emits validationCommands: [] and keeps advisors on its own line when validationCommands is empty', () => {
-    const yaml = generateConfigYaml({
+describe('generateConfigJson — empty validationCommands', () => {
+  it('emits validationCommands: [] and keeps advisors when validationCommands is empty', () => {
+    const json = generateConfigJson({
       ecosystemConfigs: [
         {
           id: 'composer',
@@ -425,8 +442,14 @@ describe('generateConfigYaml — empty validationCommands', () => {
       ],
     });
 
-    // (a) YAML must parse successfully
-    const parsed = parse(yaml) as { ecosystems: Array<{ id: string; validationCommands?: unknown[]; advisors?: Array<{ name: string; command: string }> }> };
+    // (a) JSON must parse successfully
+    const parsed = JSON.parse(json) as {
+      ecosystems: Array<{
+        id: string;
+        validationCommands?: unknown[];
+        advisors?: Array<{ name: string; command: string }>;
+      }>;
+    };
 
     // (b) validationCommands must be an empty array
     const composer = parsed.ecosystems.find((e) => e.id === 'composer');
@@ -441,7 +464,7 @@ describe('generateConfigYaml — empty validationCommands', () => {
   });
 
   it('emits validationCommands: [] for npm with empty validationCommands and advisors present', () => {
-    const yaml = generateConfigYaml({
+    const json = generateConfigJson({
       ecosystemConfigs: [
         {
           id: 'npm',
@@ -451,14 +474,16 @@ describe('generateConfigYaml — empty validationCommands', () => {
       ],
     });
 
-    const parsed = parse(yaml) as { ecosystems: Array<{ id: string; validationCommands?: unknown[]; advisors?: unknown[] }> };
+    const parsed = JSON.parse(json) as {
+      ecosystems: Array<{ id: string; validationCommands?: unknown[]; advisors?: unknown[] }>;
+    };
     const npm = parsed.ecosystems.find((e) => e.id === 'npm');
     expect(npm?.validationCommands).toEqual([]);
     expect(npm?.advisors).toHaveLength(1);
   });
 
-  it('generated YAML with empty validationCommands passes schema validation', () => {
-    const yaml = generateConfigYaml({
+  it('generated JSON with empty validationCommands passes schema validation', () => {
+    const json = generateConfigJson({
       ecosystemConfigs: [
         {
           id: 'composer',
@@ -467,29 +492,38 @@ describe('generateConfigYaml — empty validationCommands', () => {
         },
       ],
     });
-    const parsed = parse(yaml);
-    const result = ProjectConfigSchema.safeParse(parsed);
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 });
 
-describe('generateConfigYaml — single-quote YAML injection prevention', () => {
-  it("escapes single quotes in project name (O'Brien → O''Brien in YAML)", () => {
-    const yaml = generateConfigYaml({ projectName: "O'Brien", client: 'Client' });
-    const parsed = parse(yaml) as { project: { name: string } };
-    expect(parsed.project.name).toBe("O'Brien");
+describe('generateConfigJson — $schema field', () => {
+  it('$schema field is a non-empty string', () => {
+    const json = generateConfigJson();
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    expect(typeof parsed['$schema']).toBe('string');
+    expect((parsed['$schema'] as string).length).toBeGreaterThan(0);
   });
 
-  it("escapes single quotes in client name (Client's Co. → remains valid YAML)", () => {
-    const yaml = generateConfigYaml({ projectName: 'My App', client: "Client's Co." });
-    const parsed = parse(yaml) as { project: { client: string } };
-    expect(parsed.project.client).toBe("Client's Co.");
+  it('$schema field is present regardless of options', () => {
+    const variants = [
+      generateConfigJson(),
+      generateConfigJson({ projectName: 'Test', enableSonarQube: true }),
+      generateConfigJson({ ecosystemConfigs: [{ id: 'npm' }] }),
+    ];
+    for (const json of variants) {
+      const parsed = JSON.parse(json) as Record<string, unknown>;
+      expect(parsed['$schema']).toBeDefined();
+    }
   });
 
-  it("generated YAML with single-quoted project name passes schema validation", () => {
-    const yaml = generateConfigYaml({ projectName: "It's a Project", client: 'ACME' });
-    const parsed = parse(yaml);
-    const result = ProjectConfigSchema.safeParse(parsed);
+  it('$schema is excluded from Zod validation (schema allows unknown top-level $schema)', () => {
+    // The $schema field must NOT cause ProjectConfigSchema.safeParse to fail.
+    // It is an additional field that the schema ignores (or the schema strips it via strict mode).
+    // We confirm the round-trip is valid regardless.
+    const json = generateConfigJson({ projectName: 'Test', client: 'Acme' });
+    // Remove $schema before Zod validation (Zod strict mode rejects unknown keys)
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 });

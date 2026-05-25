@@ -3,7 +3,7 @@
  * Targets:
  *   lines 85-89: plugin.supportedFixers.length === 0 (ecosystem has no fixers but fixer was specified)
  *   lines 90-95: fixer not in plugin.supportedFixers (unsupported fixer strategy)
- *   lines 125-130: invalid YAML syntax triggers ConfigLoadError
+ *   JSON parse error branch: invalid JSON syntax triggers ConfigLoadError
  *
  * NOTE: validateEcosystemsAgainstRegistry (lines 85-95) must be called directly because
  * the Zod schema enforces a fixed fixer enum before cross-validation can fire via loadConfig.
@@ -46,25 +46,22 @@ function makePluginStub(id: string, supportedFixers: string[]): EcosystemPlugin 
 async function writeTempConfig(content: string): Promise<string> {
   const dir = join(tmpdir(), `loader-test-${randomUUID()}`);
   await mkdir(dir, { recursive: true });
-  const path = join(dir, 'project-config.yml');
+  const path = join(dir, 'security-scan.config.json');
   await writeFile(path, content, 'utf-8');
   return path;
 }
 
-// YAML with syntax error
-const invalidYaml = `
-project: {
-  name: "broken
-`;
+// JSON with syntax error
+const invalidJson = `{ "project": { "name": "broken"`;
 
-describe('loadConfig() — YAML parse error branch (lines 125-130)', () => {
-  it('returns Err with ConfigLoadError when YAML is malformed', async () => {
-    const configPath = await writeTempConfig(invalidYaml);
+describe('loadConfig() — JSON parse error branch', () => {
+  it('returns Err with ConfigLoadError when JSON is malformed', async () => {
+    const configPath = await writeTempConfig(invalidJson);
     const result = await loadConfig(configPath, '/');
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.error).toBeInstanceOf(ConfigLoadError);
-      expect(result.error.message).toMatch(/Invalid YAML/);
+      expect(result.error.message).toMatch(/Invalid JSON/);
     }
     await unlink(configPath);
   });

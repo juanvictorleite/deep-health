@@ -1,6 +1,5 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { parse } from 'yaml';
 import type { ZodIssue } from 'zod';
 import { ProjectConfigSchema } from './schema';
 import type { ProjectConfig } from '@core/types/config';
@@ -9,7 +8,7 @@ import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 import { CLI_NAME } from '@infra/brand';
 import { type Result, ok, err } from '@core/types/result';
 
-export const DEFAULT_CONFIG_PATH = 'project-config.yml';
+export const DEFAULT_CONFIG_PATH = 'security-scan.config.json';
 
 /**
  * Detects legacy ecosystem runner config placements and throws clear, actionable
@@ -185,13 +184,21 @@ export async function loadConfig(
 
   let parsed: unknown;
   try {
-    parsed = parse(raw);
+    parsed = JSON.parse(raw);
   } catch (_err) {
     return err(new ConfigLoadError(
-      `Invalid YAML in config file: ${absolutePath}\n` +
-      `  Hint: Validate your YAML syntax at https://yaml.org/spec/ or use a linter.`,
+      `Invalid JSON in config file: ${absolutePath}\n` +
+      `  Hint: Validate your JSON syntax with a linter or online tool (e.g. https://jsonlint.com/).`,
       absolutePath,
     ));
+  }
+
+  // Strip $schema before validation — it is a JSON IDE-autocomplete hint and
+  // not part of the ProjectConfig domain. The Zod schema uses .strict() which
+  // rejects unknown keys, so we remove it before passing to safeParse.
+  if (typeof parsed === 'object' && parsed !== null && '$schema' in parsed) {
+    const { $schema: _removed, ...rest } = parsed as Record<string, unknown>;
+    parsed = rest;
   }
 
   try {

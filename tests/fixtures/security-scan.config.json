@@ -1,0 +1,64 @@
+{
+  "config_version": "1",
+  "project": {
+    "name": "Test PHP Project",
+    "client": "Test Client"
+  },
+  "ecosystems": [
+    {
+      "id": "composer",
+      "validationCommands": [
+        { "name": "tests", "command": "php artisan test --compact" }
+      ],
+      "advisors": [
+        { "name": "audit", "command": "composer audit" }
+      ]
+    },
+    {
+      "id": "npm",
+      "fixer": "npm-audit",
+      "validationCommands": [
+        { "name": "build", "command": "npm run build" }
+      ],
+      "advisors": [
+        { "name": "audit", "command": "npm audit" }
+      ]
+    }
+  ],
+  "protected_packages": {
+    "composer": [
+      {
+        "package": "laravel/framework",
+        "constraint": "^10.8",
+        "reason": "Major upgrade to Laravel 11 requires a dedicated project"
+      },
+      {
+        "package": "livewire/livewire",
+        "constraint": "^2.12",
+        "reason": "Livewire 3 has breaking API changes"
+      }
+    ],
+    "npm": [
+      {
+        "package": "alpinejs",
+        "constraint": "^3.10.2",
+        "reason": "Alpine v4 may have breaking syntax changes"
+      },
+      {
+        "package": "tailwindcss",
+        "constraint": "^3.3.3",
+        "reason": "Tailwind v4 has breaking config and migration requirements"
+      }
+    ]
+  },
+  "safe_update_policy": {
+    "allow_patch_and_minor_within_constraints": true,
+    "require_authorization_for_constraint_change": true
+  },
+  "conflict_resolution": "stop_and_ask",
+  "scanners": {
+    "osv": {
+      "runner": "local"
+    }
+  }
+}

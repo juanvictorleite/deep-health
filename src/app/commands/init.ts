@@ -305,7 +305,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   const outputFormats: ('markdown')[] = [];
   if (enableMarkdown) outputFormats.push('markdown');
 
-  const yaml = generateConfigYaml({
+  const json = generateConfigYaml({
     projectName,
     client,
     reportLanguage,
@@ -318,7 +318,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   });
 
   await mkdir(dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, yaml, 'utf-8');
+  await writeFile(outputPath, json, 'utf-8');
   process.stdout.write(t.createdFile(outputPath));
 
   // When SonarQube is enabled, make sure the project has a sonar-project.properties.

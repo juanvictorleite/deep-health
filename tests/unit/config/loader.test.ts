@@ -8,7 +8,7 @@ import { npmPlugin } from '@modules/ecosystem/plugins/npm';
 import { composerPlugin } from '@modules/ecosystem/plugins/composer';
 import type { ProjectConfig } from '@core/types/config';
 import type { Result } from '@core/types/result';
-import { withTempConfig, minimalConfigYaml, minimalConfigWith } from '../../helpers/config-fixtures';
+import { withTempConfig, minimalConfigJson, minimalConfigWithObj } from '../../helpers/config-fixtures';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = resolve(__dirname, '../../fixtures');
@@ -44,7 +44,7 @@ function unwrapTest<T>(r: Result<T, unknown>): T {
 
 describe('loadConfig', () => {
   it('loads a valid config file', async () => {
-    const result = await loadConfig('project-config.yml', fixturesDir);
+    const result = await loadConfig('security-scan.config.json', fixturesDir);
     expect(result.ok).toBe(true);
     const config = unwrapTest(result);
     expect(config.project.name).toBe('Test PHP Project');
@@ -54,7 +54,7 @@ describe('loadConfig', () => {
   });
 
   it('loads ecosystems[] from config', async () => {
-    const result = await loadConfig('project-config.yml', fixturesDir);
+    const result = await loadConfig('security-scan.config.json', fixturesDir);
     expect(result.ok).toBe(true);
     const config = unwrapTest(result);
     expect(Array.isArray(config.ecosystems)).toBe(true);
@@ -65,20 +65,21 @@ describe('loadConfig', () => {
   });
 
   it('returns Err with ConfigLoadError when file does not exist', async () => {
-    const result = await loadConfig('nonexistent.yml', fixturesDir);
+    const result = await loadConfig('nonexistent.json', fixturesDir);
     expect(result.ok).toBe(false);
     expect(result.error).toBeInstanceOf(ConfigLoadError);
   });
 
   it('file-not-found error includes actionable hint', async () => {
-    const result = await loadConfig('nonexistent.yml', fixturesDir);
+    const result = await loadConfig('nonexistent.json', fixturesDir);
     expect(result.ok).toBe(false);
     expect(result.error).toBeInstanceOf(ConfigLoadError);
     expect((result.error as ConfigLoadError).message).toMatch(/security-scan init/i);
   });
 
   it('returns Err with ConfigLoadError for missing required fields', async () => {
-    await withTempConfig('project:\n  name: test\n', async (absPath, filename) => {
+    const incomplete = JSON.stringify({ project: { name: 'test' } }, null, 2);
+    await withTempConfig(incomplete, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(false);
@@ -87,18 +88,18 @@ describe('loadConfig', () => {
   });
 
   it('returns Err with ConfigLoadError when ecosystems[] is empty', async () => {
-    const yaml = [
-      'project:',
-      '  name: test',
-      '  client: test',
-      'ecosystems: []',
-      'protected_packages: {}',
-      'safe_update_policy:',
-      '  allow_patch_and_minor_within_constraints: true',
-      '  require_authorization_for_constraint_change: true',
-      'conflict_resolution: stop_and_ask',
-    ].join('\n') + '\n';
-    await withTempConfig(yaml, async (absPath, filename) => {
+    const json = JSON.stringify({
+      config_version: '1',
+      project: { name: 'test', client: 'test' },
+      ecosystems: [],
+      protected_packages: {},
+      safe_update_policy: {
+        allow_patch_and_minor_within_constraints: true,
+        require_authorization_for_constraint_change: true,
+      },
+      conflict_resolution: 'stop_and_ask',
+    }, null, 2);
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(false);
@@ -107,7 +108,7 @@ describe('loadConfig', () => {
   });
 
   it('correctly loads protected packages', async () => {
-    const result = await loadConfig('project-config.yml', fixturesDir);
+    const result = await loadConfig('security-scan.config.json', fixturesDir);
     expect(result.ok).toBe(true);
     const config = unwrapTest(result);
     const laravelFramework = config.protected_packages['composer']?.find(
@@ -119,7 +120,7 @@ describe('loadConfig', () => {
 
   it('passes cross-validation with registry when all ecosystem ids are registered', async () => {
     const registry = makeRegistry();
-    const result = await loadConfig('project-config.yml', fixturesDir, registry);
+    const result = await loadConfig('security-scan.config.json', fixturesDir, registry);
     expect(result.ok).toBe(true);
     const config = unwrapTest(result);
     expect(config.ecosystems.map((e) => e.id)).toContain('npm');
@@ -127,24 +128,44 @@ describe('loadConfig', () => {
   });
 
   it('returns Err with ConfigLoadError when ecosystem id is not in registry', async () => {
-    const yaml = [
-      'project:',
-      '  name: test',
-      '  client: test',
-      'ecosystems:',
-      "  - id: 'unknown-eco'",
-      'protected_packages: {}',
-      'safe_update_policy:',
-      '  allow_patch_and_minor_within_constraints: true',
-      '  require_authorization_for_constraint_change: false',
-      'conflict_resolution: fail',
-    ].join('\n') + '\n';
-    await withTempConfig(yaml, async (absPath, filename) => {
+    const json = JSON.stringify({
+      config_version: '1',
+      project: { name: 'test', client: 'test' },
+      ecosystems: [{ id: 'unknown-eco' }],
+      protected_packages: {},
+      safe_update_policy: {
+        allow_patch_and_minor_within_constraints: true,
+        require_authorization_for_constraint_change: false,
+      },
+      conflict_resolution: 'fail',
+    }, null, 2);
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const registry = makeRegistry();
       const result = await loadConfig(filename, dir, registry);
       expect(result.ok).toBe(false);
       expect(result.error).toBeInstanceOf(ConfigLoadError);
+    });
+  });
+
+  it('returns Err with ConfigLoadError for invalid JSON syntax', async () => {
+    const invalidJson = '{ "project": { "name": "broken"';
+    await withTempConfig(invalidJson, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(false);
+      expect(result.error).toBeInstanceOf(ConfigLoadError);
+      expect((result.error as ConfigLoadError).message).toMatch(/Invalid JSON/);
+    });
+  });
+
+  it('JSON parse error message includes actionable hint', async () => {
+    const invalidJson = '{ bad json }';
+    await withTempConfig(invalidJson, async (absPath, filename) => {
+      const dir = require('node:path').dirname(absPath);
+      const result = await loadConfig(filename, dir);
+      expect(result.ok).toBe(false);
+      expect((result.error as ConfigLoadError).message).toMatch(/jsonlint\.com/i);
     });
   });
 });
@@ -209,21 +230,19 @@ describe('validateEcosystemsAgainstRegistry', () => {
 
 describe('fixer schema validation', () => {
   it('accepts fixer: osv in ecosystems[] (osv is the default fixer strategy for npm)', async () => {
-    const yaml = [
-      'project:',
-      '  name: test',
-      '  client: test',
-      'ecosystems:',
-      '  - id: npm',
-      '    fixer: osv',
-      'protected_packages: {}',
-      'safe_update_policy:',
-      '  allow_patch_and_minor_within_constraints: true',
-      '  require_authorization_for_constraint_change: false',
-      'conflict_resolution: fail',
-    ].join('\n') + '\n';
+    const json = JSON.stringify({
+      config_version: '1',
+      project: { name: 'test', client: 'test' },
+      ecosystems: [{ id: 'npm', fixer: 'osv' }],
+      protected_packages: {},
+      safe_update_policy: {
+        allow_patch_and_minor_within_constraints: true,
+        require_authorization_for_constraint_change: false,
+      },
+      conflict_resolution: 'fail',
+    }, null, 2);
 
-    await withTempConfig(yaml, async (absPath, filename) => {
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(true);
@@ -233,21 +252,19 @@ describe('fixer schema validation', () => {
   });
 
   it('accepts fixer: npm-audit in ecosystems[]', async () => {
-    const yaml = [
-      'project:',
-      '  name: test',
-      '  client: test',
-      'ecosystems:',
-      '  - id: npm',
-      '    fixer: npm-audit',
-      'protected_packages: {}',
-      'safe_update_policy:',
-      '  allow_patch_and_minor_within_constraints: true',
-      '  require_authorization_for_constraint_change: false',
-      'conflict_resolution: fail',
-    ].join('\n') + '\n';
+    const json = JSON.stringify({
+      config_version: '1',
+      project: { name: 'test', client: 'test' },
+      ecosystems: [{ id: 'npm', fixer: 'npm-audit' }],
+      protected_packages: {},
+      safe_update_policy: {
+        allow_patch_and_minor_within_constraints: true,
+        require_authorization_for_constraint_change: false,
+      },
+      conflict_resolution: 'fail',
+    }, null, 2);
 
-    await withTempConfig(yaml, async (absPath, filename) => {
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(true);
@@ -257,21 +274,19 @@ describe('fixer schema validation', () => {
   });
 
   it('rejects unknown fixer strategy in ecosystems[]', async () => {
-    const yaml = [
-      'project:',
-      '  name: test',
-      '  client: test',
-      'ecosystems:',
-      '  - id: npm',
-      '    fixer: unknown-strategy',
-      'protected_packages: {}',
-      'safe_update_policy:',
-      '  allow_patch_and_minor_within_constraints: true',
-      '  require_authorization_for_constraint_change: false',
-      'conflict_resolution: fail',
-    ].join('\n') + '\n';
+    const json = JSON.stringify({
+      config_version: '1',
+      project: { name: 'test', client: 'test' },
+      ecosystems: [{ id: 'npm', fixer: 'unknown-strategy' }],
+      protected_packages: {},
+      safe_update_policy: {
+        allow_patch_and_minor_within_constraints: true,
+        require_authorization_for_constraint_change: false,
+      },
+      conflict_resolution: 'fail',
+    }, null, 2);
 
-    await withTempConfig(yaml, async (absPath, filename) => {
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(false);
@@ -282,10 +297,10 @@ describe('fixer schema validation', () => {
 
 describe('OSV scanner config schema — runner + image fields', () => {
   it('accepts osv.runner: docker with a custom image', async () => {
-    const yaml = minimalConfigWith(
-      'scanners:\n  osv:\n    runner: docker\n    image: \'ghcr.io/google/osv-scanner:v1.9.0\'',
-    );
-    await withTempConfig(yaml, async (absPath, filename) => {
+    const json = minimalConfigWithObj({
+      scanners: { osv: { runner: 'docker', image: 'ghcr.io/google/osv-scanner:v1.9.0' } },
+    });
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(true);
@@ -296,8 +311,8 @@ describe('OSV scanner config schema — runner + image fields', () => {
   });
 
   it('accepts osv.runner: local', async () => {
-    const yaml = minimalConfigWith('scanners:\n  osv:\n    runner: local');
-    await withTempConfig(yaml, async (absPath, filename) => {
+    const json = minimalConfigWithObj({ scanners: { osv: { runner: 'local' } } });
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(true);
@@ -307,8 +322,8 @@ describe('OSV scanner config schema — runner + image fields', () => {
   });
 
   it('rejects osv.runner: auto (removed — only docker and local are valid)', async () => {
-    const yaml = minimalConfigWith('scanners:\n  osv:\n    runner: auto');
-    await withTempConfig(yaml, async (absPath, filename) => {
+    const json = minimalConfigWithObj({ scanners: { osv: { runner: 'auto' } } });
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(false);
@@ -317,8 +332,8 @@ describe('OSV scanner config schema — runner + image fields', () => {
   });
 
   it('defaults osv.runner to docker when not specified', async () => {
-    const yaml = minimalConfigWith('scanners:\n  osv: {}');
-    await withTempConfig(yaml, async (absPath, filename) => {
+    const json = minimalConfigWithObj({ scanners: { osv: {} } });
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(true);
@@ -328,8 +343,8 @@ describe('OSV scanner config schema — runner + image fields', () => {
   });
 
   it('rejects an invalid osv.runner value', async () => {
-    const yaml = minimalConfigWith('scanners:\n  osv:\n    runner: kubernetes');
-    await withTempConfig(yaml, async (absPath, filename) => {
+    const json = minimalConfigWithObj({ scanners: { osv: { runner: 'kubernetes' } } });
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(false);
@@ -338,8 +353,8 @@ describe('OSV scanner config schema — runner + image fields', () => {
   });
 
   it('invalid enum error message includes expected values', async () => {
-    const yaml = minimalConfigWith('scanners:\n  osv:\n    runner: kubernetes');
-    await withTempConfig(yaml, async (absPath, filename) => {
+    const json = minimalConfigWithObj({ scanners: { osv: { runner: 'kubernetes' } } });
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(false);
@@ -351,10 +366,10 @@ describe('OSV scanner config schema — runner + image fields', () => {
   });
 
   it('accepts image field without runner (image is optional)', async () => {
-    const yaml = minimalConfigWith(
-      'scanners:\n  osv:\n    image: \'ghcr.io/google/osv-scanner:v1.9.0\'',
-    );
-    await withTempConfig(yaml, async (absPath, filename) => {
+    const json = minimalConfigWithObj({
+      scanners: { osv: { image: 'ghcr.io/google/osv-scanner:v1.9.0' } },
+    });
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(true);
@@ -366,15 +381,15 @@ describe('OSV scanner config schema — runner + image fields', () => {
   });
 });
 
-// sonar.projectKey moved from project-config.yml to sonar-project.properties.
+// sonar.projectKey moved from project-config to sonar-project.properties.
 // Format validation now happens at scan time inside the SonarQube engine (see
 // sonarqube-engine.test.ts). The schema rejects project_key as an unknown key
 // via strict mode — covered by the "strict schema enforcement" describe below.
 
 describe('strict schema enforcement — unknown keys', () => {
   it('rejects unknown top-level config key', async () => {
-    const yaml = minimalConfigWith('unknown_top_key: oops');
-    await withTempConfig(yaml, async (absPath, filename) => {
+    const json = minimalConfigWithObj({ unknown_top_key: 'oops' });
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(false);
@@ -383,8 +398,8 @@ describe('strict schema enforcement — unknown keys', () => {
   });
 
   it('unknown-key error message shows the rejected key name', async () => {
-    const yaml = minimalConfigWith('unknown_top_key: oops');
-    await withTempConfig(yaml, async (absPath, filename) => {
+    const json = minimalConfigWithObj({ unknown_top_key: 'oops' });
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(false);
@@ -394,20 +409,18 @@ describe('strict schema enforcement — unknown keys', () => {
   });
 
   it('rejects unknown key inside project block', async () => {
-    const yaml = [
-      'project:',
-      '  name: test',
-      '  client: test',
-      '  extra_field: oops',
-      'ecosystems:',
-      '  - id: npm',
-      'protected_packages: {}',
-      'safe_update_policy:',
-      '  allow_patch_and_minor_within_constraints: true',
-      '  require_authorization_for_constraint_change: false',
-      'conflict_resolution: fail',
-    ].join('\n') + '\n';
-    await withTempConfig(yaml, async (absPath, filename) => {
+    const json = JSON.stringify({
+      config_version: '1',
+      project: { name: 'test', client: 'test', extra_field: 'oops' },
+      ecosystems: [{ id: 'npm' }],
+      protected_packages: {},
+      safe_update_policy: {
+        allow_patch_and_minor_within_constraints: true,
+        require_authorization_for_constraint_change: false,
+      },
+      conflict_resolution: 'fail',
+    }, null, 2);
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(false);
@@ -416,10 +429,10 @@ describe('strict schema enforcement — unknown keys', () => {
   });
 
   it('rejects unknown key inside scanners.osv block', async () => {
-    const yaml = minimalConfigWith(
-      'scanners:\n  osv:\n    runner: local\n    unknown_osv_key: oops',
-    );
-    await withTempConfig(yaml, async (absPath, filename) => {
+    const json = minimalConfigWithObj({
+      scanners: { osv: { runner: 'local', unknown_osv_key: 'oops' } },
+    });
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(false);
@@ -428,20 +441,18 @@ describe('strict schema enforcement — unknown keys', () => {
   });
 
   it('rejects unknown key inside ecosystems[] entry', async () => {
-    const yaml = [
-      'project:',
-      '  name: test',
-      '  client: test',
-      'ecosystems:',
-      '  - id: npm',
-      '    unknown_eco_key: oops',
-      'protected_packages: {}',
-      'safe_update_policy:',
-      '  allow_patch_and_minor_within_constraints: true',
-      '  require_authorization_for_constraint_change: false',
-      'conflict_resolution: fail',
-    ].join('\n') + '\n';
-    await withTempConfig(yaml, async (absPath, filename) => {
+    const json = JSON.stringify({
+      config_version: '1',
+      project: { name: 'test', client: 'test' },
+      ecosystems: [{ id: 'npm', unknown_eco_key: 'oops' }],
+      protected_packages: {},
+      safe_update_policy: {
+        allow_patch_and_minor_within_constraints: true,
+        require_authorization_for_constraint_change: false,
+      },
+      conflict_resolution: 'fail',
+    }, null, 2);
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(false);
@@ -450,24 +461,24 @@ describe('strict schema enforcement — unknown keys', () => {
   });
 
   it('rejects legacy cloud_storage credentials keys (OAuth flow stores tokens outside config)', async () => {
-    const yaml = [
-      'project:',
-      '  name: test',
-      '  client: test',
-      'ecosystems:',
-      '  - id: npm',
-      'protected_packages: {}',
-      'safe_update_policy:',
-      '  allow_patch_and_minor_within_constraints: true',
-      '  require_authorization_for_constraint_change: false',
-      'conflict_resolution: fail',
-      'cloud_storage:',
-      '  provider: google_drive',
-      '  folder_id: abc123',
-      '  credentials: .security-scan/gdrive-service-account.json',
-    ].join('\n') + '\n';
+    const json = JSON.stringify({
+      config_version: '1',
+      project: { name: 'test', client: 'test' },
+      ecosystems: [{ id: 'npm' }],
+      protected_packages: {},
+      safe_update_policy: {
+        allow_patch_and_minor_within_constraints: true,
+        require_authorization_for_constraint_change: false,
+      },
+      conflict_resolution: 'fail',
+      cloud_storage: {
+        provider: 'google_drive',
+        folder_id: 'abc123',
+        credentials: '.security-scan/gdrive-service-account.json',
+      },
+    }, null, 2);
 
-    await withTempConfig(yaml, async (absPath, filename) => {
+    await withTempConfig(json, async (absPath, filename) => {
       const dir = require('node:path').dirname(absPath);
       const result = await loadConfig(filename, dir);
       expect(result.ok).toBe(false);
