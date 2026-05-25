@@ -77,13 +77,29 @@ export interface BuildProjectImageOptions {
    * Default: false.
    */
   allowBuildContextEscape?: boolean;
+  /**
+   * Multi-stage build target. When set, `--target <value>` is passed to `docker build`.
+   * Also incorporated into the image tag hash so different targets produce different tags.
+   * Example: 'node-stage', 'production'
+   */
+  target?: string;
+  /**
+   * Custom image tag to use instead of the auto-generated hash-based tag.
+   * When set, this tag is used directly and hash computation is skipped.
+   * Supports the `image + build` coexistence pattern where the user specifies a
+   * custom name for the built image.
+   * Cache probing (probeImageExists) still applies.
+   * Example: `${CLI_NAME}-project/npm:custom-tag`
+   */
+  imageTag?: string;
 }
 
 export interface BuildProjectImageResult {
   /**
    * The stable local image tag that was built.
-   * Format: `<CLI_NAME>-project/<logPrefix>:<sha256-prefix>`
-   * Example: `<CLI_NAME>-project/npm:a3f1b2c4`
+   * Format: `<CLI_NAME>-project/build:<sha256-prefix>` (auto-generated)
+   *      or the caller-supplied `imageTag` when that option is set.
+   * Example: `<CLI_NAME>-project/build:a3f1b2c4`
    */
   image: string;
   /**
@@ -119,6 +135,8 @@ export async function buildProjectImage(
     logPrefix,
     buildContext,
     buildArgs: extraBuildArgs,
+    target,
+    imageTag: callerImageTag,
   } = options;
 
   // Resolve the effective Docker build context directory
@@ -163,12 +181,27 @@ export async function buildProjectImage(
     );
   }
 
-  const sha256 = createHash('sha256').update(dockerfileContents).digest('hex');
-  const shortSha = sha256.slice(0, 12);
-  const image = `${IMAGE_TAG_NAMESPACE}/${logPrefix}:${shortSha}`;
+  // Compute an image tag that incorporates all build-varying inputs so that two
+  // ecosystems sharing the same (Dockerfile, context, target, args) produce the
+  // same tag and hit the cache on the second call.
+  let image: string;
+  if (callerImageTag) {
+    // Caller supplied a custom tag (image + build coexistence); use it directly.
+    image = callerImageTag;
+  } else {
+    const hashInput = [
+      dockerfileContents,
+      buildContext ?? '',
+      target ?? '',
+      extraBuildArgs ? JSON.stringify(Object.entries(extraBuildArgs).sort()) : '',
+    ].join('\0');
+    const sha256 = createHash('sha256').update(hashInput).digest('hex');
+    const shortSha = sha256.slice(0, 12);
+    image = `${IMAGE_TAG_NAMESPACE}/build:${shortSha}`;
+  }
 
   logger.debug(
-    `[ecosystem-runtime/${logPrefix}] Dockerfile SHA-256: ${sha256}`,
+    `[ecosystem-runtime/${logPrefix}] Resolved image tag: ${image}`,
   );
 
   // ── 2. Probe for cached image ─────────────────────────────────────────────
@@ -206,6 +239,10 @@ export async function buildProjectImage(
     for (const [key, value] of Object.entries(extraBuildArgs)) {
       dockerBuildArgs.push('--build-arg', `${key}=${value}`);
     }
+  }
+
+  if (target) {
+    dockerBuildArgs.push('--target', target);
   }
 
   dockerBuildArgs.push(contextDir);

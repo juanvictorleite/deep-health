@@ -12,24 +12,23 @@ import { CLI_NAME } from '@infra/brand';
  * Resolve a containerized CommandRunner for the given ecosystem plugin.
  *
  * Image resolution precedence:
- *   When image_source='pull' (default):
+ *   When `build` is present in runner config:
+ *     - Calls `buildProjectImage()` with `ecosystems[].runner.build.dockerfile`.
+ *     - The result's `entrypointOverride` (always `""`) is forwarded to
+ *       `EphemeralEcosystemContainer` to prevent ENTRYPOINT hijacking.
+ *     - When `image` is also set alongside `build`, the custom image tag is passed
+ *       to `buildProjectImage` as `imageTag` (image + build coexistence pattern).
+ *
+ *   When `build` is absent (pull-based resolution):
  *     1. `ecosystems[].runner.image` — explicit image config (highest priority)
  *     2. `ecosystems[].runner.language_version` — explicit version → `spec.resolveImage(version)`
  *     3. `plugin.inferVersion(cwd)` — project-file version inference → `spec.resolveImage(version)`
  *     4. `spec.resolveImage(undefined)` → `spec.defaultImage` (fallback)
  *
- *   When image_source='dockerfile':
- *     - Calls `buildProjectImage()` with `ecosystems[].runner.dockerfile_path`.
- *     - The result's `entrypointOverride` (always `""`) is forwarded to
- *       `EphemeralEcosystemContainer` to prevent ENTRYPOINT hijacking.
- *     - `image` config MUST NOT be set when image_source='dockerfile'
- *       (enforced by schema superRefine).
- *
  * @param runnerConfig  Optional per-ecosystem runner config from `ecosystems[].runner`.
  *                      When absent, all image resolution falls through to plugin defaults.
  *
  * @throws {Error} when `plugin.runtimeSpec` is undefined (plugin has no runtime spec)
- * @throws {Error} when image_source='dockerfile' and dockerfile_path is missing
  */
 export async function resolveEcosystemRuntime(
   plugin: EcosystemPlugin,
@@ -51,12 +50,14 @@ export async function resolveEcosystemRuntime(
     | {
         image?: string;
         language_version?: string;
-        image_source?: string;
-        dockerfile_path?: string;
         native_deps?: readonly string[];
-        build_context?: string;
-        build_args?: Record<string, string>;
-        allow_build_context_escape?: boolean;
+        build?: {
+          dockerfile: string;
+          context?: string;
+          target?: string;
+          args?: Record<string, string>;
+          allow_context_escape?: boolean;
+        };
       }
     | undefined;
 
@@ -65,29 +66,25 @@ export async function resolveEcosystemRuntime(
   let image: string;
   let entrypointOverride: string | undefined;
 
-  const imageSource = runnerCfg?.image_source ?? 'pull';
-
-  if (imageSource === 'dockerfile') {
-    // ── Dockerfile branch ────────────────────────────────────────────────────
-    const dockerfilePath = runnerCfg?.dockerfile_path;
-    if (!dockerfilePath) {
-      throw new Error(
-        `[ecosystem-runtime/${plugin.id}] image_source="dockerfile" requires dockerfile_path to be configured under ecosystems[].runner (ecosystem id: ${plugin.id}).`,
-      );
-    }
+  if (runnerCfg?.build != null) {
+    // ── Build branch (project-owned Dockerfile) ──────────────────────────────
+    const build = runnerCfg.build;
 
     logger.info(
-      `[ecosystem-runtime/${plugin.id}] image_source=dockerfile — building project image from ${dockerfilePath}`,
+      `[ecosystem-runtime/${plugin.id}] build.dockerfile configured — building project image from ${build.dockerfile}`,
     );
 
     const buildResult = await buildProjectImage({
       projectDir: cwd,
-      dockerfilePath,
+      dockerfilePath: build.dockerfile,
       logPrefix: plugin.id,
       requiredBinaries: spec.containerBinaries,
-      buildContext: runnerCfg?.build_context,
-      buildArgs: runnerCfg?.build_args,
-      allowBuildContextEscape: runnerCfg?.allow_build_context_escape,
+      buildContext: build.context,
+      buildArgs: build.args,
+      allowBuildContextEscape: build.allow_context_escape,
+      target: build.target,
+      // When image is also set, use it as the custom tag (image + build coexistence).
+      imageTag: runnerCfg?.image,
     });
 
     image = buildResult.image;

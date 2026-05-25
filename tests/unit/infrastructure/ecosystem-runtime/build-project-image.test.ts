@@ -9,6 +9,9 @@
  *  - Binary presence probing (success + missing binary error path)
  *  - Dockerfile not found error
  *  - docker build failure error
+ *  - Multi-input hash: (dockerfile + context + target + args) — no logPrefix in tag
+ *  - --target flag in docker build when target is set
+ *  - imageTag option used directly when provided
  */
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import os from 'node:os';
@@ -75,11 +78,28 @@ const mockExecFile = vi.mocked(execFile);
 const mockResolveRoot = vi.mocked(resolveAllowedBuildContextRoot);
 const mockAssertBoundary = vi.mocked(assertBuildContextWithinBoundary);
 
-/** Resolve the stable image tag the way buildProjectImage does: sha256 of file contents. */
-async function stableTag(contents: string, logPrefix: string): Promise<string> {
+/**
+ * Replicates the hash logic used in buildProjectImage:
+ * SHA-256 of (dockerfile_contents + '\0' + context + '\0' + target + '\0' + sorted_args_json).
+ * Tag format: `${CLI_NAME}-project/build:<first12chars>`.
+ */
+async function stableTag(
+  contents: string,
+  options: {
+    buildContext?: string;
+    target?: string;
+    buildArgs?: Record<string, string>;
+  } = {},
+): Promise<string> {
   const { createHash } = await import('node:crypto');
-  const sha256 = createHash('sha256').update(contents).digest('hex');
-  return `${CLI_NAME}-project/${logPrefix}:${sha256.slice(0, 12)}`;
+  const hashInput = [
+    contents,
+    options.buildContext ?? '',
+    options.target ?? '',
+    options.buildArgs ? JSON.stringify(Object.entries(options.buildArgs).sort()) : '',
+  ].join('\0');
+  const sha256 = createHash('sha256').update(hashInput).digest('hex');
+  return `${CLI_NAME}-project/build:${sha256.slice(0, 12)}`;
 }
 
 describe('buildProjectImage', () => {
@@ -120,7 +140,7 @@ describe('buildProjectImage', () => {
     const dockerfileContents = 'FROM node:20\nRUN npm install -g npm@latest\n';
     await fs.writeFile(path.join(tmpDir, 'Dockerfile'), dockerfileContents);
 
-    const expectedImage = await stableTag(dockerfileContents, 'npm');
+    const expectedImage = await stableTag(dockerfileContents);
 
     // Simulate: docker image inspect exits 0 (cache hit)
     mockExecFile.mockResolvedValueOnce({ stdout: '[]', stderr: '' } as any);
@@ -146,7 +166,7 @@ describe('buildProjectImage', () => {
     const dockerfileContents = 'FROM python:3.11-slim\n';
     await fs.writeFile(path.join(tmpDir, 'Dockerfile'), dockerfileContents);
 
-    const expectedImage = await stableTag(dockerfileContents, 'pip');
+    const expectedImage = await stableTag(dockerfileContents);
 
     // docker image inspect fails → cache miss
     mockExecFile.mockRejectedValueOnce(new Error('No such image'));
@@ -180,8 +200,8 @@ describe('buildProjectImage', () => {
     const v1 = 'FROM node:20\n';
     const v2 = 'FROM node:22\n';
 
-    const tag1 = await stableTag(v1, 'npm');
-    const tag2 = await stableTag(v2, 'npm');
+    const tag1 = await stableTag(v1);
+    const tag2 = await stableTag(v2);
 
     expect(tag1).not.toBe(tag2);
 
@@ -230,7 +250,7 @@ describe('buildProjectImage', () => {
     const dockerfileContents = 'FROM node:20\n';
     await fs.writeFile(path.join(tmpDir, 'Dockerfile'), dockerfileContents);
 
-    const expectedImage = await stableTag(dockerfileContents, 'npm');
+    const expectedImage = await stableTag(dockerfileContents);
 
     mockExecFile
       .mockRejectedValueOnce(new Error('No such image'))  // inspect miss
@@ -319,7 +339,7 @@ describe('buildProjectImage', () => {
     // Dockerfile lives inside the docker/ subdirectory
     await fs.writeFile(path.join(dockerSubdir, 'Dockerfile'), dockerfileContents);
 
-    const expectedImage = await stableTag(dockerfileContents, 'npm');
+    const expectedImage = await stableTag(dockerfileContents, { buildContext: 'docker' });
 
     // Cache miss → build (spawnStreaming default mock succeeds)
     mockExecFile
@@ -400,7 +420,7 @@ describe('buildProjectImage', () => {
   it('probes binaries on cache hit and succeeds when all binaries are present', async () => {
     const dockerfileContents = 'FROM node:20\n';
     await fs.writeFile(path.join(tmpDir, 'Dockerfile'), dockerfileContents);
-    const expectedImage = await stableTag(dockerfileContents, 'npm');
+    const expectedImage = await stableTag(dockerfileContents);
 
     // Simulate: docker image inspect exits 0 (cache hit)
     mockExecFile.mockResolvedValueOnce({ stdout: '[]', stderr: '' } as any);
@@ -531,5 +551,151 @@ describe('buildProjectImage', () => {
 
     // docker commands must NOT have been called after the boundary throw
     expect(mockExecFile).not.toHaveBeenCalled();
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // AC1 dedup: same (dockerfile + context + target + args) → same tag, regardless of logPrefix
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  it('produces the same image tag for identical inputs regardless of logPrefix', async () => {
+    const dockerfileContents = 'FROM node:20\n';
+    await fs.writeFile(path.join(tmpDir, 'Dockerfile'), dockerfileContents);
+
+    const expectedTag = await stableTag(dockerfileContents);
+
+    // Call 1: logPrefix = 'npm' — cache hit
+    mockExecFile.mockResolvedValueOnce({ stdout: '[]', stderr: '' } as any);
+    const result1 = await buildProjectImage({
+      projectDir: tmpDir,
+      dockerfilePath: 'Dockerfile',
+      logPrefix: 'npm',
+    });
+
+    // Call 2: logPrefix = 'composer' — same Dockerfile → same tag → cache hit
+    mockExecFile.mockResolvedValueOnce({ stdout: '[]', stderr: '' } as any);
+    const result2 = await buildProjectImage({
+      projectDir: tmpDir,
+      dockerfilePath: 'Dockerfile',
+      logPrefix: 'composer',
+    });
+
+    expect(result1.image).toBe(expectedTag);
+    expect(result2.image).toBe(expectedTag);
+    expect(result1.image).toBe(result2.image);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // AC2: different target produces a different tag
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  it('produces a different image tag when target differs', async () => {
+    const dockerfileContents = 'FROM node:20\n';
+    await fs.writeFile(path.join(tmpDir, 'Dockerfile'), dockerfileContents);
+
+    const tagWithTarget = await stableTag(dockerfileContents, { target: 'node-stage' });
+    const tagWithoutTarget = await stableTag(dockerfileContents);
+
+    expect(tagWithTarget).not.toBe(tagWithoutTarget);
+
+    const tagDifferentTarget = await stableTag(dockerfileContents, { target: 'production' });
+    expect(tagWithTarget).not.toBe(tagDifferentTarget);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // AC2: --target flag appears in docker build args when target is set
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  it('passes --target flag to docker build when target is set', async () => {
+    const dockerfileContents = 'FROM node:20 AS node-stage\nRUN echo ok\n';
+    await fs.writeFile(path.join(tmpDir, 'Dockerfile'), dockerfileContents);
+
+    mockExecFile
+      .mockRejectedValueOnce(new Error('No such image'))  // inspect miss
+      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any);  // du
+
+    await buildProjectImage({
+      projectDir: tmpDir,
+      dockerfilePath: 'Dockerfile',
+      logPrefix: 'npm',
+      target: 'node-stage',
+    });
+
+    expect(spawnStreamingMock).toHaveBeenCalledTimes(1);
+    const spawnCall = spawnStreamingMock.mock.calls[0][0];
+    const args = spawnCall.args;
+    const targetIdx = args.indexOf('--target');
+    expect(targetIdx).toBeGreaterThanOrEqual(0);
+    expect(args[targetIdx + 1]).toBe('node-stage');
+    // --target must appear before the context dir (last arg)
+    expect(targetIdx).toBeLessThan(args.length - 1);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // AC3: imageTag option used directly when provided
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  it('uses imageTag directly as image name when imageTag is provided (cache hit path)', async () => {
+    const dockerfileContents = 'FROM node:20\n';
+    await fs.writeFile(path.join(tmpDir, 'Dockerfile'), dockerfileContents);
+
+    const customTag = 'myregistry.io/myapp:latest';
+    // Cache hit for the custom tag
+    mockExecFile.mockResolvedValueOnce({ stdout: '[]', stderr: '' } as any);
+
+    const result = await buildProjectImage({
+      projectDir: tmpDir,
+      dockerfilePath: 'Dockerfile',
+      logPrefix: 'npm',
+      imageTag: customTag,
+    });
+
+    expect(result.image).toBe(customTag);
+    // Verify docker image inspect was called with the custom tag, not a hash-based tag
+    expect(mockExecFile).toHaveBeenCalledWith('docker', ['image', 'inspect', customTag]);
+  });
+
+  it('uses imageTag directly as image name when imageTag is provided (cache miss path)', async () => {
+    const dockerfileContents = 'FROM node:20\n';
+    await fs.writeFile(path.join(tmpDir, 'Dockerfile'), dockerfileContents);
+
+    const customTag = 'myregistry.io/myapp:v1.2.3';
+    // Cache miss → build triggered
+    mockExecFile
+      .mockRejectedValueOnce(new Error('No such image'))  // inspect miss
+      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any);  // du
+
+    const result = await buildProjectImage({
+      projectDir: tmpDir,
+      dockerfilePath: 'Dockerfile',
+      logPrefix: 'npm',
+      imageTag: customTag,
+    });
+
+    expect(result.image).toBe(customTag);
+
+    const spawnCall = spawnStreamingMock.mock.calls[0][0];
+    expect(spawnCall.args).toContain('--tag');
+    expect(spawnCall.args).toContain(customTag);
+    // The tag must not be a hash-based auto-tag
+    expect(customTag).toContain(':v1.2.3');
+  });
+
+  it('does not incorporate logPrefix into the auto-generated tag (tag uses build segment)', async () => {
+    const dockerfileContents = 'FROM node:20\n';
+    await fs.writeFile(path.join(tmpDir, 'Dockerfile'), dockerfileContents);
+
+    mockExecFile.mockResolvedValueOnce({ stdout: '[]', stderr: '' } as any);
+
+    const result = await buildProjectImage({
+      projectDir: tmpDir,
+      dockerfilePath: 'Dockerfile',
+      logPrefix: 'npm',
+    });
+
+    // Tag should contain 'build:' segment, not 'npm:'
+    expect(result.image).toMatch(/\/build:[a-f0-9]{12}$/);
+    expect(result.image).not.toMatch(/\/npm:/);
+    expect(result.image).not.toMatch(/\/pip:/);
+    expect(result.image).not.toMatch(/\/composer:/);
   });
 });

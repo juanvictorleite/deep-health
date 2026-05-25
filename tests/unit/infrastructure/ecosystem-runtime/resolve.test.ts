@@ -1,14 +1,17 @@
 /**
- * Tests for resolveEcosystemRuntime — dockerfile image-source path.
+ * Tests for resolveEcosystemRuntime — build-based image resolution path.
  *
  * Covers:
- *  - image_source='dockerfile' calls buildProjectImage with correct args
+ *  - build config calls buildProjectImage with correct args
  *  - entrypointOverride from buildProjectImage is forwarded to EphemeralEcosystemContainer
  *  - requiredBinaries (from spec.containerBinaries) are passed to buildProjectImage
- *  - image_source='dockerfile' without dockerfile_path throws
- *  - image_source='pull' (default) does NOT call buildProjectImage
+ *  - build config without dockerfile throws (type-safe; build.dockerfile is required)
+ *  - no build config (pull-based) does NOT call buildProjectImage
+ *  - build.context and build.args forwarded correctly
+ *  - build.target forwarded to buildProjectImage
+ *  - image + build coexistence: imageTag is passed to buildProjectImage
  *
- * Runner config is now passed as the 5th parameter to resolveEcosystemRuntime
+ * Runner config is passed as the 5th parameter to resolveEcosystemRuntime
  * (per-ecosystem inline config from ecosystems[].runner).
  */
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
@@ -82,21 +85,27 @@ function makeConfig(): ProjectConfig {
   };
 }
 
-describe('resolveEcosystemRuntime — dockerfile image-source', () => {
+describe('resolveEcosystemRuntime — build-based image resolution', () => {
   beforeEach(() => {
     MockContainer.mockClear();
     MockContainer.mockImplementation(function () { return {} as any; });
     mockBuildProjectImage.mockReset();
   });
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 1. Basic build config → calls buildProjectImage with correct args
+  // ─────────────────────────────────────────────────────────────────────────────
+
   it('calls buildProjectImage with projectDir, dockerfilePath, logPrefix, and containerBinaries', async () => {
     mockBuildProjectImage.mockResolvedValue({
-      image: `${CLI_NAME}-project/npm:abc123`,
+      image: `${CLI_NAME}-project/build:abc123`,
       entrypointOverride: '',
     });
 
     const plugin = makePlugin();
-    const runnerConfig: RunnerConfig = { image_source: 'dockerfile', dockerfile_path: '.docker/node.Dockerfile' };
+    const runnerConfig: RunnerConfig = {
+      build: { dockerfile: '.docker/node.Dockerfile' },
+    };
 
     await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/my/project', runnerConfig);
 
@@ -106,35 +115,41 @@ describe('resolveEcosystemRuntime — dockerfile image-source', () => {
       dockerfilePath: '.docker/node.Dockerfile',
       logPrefix: 'npm',
       requiredBinaries: ['npm', 'npx'],
+      buildContext: undefined,
+      buildArgs: undefined,
+      allowBuildContextEscape: undefined,
+      target: undefined,
+      imageTag: undefined,
     });
   });
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 2. entrypointOverride is forwarded to EphemeralEcosystemContainer
+  // ─────────────────────────────────────────────────────────────────────────────
+
   it('forwards entrypointOverride from buildProjectImage result to EphemeralEcosystemContainer', async () => {
     mockBuildProjectImage.mockResolvedValue({
-      image: `${CLI_NAME}-project/npm:abc123`,
+      image: `${CLI_NAME}-project/build:abc123`,
       entrypointOverride: '',
     });
 
     const plugin = makePlugin();
-    const runnerConfig: RunnerConfig = { image_source: 'dockerfile', dockerfile_path: 'Dockerfile' };
+    const runnerConfig: RunnerConfig = {
+      build: { dockerfile: 'Dockerfile' },
+    };
 
     await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/project', runnerConfig);
 
     const containerOptions = (MockContainer as Mock).mock.calls[0][0] as Record<string, unknown>;
     expect(containerOptions.entrypointOverride).toBe('');
-    expect(containerOptions.image).toBe(`${CLI_NAME}-project/npm:abc123`);
+    expect(containerOptions.image).toBe(`${CLI_NAME}-project/build:abc123`);
   });
 
-  it('throws when image_source="dockerfile" but dockerfile_path is missing', async () => {
-    const plugin = makePlugin();
-    const runnerConfig = { image_source: 'dockerfile' } as unknown as RunnerConfig;
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 3. Pull-based: no build config → buildProjectImage NOT called
+  // ─────────────────────────────────────────────────────────────────────────────
 
-    await expect(
-      resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/project', runnerConfig),
-    ).rejects.toThrow(/dockerfile_path/);
-  });
-
-  it('does NOT call buildProjectImage when image_source is "pull" (default)', async () => {
+  it('does NOT call buildProjectImage when build is absent (pull-based with language_version)', async () => {
     const plugin = makePlugin();
     const runnerConfig: RunnerConfig = { language_version: '20' };
 
@@ -151,15 +166,19 @@ describe('resolveEcosystemRuntime — dockerfile image-source', () => {
     expect(mockBuildProjectImage).not.toHaveBeenCalled();
   });
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 4. Built image is used (not spec default)
+  // ─────────────────────────────────────────────────────────────────────────────
+
   it('uses the image returned by buildProjectImage (not the spec default image)', async () => {
-    const projectBuiltImage = `${CLI_NAME}-project/npm:deadbeef1234`;
+    const projectBuiltImage = `${CLI_NAME}-project/build:deadbeef1234`;
     mockBuildProjectImage.mockResolvedValue({
       image: projectBuiltImage,
       entrypointOverride: '',
     });
 
     const plugin = makePlugin();
-    const runnerConfig: RunnerConfig = { image_source: 'dockerfile', dockerfile_path: 'Dockerfile' };
+    const runnerConfig: RunnerConfig = { build: { dockerfile: 'Dockerfile' } };
 
     await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/project', runnerConfig);
 
@@ -169,18 +188,23 @@ describe('resolveEcosystemRuntime — dockerfile image-source', () => {
     expect(containerOptions.image).not.toBe('node:lts');
   });
 
-  it('forwards build_context and build_args from runner config to buildProjectImage', async () => {
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 5. build.context and build.args forwarded
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  it('forwards build.context and build.args from runner config to buildProjectImage', async () => {
     mockBuildProjectImage.mockResolvedValue({
-      image: `${CLI_NAME}-project/npm:abc123`,
+      image: `${CLI_NAME}-project/build:abc123`,
       entrypointOverride: '',
     });
 
     const plugin = makePlugin();
     const runnerConfig: RunnerConfig = {
-      image_source: 'dockerfile',
-      dockerfile_path: 'Dockerfile',
-      build_context: '../',
-      build_args: { NODE_VERSION: '20' },
+      build: {
+        dockerfile: 'Dockerfile',
+        context: '../',
+        args: { NODE_VERSION: '20' },
+      },
     };
 
     await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/my/project', runnerConfig);
@@ -193,9 +217,66 @@ describe('resolveEcosystemRuntime — dockerfile image-source', () => {
     );
   });
 
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 6. build.target forwarded to buildProjectImage
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  it('forwards build.target from runner config to buildProjectImage', async () => {
+    mockBuildProjectImage.mockResolvedValue({
+      image: `${CLI_NAME}-project/build:aabbccddee00`,
+      entrypointOverride: '',
+    });
+
+    const plugin = makePlugin();
+    const runnerConfig: RunnerConfig = {
+      build: {
+        dockerfile: 'Dockerfile',
+        target: 'node-stage',
+      },
+    };
+
+    await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/my/project', runnerConfig);
+
+    expect(mockBuildProjectImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: 'node-stage',
+      }),
+    );
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 7. image + build coexistence — imageTag is passed to buildProjectImage
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  it('passes imageTag to buildProjectImage when both image and build are set', async () => {
+    const customTag = 'myregistry.io/myapp:latest';
+    mockBuildProjectImage.mockResolvedValue({
+      image: customTag,
+      entrypointOverride: '',
+    });
+
+    const plugin = makePlugin();
+    const runnerConfig: RunnerConfig = {
+      image: customTag,
+      build: { dockerfile: 'Dockerfile' },
+    };
+
+    await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/my/project', runnerConfig);
+
+    expect(mockBuildProjectImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        imageTag: customTag,
+      }),
+    );
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  // 8. requiredBinaries from plugin spec (composer plugin)
+  // ─────────────────────────────────────────────────────────────────────────────
+
   it('passes requiredBinaries derived from spec.containerBinaries (composer plugin)', async () => {
     mockBuildProjectImage.mockResolvedValue({
-      image: `${CLI_NAME}-project/composer:abc`,
+      image: `${CLI_NAME}-project/build:abc`,
       entrypointOverride: '',
     });
 
@@ -208,7 +289,9 @@ describe('resolveEcosystemRuntime — dockerfile image-source', () => {
         runMode: { kind: 'shell-wrap' },
       },
     });
-    const runnerConfig = { image_source: 'dockerfile', dockerfile_path: '.docker/php.Dockerfile' } as unknown as RunnerConfig;
+    const runnerConfig: RunnerConfig = {
+      build: { dockerfile: '.docker/php.Dockerfile' },
+    } as unknown as RunnerConfig;
 
     await resolveEcosystemRuntime(composerPlugin, makeHostRunner(), makeConfig(), '/project', runnerConfig);
 
