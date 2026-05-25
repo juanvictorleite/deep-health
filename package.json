@@ -16,12 +16,12 @@
     "dev": "tsx bin/security-scan.ts",
     "build": "tsup",
     "build:sea": "tsup --config tsup.config.ts && node --experimental-sea-config sea-config.json",
-    "test": "vitest run --silent --reporter=vitest-llm-reporter tests/unit",
-    "test:verbose": "vitest run --reporter=verbose tests/unit tests/integration",
+    "test": "vitest run --silent=true --reporter=vitest-llm-reporter --project unit",
+    "test:verbose": "vitest run --reporter=verbose --project unit --project integration",
     "test:watch": "vitest",
-    "test:unit": "vitest run tests/unit",
-    "test:integration": "vitest run tests/integration",
-    "test:smoke": "vitest run tests/smoke",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "test:smoke": "vitest run --project smoke",
     "test:all": "vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
@@ -48,13 +48,12 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/semver": "^7.5.8",
-    "@vitest/coverage-v8": "^2.1.9",
+    "@vitest/coverage-v8": "^4.1.7",
     "postject": "^1.0.0-alpha.6",
     "tsup": "^8.2.4",
     "tsx": "^4.16.2",
     "typescript": "^5.5.4",
-    "vite-tsconfig-paths": "^5.1.4",
-    "vitest": "^2.1.9",
+    "vitest": "^4.1.7",
     "vitest-llm-reporter": "^1.2.2"
   }
 }

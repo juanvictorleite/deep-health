@@ -130,7 +130,7 @@ All user-visible names derive from `CLI_NAME` in `src/infrastructure/brand.ts`. 
 - Smoke tests run sequentially (single fork) with 120s test timeout and Docker cleanup via `tests/helpers/docker-cleanup.ts`.
 - Coverage thresholds: statements 100%, functions 100%, lines 100%, branches 88%.
 - Vitest globals are enabled — no need to import `describe`, `it`, `expect`.
-- Path-based invocation for targeting: `vitest run tests/<dir>` (inline projects do NOT support `--project` CLI filtering in vitest 2.x).
+- Path-based invocation for targeting: `vitest run tests/<dir>` or `vitest run --project unit` (vitest 4 inline projects support `--project` CLI filtering).
 
 ---
 

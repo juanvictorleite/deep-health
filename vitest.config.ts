@@ -1,26 +1,13 @@
 import { defineConfig } from 'vitest/config';
-import tsconfigPaths from 'vite-tsconfig-paths';
-import { resolve } from 'node:path';
-
-const sharedAlias = {
-  '@core': resolve(__dirname, 'src/core'),
-  '@modules': resolve(__dirname, 'src/modules'),
-  '@infra': resolve(__dirname, 'src/infrastructure'),
-  '@orchestration': resolve(__dirname, 'src/orchestration'),
-  '@reporting': resolve(__dirname, 'src/reporting'),
-  '@app': resolve(__dirname, 'src/app'),
-};
 
 export default defineConfig({
-  plugins: [tsconfigPaths()],
   resolve: {
-    alias: sharedAlias,
+    // Vite 6+ native tsconfig path resolution — replaces vite-tsconfig-paths plugin.
+    tsconfigPaths: true,
   },
   test: {
     globals: true,
     silent: true,
-    // Default run: all tests (preserves existing `pnpm test` behavior)
-    include: ['tests/**/*.test.ts'],
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
@@ -47,10 +34,8 @@ export default defineConfig({
       },
     },
     reporters: ['vitest-llm-reporter'],
-    // Named projects for targeted runs: pnpm test:unit, pnpm test:integration, pnpm test:smoke
-    // NOTE: vitest 2.x inline-project mode does NOT support `--project <name>` CLI filtering
-    // when projects are defined inline (not in a workspace file).
-    // Use path-based invocation instead: `vitest run tests/<dir>` (see package.json scripts).
+    // Named projects for targeted runs: npm run test:unit, npm run test:integration, npm run test:smoke
+    // vitest 4 inline-project mode supports `--project <name>` CLI filtering.
     projects: [
       {
         extends: true,
@@ -84,12 +69,12 @@ export default defineConfig({
           hookTimeout: 30_000,
           testTimeout: 120_000,
           // Run smoke tests sequentially to avoid port conflicts between provisioners.
+          // maxWorkers: 1 + isolate: false replaces vitest 2's poolOptions.forks.singleFork.
           pool: 'forks',
-          poolOptions: {
-            forks: {
-              singleFork: true,
-            },
-          },
+          maxWorkers: 1,
+          isolate: false,
+          // Unique groupOrder required when projects differ in maxWorkers (vitest 4 constraint).
+          sequence: { groupOrder: 1 },
           // Sweep orphaned SonarQube containers before and after the suite.
           globalSetup: ['tests/helpers/docker-cleanup.ts'],
         },
