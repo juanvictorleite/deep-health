@@ -270,10 +270,16 @@ describe('runEcosystemFix', () => {
 
   it('returns "success" with residualVerification when postUpdateOsvVerify=always and residual scan yields unverified', async () => {
     const residualScanJson = JSON.stringify({
-      ecosystems: {
-        npm: { vulnerabilities_total: 1 },
-        composer: { vulnerabilities_total: 0 },
-      },
+      results: [
+        {
+          packages: [
+            {
+              package: { name: 'lodash', version: '4.17.20', ecosystem: 'npm' },
+              vulnerabilities: [{ id: 'GHSA-test-0001', summary: 'test vuln' }],
+            },
+          ],
+        },
+      ],
     });
 
     const hostRunner = new MockRunner({ 'osv-scanner --lockfile package-lock.json --format json': residualScanJson });
@@ -295,7 +301,135 @@ describe('runEcosystemFix', () => {
     if (outcome.status === 'success') {
       expect(outcome.residualVerification).toEqual({
         status: 'unverified',
-        summary: { npm: 1, composer: 0 },
+        summary: { npm: 1 },
+      });
+    }
+  });
+
+  it('returns "verified" with empty summary when residual scan returns empty stdout (no vulnerabilities)', async () => {
+    // MockRunner returns empty stdout by default for unmatched commands
+    const hostRunner = new MockRunner();
+
+    const plugin = makePlugin({ postUpdateOsvVerify: 'always' });
+
+    const outcome = await runEcosystemFix({
+      plugin,
+      hostRunner,
+      config: makeConfig(),
+      scanResult: makeScan(),
+      cwd: '/project',
+      dryRun: false,
+      authorizeBreaking: false,
+      preRunSnapshots: undefined,
+    });
+
+    expect(outcome.status).toBe('success');
+    if (outcome.status === 'success') {
+      expect(outcome.residualVerification).toEqual({
+        status: 'verified',
+        summary: {},
+      });
+    }
+  });
+
+  it('returns "verified" with zero-count summary when residual scan returns JSON with no vulnerabilities', async () => {
+    const residualScanJson = JSON.stringify({
+      results: [
+        {
+          packages: [
+            {
+              package: { name: 'lodash', version: '4.17.21', ecosystem: 'npm' },
+              vulnerabilities: [],
+            },
+          ],
+        },
+      ],
+    });
+
+    const hostRunner = new MockRunner({ 'osv-scanner --lockfile package-lock.json --format json': residualScanJson });
+
+    const plugin = makePlugin({ postUpdateOsvVerify: 'always' });
+
+    const outcome = await runEcosystemFix({
+      plugin,
+      hostRunner,
+      config: makeConfig(),
+      scanResult: makeScan(),
+      cwd: '/project',
+      dryRun: false,
+      authorizeBreaking: false,
+      preRunSnapshots: undefined,
+    });
+
+    expect(outcome.status).toBe('success');
+    if (outcome.status === 'success') {
+      expect(outcome.residualVerification).toEqual({
+        status: 'verified',
+        summary: { npm: 0 },
+      });
+    }
+  });
+
+  it('returns "skipped" when residual scan returns invalid JSON', async () => {
+    const hostRunner = new MockRunner({ 'osv-scanner --lockfile package-lock.json --format json': 'not-valid-json' });
+
+    const plugin = makePlugin({ postUpdateOsvVerify: 'always' });
+
+    const outcome = await runEcosystemFix({
+      plugin,
+      hostRunner,
+      config: makeConfig(),
+      scanResult: makeScan(),
+      cwd: '/project',
+      dryRun: false,
+      authorizeBreaking: false,
+      preRunSnapshots: undefined,
+    });
+
+    expect(outcome.status).toBe('success');
+    if (outcome.status === 'success') {
+      expect(outcome.residualVerification).toEqual({ status: 'skipped' });
+    }
+  });
+
+  it('counts vulnerabilities across multiple packages and ecosystems correctly', async () => {
+    const residualScanJson = JSON.stringify({
+      results: [
+        {
+          packages: [
+            {
+              package: { name: 'lodash', version: '4.17.20', ecosystem: 'npm' },
+              vulnerabilities: [{ id: 'GHSA-npm-0001', summary: 'vuln 1' }, { id: 'GHSA-npm-0002', summary: 'vuln 2' }],
+            },
+            {
+              package: { name: 'guzzle', version: '7.0.0', ecosystem: 'Packagist' },
+              vulnerabilities: [{ id: 'GHSA-php-0001', summary: 'vuln 3' }],
+            },
+          ],
+        },
+      ],
+    });
+
+    const hostRunner = new MockRunner({ 'osv-scanner --lockfile package-lock.json --format json': residualScanJson });
+
+    const plugin = makePlugin({ postUpdateOsvVerify: 'always' });
+
+    const outcome = await runEcosystemFix({
+      plugin,
+      hostRunner,
+      config: makeConfig(),
+      scanResult: makeScan(),
+      cwd: '/project',
+      dryRun: false,
+      authorizeBreaking: false,
+      preRunSnapshots: undefined,
+    });
+
+    expect(outcome.status).toBe('success');
+    if (outcome.status === 'success') {
+      expect(outcome.residualVerification).toEqual({
+        status: 'unverified',
+        summary: { npm: 2, packagist: 1 },
       });
     }
   });

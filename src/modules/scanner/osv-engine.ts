@@ -41,7 +41,7 @@ type OsvVulnerability = {
   }>;
 };
 
-type OsvJsonOutput = {
+export type OsvJsonOutput = {
   results?: Array<{
     packages?: Array<{
       package?: { name?: string; version?: string; ecosystem?: string };

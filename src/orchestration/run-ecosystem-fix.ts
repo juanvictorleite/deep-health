@@ -18,6 +18,7 @@
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig, FixerStrategyId } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
+import type { OsvJsonOutput } from '@modules/scanner/osv-engine';
 import type { UpdateResultJson } from '@core/types/update';
 import type { ResidualVerification } from '@core/types/report';
 import type { EcosystemPlugin } from '@modules/ecosystem/types';
@@ -266,17 +267,29 @@ async function runOsvResidualVerification(
   logger.tagged('osv', 'OSV verify', `Running post-update OSV verification: ${command}`);
   try {
     const cmdResult = await osvRunner.run(command, { cwd });
-    let parsed: ScanResultJson;
+
+    // Empty stdout means no vulnerabilities found (osv-scanner exits 0 with no output)
+    if (!cmdResult.stdout.trim()) {
+      return { status: 'verified', summary: {} };
+    }
+
+    let data: OsvJsonOutput;
     try {
-      parsed = JSON.parse(cmdResult.stdout) as ScanResultJson;
+      data = JSON.parse(cmdResult.stdout) as OsvJsonOutput;
     } catch {
       logger.tagged('osv', 'OSV verify', 'Could not parse osv-scanner JSON output — treating as non-fatal', 'warn');
       return { status: 'skipped' };
     }
+
+    // Count vulnerabilities per ecosystem from the raw osv-scanner output
     const summary: Record<string, number> = {};
-    for (const [ecoId, ecoResult] of Object.entries(parsed.ecosystems ?? {})) {
-      summary[ecoId] = ecoResult.vulnerabilities_total;
+    for (const result of data.results ?? []) {
+      for (const pkg of result.packages ?? []) {
+        const eco = pkg.package?.ecosystem?.toLowerCase() ?? 'unknown';
+        summary[eco] = (summary[eco] ?? 0) + (pkg.vulnerabilities?.length ?? 0);
+      }
     }
+
     const hasResidual = Object.values(summary).some((n) => n > 0);
     if (hasResidual) {
       logger.tagged('osv', 'OSV verify', 'Residual CVEs detected after update — see summary for details', 'warn');
