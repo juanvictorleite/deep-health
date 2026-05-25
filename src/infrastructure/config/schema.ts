@@ -92,6 +92,37 @@ const BuildArgsSchema = z.record(
   z.string().regex(/^[^\n\r]*$/, 'Build arg value must not contain newlines'),
 );
 
+/**
+ * Validates a dockerfile_path value:
+ * - Must not start with './' (use 'Dockerfile' or 'docker/Dockerfile', not './Dockerfile')
+ * - Must not start with '../'
+ * - Must not contain '..' segments (path traversal prevention)
+ *
+ * Paths like '.docker/node.Dockerfile' are valid — they start with '.' but NOT './'.
+ */
+const DockerfilePathSchema = z.string().superRefine((val, ctx) => {
+  if (val.startsWith('./')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        'dockerfile_path must not start with ./ — use a relative path without the dot-slash prefix (e.g. Dockerfile)',
+    });
+  }
+  if (val.startsWith('../')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        'dockerfile_path must not start with ../ — parent directory traversal is not allowed (e.g. use docker/Dockerfile instead)',
+    });
+  }
+  if (val.split('/').some((seg) => seg === '..')) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'dockerfile_path must not contain .. segments',
+    });
+  }
+});
+
 /** npm runner config */
 const NpmRunnerConfigSchema = z
   .object({
@@ -121,7 +152,7 @@ const NpmRunnerConfigSchema = z
      * Required when image_source='dockerfile'.
      * Example: 'Dockerfile', '.docker/node.Dockerfile'
      */
-    dockerfile_path: z.string().optional(),
+    dockerfile_path: DockerfilePathSchema.optional(),
     /**
      * OS-level packages to install via apt-get before running npm commands.
      * Useful for native addons that require system libraries (e.g. sharp → libvips-dev).
@@ -290,7 +321,7 @@ const PipRunnerConfigSchema = z
      * Path to the Dockerfile relative to the project root.
      * Required when image_source='dockerfile'.
      */
-    dockerfile_path: z.string().optional(),
+    dockerfile_path: DockerfilePathSchema.optional(),
     /**
      * OS-level packages to install via apt-get before running pip commands.
      * Useful for packages with C extensions that require system libraries.
@@ -362,7 +393,7 @@ const ComposerRunnerConfigSchema = z
      * Required when image_source='dockerfile'.
      * Example: 'Dockerfile', '.docker/php.Dockerfile'
      */
-    dockerfile_path: z.string().optional(),
+    dockerfile_path: DockerfilePathSchema.optional(),
     /**
      * OS-level packages to install via apt-get before running composer commands.
      * Useful for PHP extensions that require system libraries.

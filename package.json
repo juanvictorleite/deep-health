@@ -16,7 +16,7 @@
     "dev": "tsx bin/security-scan.ts",
     "build": "tsup",
     "build:sea": "tsup --config tsup.config.ts && node --experimental-sea-config sea-config.json",
-    "test": "vitest run --silent --reporter=vitest-llm-reporter tests/unit tests/integration",
+    "test": "vitest run --silent --reporter=vitest-llm-reporter tests/unit",
     "test:verbose": "vitest run --reporter=verbose tests/unit tests/integration",
     "test:watch": "vitest",
     "test:unit": "vitest run tests/unit",

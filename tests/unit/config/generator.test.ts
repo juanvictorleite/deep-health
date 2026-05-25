@@ -377,7 +377,7 @@ describe('generateConfigYaml — dockerfile image_source options', () => {
         runner: {
           language_version: '20',
           image_source: 'dockerfile',
-          dockerfile_path: './Dockerfile',
+          dockerfile_path: 'Dockerfile',
           build_context: '.',
           build_args: { NODE_ENV: 'production', APP_VERSION: '1.0' },
           allow_build_context_escape: true,
@@ -402,7 +402,7 @@ describe('generateConfigYaml — dockerfile image_source options', () => {
     expect(npmEntry?.runner).toBeDefined();
     expect(npmEntry?.runner?.language_version).toBe('20');
     expect(npmEntry?.runner?.image_source).toBe('dockerfile');
-    expect(npmEntry?.runner?.dockerfile_path).toBe('./Dockerfile');
+    expect(npmEntry?.runner?.dockerfile_path).toBe('Dockerfile');
     expect(npmEntry?.runner?.build_context).toBe('.');
     expect(npmEntry?.runner?.allow_build_context_escape).toBe(true);
 

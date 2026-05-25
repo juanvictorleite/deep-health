@@ -80,8 +80,8 @@ async function collectRunnerConfig(opts: CollectRunnerConfigOpts): Promise<Ecosy
     );
     if (imageSource === 'dockerfile') {
       runnerData.image_source = 'dockerfile';
-      const dfPath = await prompt(t.dockerfilePathPrompt(pluginName), './Dockerfile');
-      runnerData.dockerfile_path = dfPath.trim() || './Dockerfile';
+      const dfPath = await prompt(t.dockerfilePathPrompt(pluginName), 'Dockerfile');
+      runnerData.dockerfile_path = dfPath.trim() || 'Dockerfile';
       const ctxAnswer = await prompt(t.buildContextPrompt(pluginName), '');
       runnerData.build_context = ctxAnswer.trim() || '.';
       const buildArgsAnswer = await prompt(t.buildArgsPrompt(pluginName), '');

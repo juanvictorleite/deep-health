@@ -123,6 +123,52 @@ describe('ProjectConfigSchema — image_source superRefine validation (per-ecosy
     });
   });
 
+  // ─── dockerfile_path relative path validation ─────────────────────────────
+
+  describe('ecosystems[npm].runner — dockerfile_path relative path validation', () => {
+    const validPaths = ['Dockerfile', '.docker/node.Dockerfile', 'docker/Dockerfile'];
+    const invalidPaths = ['./Dockerfile', '../Dockerfile', 'some/../Dockerfile'];
+
+    for (const dockerfilePath of validPaths) {
+      it(`passes when dockerfile_path is '${dockerfilePath}'`, () => {
+        const result = ProjectConfigSchema.safeParse(
+          makeConfigWithEcosystemRunner('npm', {
+            image_source: 'dockerfile',
+            dockerfile_path: dockerfilePath,
+          }),
+        );
+        expect(result.success).toBe(true);
+      });
+    }
+
+    for (const dockerfilePath of invalidPaths) {
+      it(`fails when dockerfile_path is '${dockerfilePath}'`, () => {
+        const result = ProjectConfigSchema.safeParse(
+          makeConfigWithEcosystemRunner('npm', {
+            image_source: 'dockerfile',
+            dockerfile_path: dockerfilePath,
+          }),
+        );
+        expect(result.success).toBe(false);
+      });
+    }
+
+    it("rejects '../Dockerfile' with the parent-traversal error message (not the dot-slash message)", () => {
+      const result = ProjectConfigSchema.safeParse(
+        makeConfigWithEcosystemRunner('npm', {
+          image_source: 'dockerfile',
+          dockerfile_path: '../Dockerfile',
+        }),
+      );
+      expect(result.success).toBe(false);
+      const messages = result.error?.issues.map((i) => i.message) ?? [];
+      expect(messages.some((m) => m.includes('must not start with ../'))).toBe(true);
+      expect(messages.some((m) => m.includes('parent directory traversal is not allowed'))).toBe(true);
+      // The old (incorrect) message mentioned './' — ensure it is gone
+      expect(messages.every((m) => !m.match(/must not start with \.\//))).toBe(true);
+    });
+  });
+
   // ─── composer ──────────────────────────────────────────────────────────────
 
   describe('ecosystems[composer].runner', () => {

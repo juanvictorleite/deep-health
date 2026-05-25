@@ -205,7 +205,7 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
   const ecosystems = configEntries.map(buildEcosystemTemplateContext);
 
   // Resolve selected ecosystem ids for protected_packages
-  const selectedIds = ecosystems.map((e) => e.id);
+  const selectedIds = ecosystems.map((e) => e.id as string);
 
   // Always emit all known ecosystem keys in protected_packages for schema compatibility.
   const allKnownIds = ['composer', 'npm', 'pip'];
