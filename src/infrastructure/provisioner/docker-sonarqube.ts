@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createServer } from 'node:net';
 import type { ServiceProvisioner, DockerSonarQubeProvisionerOptions } from './types';
+import { __ } from '@core/i18n';
 import { logger } from '../utils/logger';
 import { registerShutdownHook } from '../utils/shutdown-hooks';
 
@@ -84,7 +85,7 @@ async function waitForSonarQube(
   }
 
   throw new Error(
-    `SonarQube provisioner: service did not become ready within ${timeoutMs}ms${dockerLogsTail}`,
+    __('SonarQube provisioner: service did not become ready within {{timeoutMs}}ms{{dockerLogsTail}}', { timeoutMs, dockerLogsTail }),
   );
 }
 
@@ -218,7 +219,7 @@ export class DockerSonarQubeProvisioner implements ServiceProvisioner {
 
   async waitReady(timeoutMs?: number): Promise<void> {
     if (this.containerName === null || this.resolvedPort === null) {
-      throw new Error('SonarQube provisioner: provision() must be called before waitReady()');
+      throw new Error(__('SonarQube provisioner: provision() must be called before waitReady()'));
     }
 
     await waitForSonarQube(

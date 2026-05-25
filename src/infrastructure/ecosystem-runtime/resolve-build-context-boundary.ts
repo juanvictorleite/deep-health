@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { __ } from '@core/i18n';
 import { logger } from '../utils/logger';
 
 const execFileAsync = promisify(execFile);
@@ -65,16 +66,11 @@ export async function assertBuildContextWithinBoundary(opts: {
 
   if (allowEscape !== true) {
     throw new Error(
-      `[ecosystem-runtime/${logPrefix}] build_context resolves outside the allowed project boundary.\n` +
-        `  Context:  ${realContextDir}\n` +
-        `  Boundary: ${realAllowedRoot} (${boundaryLabel})\n` +
-        `Set allow_build_context_escape: true under scanners.<ecosystem> to allow this explicitly.`,
+      __('[ecosystem-runtime/{{logPrefix}}] build_context resolves outside the allowed project boundary.\n  Context:  {{contextDir}}\n  Boundary: {{allowedRoot}} ({{boundaryLabel}})\nSet allow_build_context_escape: true under scanners.<ecosystem> to allow this explicitly.', { logPrefix, contextDir: realContextDir, allowedRoot: realAllowedRoot, boundaryLabel }),
     );
   }
 
   logger.warn(
-    `[ecosystem-runtime/${logPrefix}] build_context "${realContextDir}" is outside the project boundary ("${realAllowedRoot}"). ` +
-      `The full directory tree will be sent to the Docker daemon — this may expose sensitive files. ` +
-      `Set allow_build_context_escape: false to enforce the boundary.`,
+    __('[ecosystem-runtime/{{logPrefix}}] build_context "{{contextDir}}" is outside the project boundary ("{{allowedRoot}}"). The full directory tree will be sent to the Docker daemon — this may expose sensitive files. Set allow_build_context_escape: false to enforce the boundary.', { logPrefix, contextDir: realContextDir, allowedRoot: realAllowedRoot }),
   );
 }

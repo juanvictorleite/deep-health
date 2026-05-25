@@ -1,4 +1,5 @@
 import type { CommandRunner } from '@core/types/common';
+import { __ } from '@core/i18n';
 import { logger } from '@infra/utils/logger';
 
 export interface CreateBranchResult {
@@ -36,8 +37,9 @@ export async function createBranchAndCommit(
   // Create the new branch
   const checkoutResult = await runner.runArgs('git', ['checkout', '-b', branchName], { cwd });
   if (checkoutResult.exitCode !== 0) {
+    const detail = checkoutResult.stderr || checkoutResult.stdout;
     throw new Error(
-      `Failed to create branch "${branchName}": ${checkoutResult.stderr || checkoutResult.stdout}`,
+      __('Failed to create branch "{{branchName}}": {{detail}}', { branchName, detail }),
     );
   }
   logger.info(`Created branch: ${branchName}`);
@@ -85,7 +87,8 @@ export async function createBranchAndCommit(
       logger.info('No changes to commit after fix — working tree is clean.');
       return { branch: branchName, committed: false, exitCode: 0 };
     }
-    throw new Error(`git commit failed: ${commitResult.stderr || commitResult.stdout}`);
+    const detail = commitResult.stderr || commitResult.stdout;
+    throw new Error(__('git commit failed: {{detail}}', { detail }));
   }
 
   logger.info(`Committed changes on branch: ${branchName}`);

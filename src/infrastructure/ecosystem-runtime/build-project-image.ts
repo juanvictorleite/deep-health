@@ -23,6 +23,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { __ } from '@core/i18n';
 import { logger } from '../utils/logger';
 import { spawnStreaming } from '../utils/spawn-streaming';
 import {
@@ -147,7 +148,7 @@ export async function buildProjectImage(
   // ── Security: reject absolute dockerfilePath from caller ─────────────────
   if (path.isAbsolute(dockerfilePath)) {
     throw new Error(
-      `[ecosystem-runtime/${logPrefix}] dockerfilePath must be a relative path; absolute paths are rejected for security reasons: "${dockerfilePath}"`,
+      __('[ecosystem-runtime/{{logPrefix}}] dockerfilePath must be a relative path; absolute paths are rejected for security reasons: "{{dockerfilePath}}"', { logPrefix, dockerfilePath }),
     );
   }
 
@@ -177,7 +178,7 @@ export async function buildProjectImage(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(
-      `[ecosystem-runtime/${logPrefix}] Dockerfile not found at "${absoluteDockerfile}": ${message}`,
+      __('[ecosystem-runtime/{{logPrefix}}] Dockerfile not found at "{{absoluteDockerfile}}": {{message}}', { logPrefix, absoluteDockerfile, message }),
     );
   }
 
@@ -258,7 +259,7 @@ export async function buildProjectImage(
   if (buildResult.exitCode !== 0) {
     const detail = buildResult.stderr || buildResult.stdout;
     throw new Error(
-      `[ecosystem-runtime/${logPrefix}] docker build failed for "${dockerfilePath}":\n${detail}`,
+      __('[ecosystem-runtime/{{logPrefix}}] docker build failed for "{{dockerfilePath}}":\n{{detail}}', { logPrefix, dockerfilePath, detail }),
     );
   }
 
@@ -308,9 +309,9 @@ async function warnIfLargeContext(
         .then(() => true)
         .catch(() => false);
       if (!hasDockerignore) {
+        const sizeMB = Math.round(bytes / (1024 * 1024));
         logger.tagged(logPrefix, `ecosystem-runtime/${logPrefix}`,
-          `Build context is large (~${Math.round(bytes / (1024 * 1024))} MB). ` +
-            `Consider adding a .dockerignore to exclude node_modules, vendor, .git, etc.`,
+          __('Build context is large (~{{sizeMB}} MB). Consider adding a .dockerignore to exclude node_modules, vendor, .git, etc.', { sizeMB }),
           'warn',
         );
       }
@@ -360,10 +361,10 @@ async function probeBinariesInImage(
   }
 
   if (missing.length > 0) {
+    const binaryWord = missing.length === 1 ? 'binary' : 'binaries';
+    const missingList = missing.join(', ');
     throw new Error(
-      `[ecosystem-runtime/${logPrefix}] Project image "${image}" is missing required ` +
-        `ecosystem ${missing.length === 1 ? 'binary' : 'binaries'}: ${missing.join(', ')}. ` +
-        `Ensure your Dockerfile installs the required tools (e.g. npm, pip, composer).`,
+      __('[ecosystem-runtime/{{logPrefix}}] Project image "{{image}}" is missing required ecosystem {{binaryWord}}: {{missingList}}. Ensure your Dockerfile installs the required tools (e.g. npm, pip, composer).', { logPrefix, image, binaryWord, missingList }),
     );
   }
 }

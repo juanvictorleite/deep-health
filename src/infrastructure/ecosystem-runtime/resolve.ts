@@ -2,6 +2,7 @@ import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig, RunnerConfig } from '@core/types/config';
 import type { EcosystemPlugin } from '@modules/ecosystem/types';
 import type { RunMode } from './types';
+import { __ } from '@core/i18n';
 import { logger } from '../utils/logger';
 import { EcosystemContainerCommandRunner } from './command-runner';
 import { EphemeralEcosystemContainer } from './ephemeral-container';
@@ -39,7 +40,7 @@ export async function resolveEcosystemRuntime(
 ): Promise<CommandRunner> {
   if (plugin.runtimeSpec === undefined) {
     throw new Error(
-      `Plugin '${plugin.id}' has no runtimeSpec; cannot resolve a runtime container.`,
+      __("Plugin '{{pluginId}}' has no runtimeSpec; cannot resolve a runtime container.", { pluginId: plugin.id }),
     );
   }
 
