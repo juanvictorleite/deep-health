@@ -1,7 +1,7 @@
 import { writeFile, access, mkdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
-import { generateConfigYaml, type GenerateConfigOptions } from '@infra/config/generator';
+import { generateConfigYaml, type GenerateConfigOptions, type EcosystemRunnerConfig } from '@infra/config/generator';
 import { writeSonarPropertiesTemplateIfMissing } from './sonar-properties-template';
 import { prompt } from '@infra/utils/prompt';
 import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
@@ -110,28 +110,6 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   // ─── Per-ecosystem config ────────────────────────────────────────────────────
 
   const ecosystemConfigs: GenerateConfigOptions['ecosystemConfigs'] = [];
-  /** Inferred npm language version (written to runners.npm.language_version, not ecosystem entry). */
-  let npmLanguageVersion: string | undefined;
-  /** Inferred Python language version (written to runners.pip.language_version, not ecosystem entry). */
-  let pipLanguageVersion: string | undefined;
-  /** Inferred PHP language version (written to runners.composer.language_version, not ecosystem entry). */
-  let composerLanguageVersion: string | undefined;
-
-  // Dockerfile image-source options — one set per ecosystem scanner
-  let npmImageSource: 'pull' | 'dockerfile' | undefined;
-  let npmDockerfilePath: string | undefined;
-  let npmBuildContext: string | undefined;
-  let npmBuildArgs: Record<string, string> | undefined;
-
-  let pipImageSource: 'pull' | 'dockerfile' | undefined;
-  let pipDockerfilePath: string | undefined;
-  let pipBuildContext: string | undefined;
-  let pipBuildArgs: Record<string, string> | undefined;
-
-  let composerImageSource: 'pull' | 'dockerfile' | undefined;
-  let composerDockerfilePath: string | undefined;
-  let composerBuildContext: string | undefined;
-  let composerBuildArgs: Record<string, string> | undefined;
 
   for (const id of selectedEcosystemIds) {
     const plugin = defaultRegistry.get(id)!;
@@ -195,24 +173,26 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       ? await plugin.inferVersion(opts.cwd)
       : undefined;
 
+    // Build per-ecosystem runner object
+    const runnerData: EcosystemRunnerConfig = {};
+
     if (id === 'npm') {
-      // npm language version is stored in runners.npm.language_version, not in the ecosystem entry.
-      let resolvedVersion: string | undefined;
+      // npm language version
       if (!opts.nonInteractive) {
         const versionDefault = inferredVersion ?? '';
         const versionPromptMsg = inferredVersion
           ? t.languageVersionPromptWithInferred(plugin.name, inferredVersion)
           : t.languageVersionPromptBlank(plugin.name);
         const versionAnswer = await prompt(versionPromptMsg, versionDefault);
-        resolvedVersion = versionAnswer.trim() || undefined;
+        const resolvedVersion = versionAnswer.trim() || undefined;
+        if (resolvedVersion) runnerData.language_version = resolvedVersion;
       } else {
-        resolvedVersion = inferredVersion;
+        if (inferredVersion) runnerData.language_version = inferredVersion;
       }
-      npmLanguageVersion = resolvedVersion;
 
       // image_source prompts for npm scanner
       if (!opts.nonInteractive) {
-        npmImageSource = await selectPrompt(
+        const imageSource = await selectPrompt(
           t.imageSourcePrompt(plugin.name),
           [
             { name: t.imageSourceDockerfile, value: 'dockerfile' as const },
@@ -220,35 +200,34 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
           ],
           'dockerfile',
         );
-        if (npmImageSource === 'dockerfile') {
+        if (imageSource === 'dockerfile') {
+          runnerData.image_source = 'dockerfile';
           const dfPath = await prompt(t.dockerfilePathPrompt(plugin.name), './Dockerfile');
-          npmDockerfilePath = dfPath.trim() || './Dockerfile';
+          runnerData.dockerfile_path = dfPath.trim() || './Dockerfile';
           const ctxAnswer = await prompt(t.buildContextPrompt(plugin.name), '');
-          npmBuildContext = ctxAnswer.trim() || '.';
+          runnerData.build_context = ctxAnswer.trim() || '.';
           const buildArgsAnswer = await prompt(t.buildArgsPrompt(plugin.name), '');
-          npmBuildArgs = parseBuildArgs(buildArgsAnswer);
+          const parsedArgs = parseBuildArgs(buildArgsAnswer);
+          if (parsedArgs) runnerData.build_args = parsedArgs;
         }
-      } else {
-        npmImageSource = 'pull';
       }
     } else if (id === 'composer') {
-      // composer PHP language version is stored in runners.composer.language_version
-      let resolvedVersion: string | undefined;
+      // composer PHP language version
       if (!opts.nonInteractive) {
         const versionDefault = inferredVersion ?? '';
         const versionPromptMsg = inferredVersion
           ? t.phpVersionPromptWithInferred(plugin.name, inferredVersion)
           : t.phpVersionPromptBlank(plugin.name);
         const versionAnswer = await prompt(versionPromptMsg, versionDefault);
-        resolvedVersion = versionAnswer.trim() || undefined;
+        const resolvedVersion = versionAnswer.trim() || undefined;
+        if (resolvedVersion) runnerData.language_version = resolvedVersion;
       } else {
-        resolvedVersion = inferredVersion;
+        if (inferredVersion) runnerData.language_version = inferredVersion;
       }
-      composerLanguageVersion = resolvedVersion;
 
       // image_source prompts for composer scanner
       if (!opts.nonInteractive) {
-        composerImageSource = await selectPrompt(
+        const imageSource = await selectPrompt(
           t.imageSourcePrompt(plugin.name),
           [
             { name: t.imageSourceDockerfile, value: 'dockerfile' as const },
@@ -256,35 +235,34 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
           ],
           'dockerfile',
         );
-        if (composerImageSource === 'dockerfile') {
+        if (imageSource === 'dockerfile') {
+          runnerData.image_source = 'dockerfile';
           const dfPath = await prompt(t.dockerfilePathPrompt(plugin.name), './Dockerfile');
-          composerDockerfilePath = dfPath.trim() || './Dockerfile';
+          runnerData.dockerfile_path = dfPath.trim() || './Dockerfile';
           const ctxAnswer = await prompt(t.buildContextPrompt(plugin.name), '');
-          composerBuildContext = ctxAnswer.trim() || '.';
+          runnerData.build_context = ctxAnswer.trim() || '.';
           const buildArgsAnswer = await prompt(t.buildArgsPrompt(plugin.name), '');
-          composerBuildArgs = parseBuildArgs(buildArgsAnswer);
+          const parsedArgs = parseBuildArgs(buildArgsAnswer);
+          if (parsedArgs) runnerData.build_args = parsedArgs;
         }
-      } else {
-        composerImageSource = 'pull';
       }
     } else if (id === 'pip') {
-      // pip Python language version is stored in runners.pip.language_version
-      let resolvedPipVersion: string | undefined;
+      // pip Python language version
       if (!opts.nonInteractive) {
         const versionDefault = inferredVersion ?? '';
         const versionPromptMsg = inferredVersion
           ? t.pythonVersionPromptWithInferred(plugin.name, inferredVersion)
           : t.pythonVersionPromptBlank(plugin.name);
         const versionAnswer = await prompt(versionPromptMsg, versionDefault);
-        resolvedPipVersion = versionAnswer.trim() || undefined;
+        const resolvedPipVersion = versionAnswer.trim() || undefined;
+        if (resolvedPipVersion) runnerData.language_version = resolvedPipVersion;
       } else {
-        resolvedPipVersion = inferredVersion;
+        if (inferredVersion) runnerData.language_version = inferredVersion;
       }
-      pipLanguageVersion = resolvedPipVersion;
 
       // image_source prompts for pip scanner
       if (!opts.nonInteractive) {
-        pipImageSource = await selectPrompt(
+        const imageSource = await selectPrompt(
           t.imageSourcePrompt(plugin.name),
           [
             { name: t.imageSourceDockerfile, value: 'dockerfile' as const },
@@ -292,22 +270,28 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
           ],
           'dockerfile',
         );
-        if (pipImageSource === 'dockerfile') {
+        if (imageSource === 'dockerfile') {
+          runnerData.image_source = 'dockerfile';
           const dfPath = await prompt(t.dockerfilePathPrompt(plugin.name), './Dockerfile');
-          pipDockerfilePath = dfPath.trim() || './Dockerfile';
+          runnerData.dockerfile_path = dfPath.trim() || './Dockerfile';
           const ctxAnswer = await prompt(t.buildContextPrompt(plugin.name), '');
-          pipBuildContext = ctxAnswer.trim() || '.';
+          runnerData.build_context = ctxAnswer.trim() || '.';
           const buildArgsAnswer = await prompt(t.buildArgsPrompt(plugin.name), '');
-          pipBuildArgs = parseBuildArgs(buildArgsAnswer);
+          const parsedArgs = parseBuildArgs(buildArgsAnswer);
+          if (parsedArgs) runnerData.build_args = parsedArgs;
         }
-      } else {
-        pipImageSource = 'pull';
       }
     }
-    // Note: language versions are stored in the runner config block (runners.npm.language_version,
-    // runners.pip.language_version, runners.composer.language_version), not in the ecosystem entry.
 
-    ecosystemConfigs.push({ id, fixerStrategy, validationCommands, advisors });
+    // Only attach runner if there's actual data to include
+    const hasRunnerData = Object.keys(runnerData).length > 0;
+    ecosystemConfigs.push({
+      id,
+      fixerStrategy,
+      validationCommands,
+      advisors,
+      ...(hasRunnerData ? { runner: runnerData } : {}),
+    });
   }
 
   // ─── Scanner options ─────────────────────────────────────────────────────────
@@ -361,21 +345,6 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     ecosystemConfigs,
     enableSonarQube,
     sonarQubeMode,
-    npmLanguageVersion,
-    pipLanguageVersion,
-    composerLanguageVersion,
-    npmImageSource,
-    npmDockerfilePath,
-    npmBuildContext,
-    npmBuildArgs,
-    pipImageSource,
-    pipDockerfilePath,
-    pipBuildContext,
-    pipBuildArgs,
-    composerImageSource,
-    composerDockerfilePath,
-    composerBuildContext,
-    composerBuildArgs,
     outputs: outputFormats.length > 0 || outputsDir
       ? { formats: outputFormats, dir: outputsDir }
       : undefined,

@@ -33,7 +33,16 @@ ecosystems:
 {{/if}}{{#if hasAdvisors}}    advisors:
 {{#each advisors}}      - name: '{{name}}'
         command: '{{command}}'
-{{/each}}{{/if}}
+{{/each}}{{/if}}{{#if hasRunner}}    # runner: container config for this ecosystem's scan/fix execution
+    runner:
+{{#if runner.language_version}}      language_version: '{{runner.language_version}}'
+{{/if}}{{#if runner.image_source}}      image_source: '{{runner.image_source}}'
+{{/if}}{{#if runner.dockerfile_path}}      dockerfile_path: '{{runner.dockerfile_path}}'
+{{/if}}{{#if runner.build_context}}      build_context: '{{runner.build_context}}'
+{{/if}}{{#if runner.build_args}}      build_args:
+{{#each runner.build_args}}        {{key}}: '{{value}}'
+{{/each}}{{/if}}{{#if runner.allow_build_context_escape}}      allow_build_context_escape: true
+{{/if}}{{/if}}
 {{/each}}
 # Add packages that must not be auto-upgraded beyond their constraint.
 protected_packages:

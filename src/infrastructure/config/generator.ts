@@ -2,16 +2,6 @@ import Handlebars from 'handlebars';
 import type { SupportedLocale } from '@core/types/locale';
 import type { OutputFormat } from '@core/types/config';
 import configTemplate from './templates/project-config.hbs';
-import npmRunnerBlockTemplate from './templates/npm-runner-block.hbs';
-import pipRunnerBlockTemplate from './templates/pip-runner-block.hbs';
-import composerRunnerBlockTemplate from './templates/composer-runner-block.hbs';
-
-Handlebars.registerPartial('npm-runner-block', npmRunnerBlockTemplate);
-Handlebars.registerPartial('pip-runner-block', pipRunnerBlockTemplate);
-Handlebars.registerPartial(
-  'composer-runner-block',
-  composerRunnerBlockTemplate,
-);
 
 /**
  * Config / init scaffolding generates a declarative project-config.yml.
@@ -28,11 +18,21 @@ Handlebars.registerPartial(
  * update this generator only when you want first-class `init` scaffolding.
  */
 
+export interface EcosystemRunnerConfig {
+  language_version?: string;
+  image_source?: 'pull' | 'dockerfile';
+  dockerfile_path?: string;
+  build_context?: string;
+  build_args?: Record<string, string>;
+  allow_build_context_escape?: boolean;
+}
+
 export interface EcosystemConfigEntry {
   id: string;
   fixerStrategy?: string;
   validationCommands?: Array<{ name: string; command: string }>;
   advisors?: Array<{ name: string; command: string }>;
+  runner?: EcosystemRunnerConfig;
 }
 
 export interface GenerateConfigOptions {
@@ -54,108 +54,6 @@ export interface GenerateConfigOptions {
   sonarQubeMode?: 'managed' | 'external';
   /** Outputs config for report generation */
   outputs?: { formats?: OutputFormat[]; dir?: string };
-  /**
-   * Inferred Node.js language version to persist into `runners.npm.language_version`.
-   * When set, the generated config includes this value so the orchestrator can use it
-   * for Docker image resolution without running inferVersion() at scan time.
-   * Example: '20', '20.11'
-   */
-  npmLanguageVersion?: string;
-  /**
-   * Inferred Python language version to persist into `runners.pip.language_version`.
-   * When set, the generated config includes this value so the orchestrator can use it
-   * for Docker image resolution without running inferVersion() at scan time.
-   * Example: '3.11', '3.11.2'
-   */
-  pipLanguageVersion?: string;
-  /**
-   * Inferred PHP language version to persist into `runners.composer.language_version`.
-   * When set, the generated config includes this value so the orchestrator can use it
-   * for Docker image resolution without running inferVersion() at scan time.
-   * Example: '8.2', '8.2.1'
-   */
-  composerLanguageVersion?: string;
-  /**
-   * Image source for the npm runner container.
-   * - 'pull' (default): pull a registry image.
-   * - 'dockerfile': build from a project-owned Dockerfile; requires `npmDockerfilePath`.
-   */
-  npmImageSource?: 'pull' | 'dockerfile';
-  /**
-   * Path to the Dockerfile to use for the npm container (relative to project root).
-   * Only written when `npmImageSource='dockerfile'`.
-   * Example: 'Dockerfile', '.docker/node.Dockerfile'
-   */
-  npmDockerfilePath?: string;
-  /**
-   * Image source for the pip runner container.
-   * - 'pull' (default): pull a registry image.
-   * - 'dockerfile': build from a project-owned Dockerfile; requires `pipDockerfilePath`.
-   */
-  pipImageSource?: 'pull' | 'dockerfile';
-  /**
-   * Path to the Dockerfile to use for the pip container (relative to project root).
-   * Only written when `pipImageSource='dockerfile'`.
-   */
-  pipDockerfilePath?: string;
-  /**
-   * Image source for the composer runner container.
-   * - 'pull' (default): pull a registry image.
-   * - 'dockerfile': build from a project-owned Dockerfile; requires `composerDockerfilePath`.
-   */
-  composerImageSource?: 'pull' | 'dockerfile';
-  /**
-   * Path to the Dockerfile to use for the composer container (relative to project root).
-   * Only written when `composerImageSource='dockerfile'`.
-   * Example: 'Dockerfile', '.docker/php.Dockerfile'
-   */
-  composerDockerfilePath?: string;
-  /**
-   * Build context directory for the npm Docker build, relative to project root.
-   * Only written when `npmImageSource='dockerfile'`.
-   * Defaults to project root when absent.
-   */
-  npmBuildContext?: string;
-  /**
-   * Build arguments for the npm Docker build (KEY=VALUE pairs).
-   * Only written when `npmImageSource='dockerfile'`.
-   */
-  npmBuildArgs?: Record<string, string>;
-  /**
-   * Build context directory for the pip Docker build, relative to project root.
-   * Only written when `pipImageSource='dockerfile'`.
-   */
-  pipBuildContext?: string;
-  /**
-   * Build arguments for the pip Docker build (KEY=VALUE pairs).
-   * Only written when `pipImageSource='dockerfile'`.
-   */
-  pipBuildArgs?: Record<string, string>;
-  /**
-   * Build context directory for the composer Docker build, relative to project root.
-   * Only written when `composerImageSource='dockerfile'`.
-   */
-  composerBuildContext?: string;
-  /**
-   * Build arguments for the composer Docker build (KEY=VALUE pairs).
-   * Only written when `composerImageSource='dockerfile'`.
-   */
-  composerBuildArgs?: Record<string, string>;
-  /**
-   * When true, persists `allow_build_context_escape: true` into the npm runner config.
-   * Only relevant when `npmImageSource='dockerfile'`. Default: false (boundary enforced).
-   */
-  npmAllowBuildContextEscape?: boolean;
-  /**
-   * When true, persists `allow_build_context_escape: true` into the pip runner config.
-   * Only relevant when `pipImageSource='dockerfile'`. Default: false (boundary enforced).
-   */
-  pipAllowBuildContextEscape?: boolean;
-  /**
-   * When true, persists `allow_build_context_escape: true` into the composer runner config.
-   * Only relevant when `composerImageSource='dockerfile'`. Default: false (boundary enforced).
-   */
-  composerAllowBuildContextEscape?: boolean;
 }
 
 const compiled = Handlebars.compile(configTemplate, { noEscape: true });
@@ -247,15 +145,51 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
       ? opts.ecosystemConfigs
       : DEFAULT_ECOSYSTEM_CONFIGS;
 
-  const ecosystems = configEntries.map((entry) => ({
-    id: entry.id,
-    hasFixer: !!entry.fixerStrategy,
-    fixer: entry.fixerStrategy,
-    hasValidationCommands: (entry.validationCommands?.length ?? 0) > 0,
-    validationCommands: entry.validationCommands ?? [],
-    hasAdvisors: (entry.advisors?.length ?? 0) > 0,
-    advisors: entry.advisors ?? [],
-  }));
+  const ecosystems = configEntries.map((entry) => {
+    const runner = entry.runner;
+    const hasRunner = !!(
+      runner &&
+      (runner.language_version ||
+        runner.image_source === 'dockerfile' ||
+        runner.build_context ||
+        runner.build_args)
+    );
+
+    // Build template-friendly runner context
+    const runnerContext = hasRunner && runner
+      ? {
+          language_version: runner.language_version,
+          // Only emit image_source when it's 'dockerfile'
+          image_source: runner.image_source === 'dockerfile' ? 'dockerfile' : undefined,
+          dockerfile_path:
+            runner.image_source === 'dockerfile' ? runner.dockerfile_path : undefined,
+          build_context:
+            runner.image_source === 'dockerfile' ? runner.build_context : undefined,
+          build_args:
+            runner.image_source === 'dockerfile' &&
+            runner.build_args &&
+            Object.keys(runner.build_args).length > 0
+              ? Object.entries(runner.build_args).map(([k, v]) => ({ key: k, value: v }))
+              : undefined,
+          allow_build_context_escape:
+            runner.image_source === 'dockerfile'
+              ? runner.allow_build_context_escape
+              : undefined,
+        }
+      : undefined;
+
+    return {
+      id: entry.id,
+      hasFixer: !!entry.fixerStrategy,
+      fixer: entry.fixerStrategy,
+      hasValidationCommands: (entry.validationCommands?.length ?? 0) > 0,
+      validationCommands: entry.validationCommands ?? [],
+      hasAdvisors: (entry.advisors?.length ?? 0) > 0,
+      advisors: entry.advisors ?? [],
+      hasRunner,
+      runner: runnerContext,
+    };
+  });
 
   // Resolve selected ecosystem ids for protected_packages
   const selectedIds = ecosystems.map((e) => e.id);
@@ -296,78 +230,5 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
     hasOutputs,
     outputFormats,
     outputsDir,
-    npmLanguageVersion: opts.npmLanguageVersion,
-    pipLanguageVersion: opts.pipLanguageVersion,
-    composerLanguageVersion: opts.composerLanguageVersion,
-    hasAnyRunnerConfig: !!(
-      opts.npmLanguageVersion ||
-      opts.pipLanguageVersion ||
-      opts.composerLanguageVersion ||
-      opts.npmImageSource === 'dockerfile' ||
-      opts.pipImageSource === 'dockerfile' ||
-      opts.composerImageSource === 'dockerfile'
-    ),
-    // Dockerfile image-source options
-    npmImageSource:
-      opts.npmImageSource === 'dockerfile' ? 'dockerfile' : undefined,
-    npmDockerfilePath:
-      opts.npmImageSource === 'dockerfile' ? opts.npmDockerfilePath : undefined,
-    npmBuildContext:
-      opts.npmImageSource === 'dockerfile' ? opts.npmBuildContext : undefined,
-    npmBuildArgs:
-      opts.npmImageSource === 'dockerfile' &&
-      opts.npmBuildArgs &&
-      Object.keys(opts.npmBuildArgs).length > 0
-        ? Object.entries(opts.npmBuildArgs).map(([k, v]) => ({
-            key: k,
-            value: v,
-          }))
-        : undefined,
-    pipImageSource:
-      opts.pipImageSource === 'dockerfile' ? 'dockerfile' : undefined,
-    pipDockerfilePath:
-      opts.pipImageSource === 'dockerfile' ? opts.pipDockerfilePath : undefined,
-    pipBuildContext:
-      opts.pipImageSource === 'dockerfile' ? opts.pipBuildContext : undefined,
-    pipBuildArgs:
-      opts.pipImageSource === 'dockerfile' &&
-      opts.pipBuildArgs &&
-      Object.keys(opts.pipBuildArgs).length > 0
-        ? Object.entries(opts.pipBuildArgs).map(([k, v]) => ({
-            key: k,
-            value: v,
-          }))
-        : undefined,
-    composerImageSource:
-      opts.composerImageSource === 'dockerfile' ? 'dockerfile' : undefined,
-    composerDockerfilePath:
-      opts.composerImageSource === 'dockerfile'
-        ? opts.composerDockerfilePath
-        : undefined,
-    composerBuildContext:
-      opts.composerImageSource === 'dockerfile'
-        ? opts.composerBuildContext
-        : undefined,
-    composerBuildArgs:
-      opts.composerImageSource === 'dockerfile' &&
-      opts.composerBuildArgs &&
-      Object.keys(opts.composerBuildArgs).length > 0
-        ? Object.entries(opts.composerBuildArgs).map(([k, v]) => ({
-            key: k,
-            value: v,
-          }))
-        : undefined,
-    npmAllowBuildContextEscape:
-      opts.npmImageSource === 'dockerfile'
-        ? opts.npmAllowBuildContextEscape
-        : undefined,
-    pipAllowBuildContextEscape:
-      opts.pipImageSource === 'dockerfile'
-        ? opts.pipAllowBuildContextEscape
-        : undefined,
-    composerAllowBuildContextEscape:
-      opts.composerImageSource === 'dockerfile'
-        ? opts.composerAllowBuildContextEscape
-        : undefined,
   });
 }

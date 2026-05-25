@@ -149,7 +149,14 @@ describe('runInitCommand — composer non-interactive with inferred version', ()
     } as Parameters<typeof runInitCommand>[0]);
 
     expect(vi.mocked(generateConfigYaml)).toHaveBeenCalledWith(
-      expect.objectContaining({ composerLanguageVersion: expect.any(String) }),
+      expect.objectContaining({
+        ecosystemConfigs: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'composer',
+            runner: expect.objectContaining({ language_version: expect.any(String) }),
+          }),
+        ]),
+      }),
     );
   });
 });

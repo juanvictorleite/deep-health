@@ -100,22 +100,24 @@ describe('runInitCommand — non-interactive', () => {
 
     expect(generateConfigYaml).toHaveBeenCalledWith(
       expect.objectContaining({
-        // npm language version is now routed to runners.npm.language_version, not ecosystem entry
-        npmLanguageVersion: '20',
         ecosystemConfigs: expect.arrayContaining([
-          // version must NOT be present on npm ecosystem entry
-          expect.objectContaining({ id: 'npm' }),
+          // npm ecosystem entry should have runner.language_version set
+          expect.objectContaining({
+            id: 'npm',
+            runner: expect.objectContaining({ language_version: '20' }),
+          }),
           expect.objectContaining({ id: 'composer' }),
         ]),
       }),
     );
-    // Verify version is NOT on the npm ecosystem entry
+    // Verify version is on the npm ecosystem entry's runner, not as a top-level version field
     const call = vi.mocked(generateConfigYaml).mock.calls[0]![0];
     const npmEntry = call.ecosystemConfigs?.find((e) => e.id === 'npm');
-    expect(npmEntry?.version).toBeUndefined();
+    expect(npmEntry?.runner?.language_version).toBe('20');
+    expect((npmEntry as any)?.version).toBeUndefined();
   });
 
-  it('passes inferred composer PHP version to composerRuntimeVersion in non-interactive mode', async () => {
+  it('passes inferred composer PHP version as runner.language_version in non-interactive mode', async () => {
     const { readFile } = await import('node:fs/promises');
     const mockReadFile = vi.mocked(readFile);
 
@@ -141,7 +143,12 @@ describe('runInitCommand — non-interactive', () => {
 
     expect(generateConfigYaml).toHaveBeenCalledWith(
       expect.objectContaining({
-        composerLanguageVersion: '8.2',
+        ecosystemConfigs: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'composer',
+            runner: expect.objectContaining({ language_version: '8.2' }),
+          }),
+        ]),
       }),
     );
   });
@@ -197,17 +204,19 @@ describe('runInitCommand — interactive version prompts', () => {
 
     expect(generateConfigYaml).toHaveBeenCalledWith(
       expect.objectContaining({
-        // npm language version routed to top-level npmLanguageVersion, not ecosystem entry
-        npmLanguageVersion: '20',
         ecosystemConfigs: expect.arrayContaining([
-          expect.objectContaining({ id: 'npm' }),
+          expect.objectContaining({
+            id: 'npm',
+            runner: expect.objectContaining({ language_version: '20' }),
+          }),
         ]),
       }),
     );
-    // Verify version is NOT on the npm ecosystem entry
+    // Verify version is on runner, not on the npm ecosystem entry directly
     const npmEntryCheck = vi.mocked(generateConfigYaml).mock.calls[0]![0];
     const npmEcoEntry = npmEntryCheck.ecosystemConfigs?.find((e) => e.id === 'npm');
-    expect(npmEcoEntry?.version).toBeUndefined();
+    expect(npmEcoEntry?.runner?.language_version).toBe('20');
+    expect((npmEcoEntry as any)?.version).toBeUndefined();
 
     // Verify that the version prompt for npm was called with the inferred value as default
     const npmVersionPromptCall = mockPrompt.mock.calls.find(
@@ -250,19 +259,19 @@ describe('runInitCommand — interactive version prompts', () => {
       output: 'project-config.yml',
     });
 
+    // Blank response → runner.language_version should be undefined (no runner or runner without language_version)
+    const blankVersionCall = vi.mocked(generateConfigYaml).mock.calls[0]![0];
+    const npmBlankEntry = blankVersionCall.ecosystemConfigs?.find((e) => e.id === 'npm');
+    // Either no runner attached, or runner without language_version
+    expect(npmBlankEntry?.runner?.language_version).toBeUndefined();
+    expect((npmBlankEntry as any)?.version).toBeUndefined();
     expect(generateConfigYaml).toHaveBeenCalledWith(
       expect.objectContaining({
-        // Blank response → npmLanguageVersion should be undefined
-        npmLanguageVersion: undefined,
         ecosystemConfigs: expect.arrayContaining([
           expect.objectContaining({ id: 'npm' }),
         ]),
       }),
     );
-    // Verify version is NOT on the npm ecosystem entry
-    const blankVersionCall = vi.mocked(generateConfigYaml).mock.calls[0]![0];
-    const npmBlankEntry = blankVersionCall.ecosystemConfigs?.find((e) => e.id === 'npm');
-    expect(npmBlankEntry?.version).toBeUndefined();
   });
 
   it('does not prompt for version of a non-selected ecosystem', async () => {
@@ -363,31 +372,40 @@ describe('runInitCommand — interactive dockerfile image_source prompts', () =>
       output: 'project-config.yml',
     });
 
-    expect(generateConfigYaml).toHaveBeenCalledWith(
-      expect.objectContaining({
-        npmImageSource: 'dockerfile',
-        npmDockerfilePath: '.docker/node.Dockerfile',
-        npmBuildContext: 'docker/',
-        npmBuildArgs: {
-          NODE_VERSION: '22',
-          APP_ENV: 'production',
-        },
-        pipImageSource: 'dockerfile',
-        pipDockerfilePath: '.docker/pip.Dockerfile',
-        pipBuildContext: 'python/',
-        pipBuildArgs: {
-          PYTHON_VERSION: '3.11',
-          PIP_INDEX_URL: 'https://pypi.org/simple',
-        },
-        composerImageSource: 'dockerfile',
-        composerDockerfilePath: '.docker/php.Dockerfile',
-        composerBuildContext: '.docker/',
-        composerBuildArgs: {
-          PHP_VERSION: '8.2',
-          APP_ENV: 'production',
-        },
-      }),
-    );
+    const call = vi.mocked(generateConfigYaml).mock.calls[0]![0];
+    const npmEco = call.ecosystemConfigs?.find((e) => e.id === 'npm');
+    const pipEco = call.ecosystemConfigs?.find((e) => e.id === 'pip');
+    const composerEco = call.ecosystemConfigs?.find((e) => e.id === 'composer');
+
+    expect(npmEco?.runner).toMatchObject({
+      image_source: 'dockerfile',
+      dockerfile_path: '.docker/node.Dockerfile',
+      build_context: 'docker/',
+      build_args: {
+        NODE_VERSION: '22',
+        APP_ENV: 'production',
+      },
+    });
+
+    expect(pipEco?.runner).toMatchObject({
+      image_source: 'dockerfile',
+      dockerfile_path: '.docker/pip.Dockerfile',
+      build_context: 'python/',
+      build_args: {
+        PYTHON_VERSION: '3.11',
+        PIP_INDEX_URL: 'https://pypi.org/simple',
+      },
+    });
+
+    expect(composerEco?.runner).toMatchObject({
+      image_source: 'dockerfile',
+      dockerfile_path: '.docker/php.Dockerfile',
+      build_context: '.docker/',
+      build_args: {
+        PHP_VERSION: '8.2',
+        APP_ENV: 'production',
+      },
+    });
   });
 });
 
