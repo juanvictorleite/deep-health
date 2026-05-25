@@ -8,6 +8,30 @@ const shared = {
   external: ['googleapis', 'google-auth-library'],
 };
 
+/**
+ * Injected at the very top of CLI and SEA bundles (before any import hoisting).
+ * Silently drops the Node.js ExperimentalWarning about localStorage that is
+ * triggered by dependencies (debug, docx) probing globalThis.localStorage at
+ * ESM import time. Only the specific localStorage ExperimentalWarning is
+ * suppressed — all other warnings pass through unchanged.
+ */
+export const SUPPRESS_LOCALSTORAGE_WARNING_BANNER = `
+(function() {
+  var _origEmit = process.emit.bind(process);
+  process.emit = function(event) {
+    if (
+      event === 'warning' &&
+      arguments[1] &&
+      arguments[1].name === 'ExperimentalWarning' &&
+      /localStorage/.test(arguments[1].message)
+    ) {
+      return false;
+    }
+    return _origEmit.apply(process, arguments);
+  };
+})();
+`.trim();
+
 export default defineConfig([
   {
     // Library entry — generates DTS for programmatic consumers
@@ -22,6 +46,7 @@ export default defineConfig([
     entry: ["bin/security-scan.ts"],
     clean: false, // preserve library output from first build
     dts: false,
+    banner: { js: SUPPRESS_LOCALSTORAGE_WARNING_BANNER },
   },
   {
     // SEA (Single Executable Application) bundle — CJS only, all deps inlined.
@@ -42,5 +67,6 @@ export default defineConfig([
       'process.env.CLI_NAME': JSON.stringify('security-scan'),
       'process.env.NPM_DEFAULT_FIXER': JSON.stringify('osv-then-audit'),
     },
+    banner: { js: SUPPRESS_LOCALSTORAGE_WARNING_BANNER },
   },
 ]);
