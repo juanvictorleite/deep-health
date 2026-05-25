@@ -59,6 +59,63 @@ export interface GenerateConfigOptions {
 const compiled = Handlebars.compile(configTemplate, { noEscape: true });
 
 /**
+ * Build the template-friendly runner context for a single ecosystem entry.
+ *
+ * Returns undefined when no meaningful runner configuration is present so the
+ * template can skip the runner block entirely.
+ */
+function buildRunnerContext(
+  runner: EcosystemRunnerConfig,
+): Record<string, unknown> | undefined {
+  const isDockerfile = runner.image_source === 'dockerfile';
+  const hasRunner = !!(
+    runner.language_version ||
+    isDockerfile ||
+    runner.build_context ||
+    runner.build_args
+  );
+
+  if (!hasRunner) return undefined;
+
+  const buildArgsList =
+    isDockerfile && runner.build_args && Object.keys(runner.build_args).length > 0
+      ? Object.entries(runner.build_args).map(([k, v]) => ({ key: k, value: v }))
+      : undefined;
+
+  return {
+    language_version: runner.language_version,
+    // Only emit image_source when it is 'dockerfile'
+    image_source: isDockerfile ? 'dockerfile' : undefined,
+    dockerfile_path: isDockerfile ? runner.dockerfile_path : undefined,
+    build_context: isDockerfile ? runner.build_context : undefined,
+    build_args: buildArgsList,
+    allow_build_context_escape: isDockerfile ? runner.allow_build_context_escape : undefined,
+  };
+}
+
+/**
+ * Build the template-friendly context object for a single ecosystem config entry.
+ *
+ * Separating this from the map callback keeps generateConfigYaml readable and
+ * ensures per-ecosystem logic can be tested in isolation.
+ */
+function buildEcosystemTemplateContext(entry: EcosystemConfigEntry): Record<string, unknown> {
+  const runnerContext = entry.runner ? buildRunnerContext(entry.runner) : undefined;
+
+  return {
+    id: entry.id,
+    hasFixer: !!entry.fixerStrategy,
+    fixer: entry.fixerStrategy,
+    hasValidationCommands: (entry.validationCommands?.length ?? 0) > 0,
+    validationCommands: entry.validationCommands ?? [],
+    hasAdvisors: (entry.advisors?.length ?? 0) > 0,
+    advisors: entry.advisors ?? [],
+    hasRunner: runnerContext !== undefined,
+    runner: runnerContext,
+  };
+}
+
+/**
  * Normalize a project name into a valid SonarQube project_key.
  *
  * SonarQube project keys may only contain letters, digits, hyphens (-),
@@ -145,51 +202,7 @@ export function generateConfigYaml(opts: GenerateConfigOptions = {}): string {
       ? opts.ecosystemConfigs
       : DEFAULT_ECOSYSTEM_CONFIGS;
 
-  const ecosystems = configEntries.map((entry) => {
-    const runner = entry.runner;
-    const hasRunner = !!(
-      runner &&
-      (runner.language_version ||
-        runner.image_source === 'dockerfile' ||
-        runner.build_context ||
-        runner.build_args)
-    );
-
-    // Build template-friendly runner context
-    const runnerContext = hasRunner && runner
-      ? {
-          language_version: runner.language_version,
-          // Only emit image_source when it's 'dockerfile'
-          image_source: runner.image_source === 'dockerfile' ? 'dockerfile' : undefined,
-          dockerfile_path:
-            runner.image_source === 'dockerfile' ? runner.dockerfile_path : undefined,
-          build_context:
-            runner.image_source === 'dockerfile' ? runner.build_context : undefined,
-          build_args:
-            runner.image_source === 'dockerfile' &&
-            runner.build_args &&
-            Object.keys(runner.build_args).length > 0
-              ? Object.entries(runner.build_args).map(([k, v]) => ({ key: k, value: v }))
-              : undefined,
-          allow_build_context_escape:
-            runner.image_source === 'dockerfile'
-              ? runner.allow_build_context_escape
-              : undefined,
-        }
-      : undefined;
-
-    return {
-      id: entry.id,
-      hasFixer: !!entry.fixerStrategy,
-      fixer: entry.fixerStrategy,
-      hasValidationCommands: (entry.validationCommands?.length ?? 0) > 0,
-      validationCommands: entry.validationCommands ?? [],
-      hasAdvisors: (entry.advisors?.length ?? 0) > 0,
-      advisors: entry.advisors ?? [],
-      hasRunner,
-      runner: runnerContext,
-    };
-  });
+  const ecosystems = configEntries.map(buildEcosystemTemplateContext);
 
   // Resolve selected ecosystem ids for protected_packages
   const selectedIds = ecosystems.map((e) => e.id);
