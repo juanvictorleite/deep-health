@@ -185,10 +185,10 @@ describe('runOAuthFlow', () => {
     mocks.execFile.mockReset();
     mocks.getToken.mockReset();
     mocks.generateAuthUrl.mockReset().mockReturnValue('https://accounts.google.com/auth?test=1');
-    mocks.OAuth2Ctor.mockImplementation(() => ({
+    mocks.OAuth2Ctor.mockImplementation(function () { return {
       generateAuthUrl: mocks.generateAuthUrl,
       getToken: mocks.getToken,
-    }));
+    }; });
     mocks.resetServer();
   });
 

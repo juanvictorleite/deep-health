@@ -30,9 +30,9 @@ const {
 }));
 
 vi.mock('@infra/provisioner/osv-runner.js', () => ({
-  OsvDockerRunner: vi.fn().mockImplementation(() => ({
+  OsvDockerRunner: vi.fn().mockImplementation(function () { return {
     run: mockOsvDockerRunnerRun,
-  })),
+  }; }),
 }));
 
 vi.mock('node:fs/promises', () => ({

@@ -5,9 +5,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@infra/storage/local', () => ({
-  LocalStorageProvider: vi.fn().mockImplementation(() => ({
+  LocalStorageProvider: vi.fn().mockImplementation(function () { return {
     upload: vi.fn().mockResolvedValue({ url: '/local/report.md', id: 'report.md', provider: 'local' }),
-  })),
+  }; }),
 }));
 
 vi.mock('@infra/storage/factory', () => ({
@@ -96,9 +96,9 @@ describe('saveSonarQubeExport()', () => {
 
     // Make LocalStorageProvider throw
     const { LocalStorageProvider } = await import('@infra/storage/local');
-    vi.mocked(LocalStorageProvider).mockImplementation(() => ({
+    vi.mocked(LocalStorageProvider).mockImplementation(function () { return {
       upload: vi.fn().mockRejectedValue(new Error('disk full')),
-    }));
+    }; });
 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     await saveSonarQubeExport({}, 'project', '2026-04-24', '/reports', undefined, '/cwd');

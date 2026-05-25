@@ -16,7 +16,7 @@ const {
   const mockUserinfoGet = vi.fn();
   const mockFilesListGdrive = vi.fn();
   const mockSetCredentials = vi.fn();
-  const mockOAuth2Constructor = vi.fn(() => ({ setCredentials: mockSetCredentials }));
+  const mockOAuth2Constructor = vi.fn(function () { return { setCredentials: mockSetCredentials }; });
   const mockConfirmPrompt = vi.fn();
   const mockSelectPrompt = vi.fn();
   const mockInputPrompt = vi.fn();

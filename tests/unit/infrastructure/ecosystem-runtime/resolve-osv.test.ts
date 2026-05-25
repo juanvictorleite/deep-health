@@ -24,11 +24,11 @@ vi.mock('@infra/utils/logger', () => ({
 }));
 
 vi.mock('@infra/ecosystem-runtime/ephemeral-container', () => ({
-  EphemeralEcosystemContainer: vi.fn().mockImplementation((opts: unknown) => ({ _opts: opts })),
+  EphemeralEcosystemContainer: vi.fn().mockImplementation(function (opts: unknown) { return { _opts: opts }; }),
 }));
 
 vi.mock('@infra/ecosystem-runtime/command-runner', () => ({
-  EcosystemContainerCommandRunner: vi.fn().mockImplementation((opts: unknown) => ({ _opts: opts })),
+  EcosystemContainerCommandRunner: vi.fn().mockImplementation(function (opts: unknown) { return { _opts: opts }; }),
 }));
 
 import { resolveOsvRuntime } from '@infra/ecosystem-runtime/resolve-osv';

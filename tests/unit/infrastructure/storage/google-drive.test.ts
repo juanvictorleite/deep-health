@@ -8,10 +8,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockFilesCreate = vi.fn();
 const mockSetCredentials = vi.fn();
 const mockOn = vi.fn();
-const mockOAuth2 = vi.fn(() => ({
+const mockOAuth2 = vi.fn(function () { return {
   setCredentials: mockSetCredentials,
   on: mockOn,
-}));
+}; });
 
 vi.mock('googleapis', () => ({
   google: {

@@ -19,7 +19,7 @@ vi.mock('@infra/ecosystem-runtime/ephemeral-container', () => ({
 }));
 
 vi.mock('@infra/ecosystem-runtime/command-runner', () => ({
-  EcosystemContainerCommandRunner: vi.fn().mockReturnValue({}),
+  EcosystemContainerCommandRunner: vi.fn().mockImplementation(function () { return {}; }),
 }));
 
 import { resolveEcosystemRuntime } from '@infra/ecosystem-runtime/resolve';
@@ -75,7 +75,7 @@ function makeConfig(): ProjectConfig {
 describe('resolveEcosystemRuntime — native_deps preamble', () => {
   beforeEach(() => {
     MockContainer.mockClear();
-    MockContainer.mockImplementation(() => ({} as any));
+    MockContainer.mockImplementation(function () { return {} as any; });
   });
 
   it('passes runMode with apt-get preamble when native_deps is configured', async () => {

@@ -22,7 +22,7 @@ vi.mock('@infra/ecosystem-runtime/ephemeral-container', () => ({
 }));
 
 vi.mock('@infra/ecosystem-runtime/command-runner', () => ({
-  EcosystemContainerCommandRunner: vi.fn().mockReturnValue({}),
+  EcosystemContainerCommandRunner: vi.fn().mockImplementation(function () { return {}; }),
 }));
 
 vi.mock('@infra/ecosystem-runtime/build-project-image', () => ({
@@ -85,7 +85,7 @@ function makeConfig(): ProjectConfig {
 describe('resolveEcosystemRuntime — dockerfile image-source', () => {
   beforeEach(() => {
     MockContainer.mockClear();
-    MockContainer.mockImplementation(() => ({} as any));
+    MockContainer.mockImplementation(function () { return {} as any; });
     mockBuildProjectImage.mockReset();
   });
 

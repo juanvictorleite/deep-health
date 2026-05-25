@@ -10,11 +10,11 @@ vi.mock('@infra/config/loader', () => ({
 }));
 
 vi.mock('@infra/executor/local-executor', () => ({
-  LocalExecutor: vi.fn().mockImplementation(() => ({
+  LocalExecutor: vi.fn().mockImplementation(function () { return {
     environment: 'local',
     dryRun: false,
     run: vi.fn(),
-  })),
+  }; }),
 }));
 
 vi.mock('@infra/utils/logger', () => ({

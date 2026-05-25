@@ -11,9 +11,9 @@ import type { StorageProvider, UploadResult } from '@infra/storage/provider';
 
 // Mock the local storage provider and factory before importing saveReport
 vi.mock('@infra/storage/local', () => ({
-  LocalStorageProvider: vi.fn().mockImplementation(() => ({
+  LocalStorageProvider: vi.fn().mockImplementation(function () { return {
     upload: vi.fn().mockResolvedValue({ url: '/local/report.md', id: 'report.md', provider: 'local' }),
-  })),
+  }; }),
 }));
 
 vi.mock('@infra/storage/factory', () => ({

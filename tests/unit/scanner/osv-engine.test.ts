@@ -25,9 +25,7 @@ import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 const mockDockerRun = vi.fn();
 
 vi.mock('@infra/provisioner/osv-runner.js', () => ({
-  OsvDockerRunner: vi.fn().mockImplementation(() => ({
-    run: mockDockerRun,
-  })),
+  OsvDockerRunner: vi.fn().mockImplementation(function () { return { run: mockDockerRun }; }),
 }));
 
 import { OsvDockerRunner } from '@infra/provisioner/osv-runner';

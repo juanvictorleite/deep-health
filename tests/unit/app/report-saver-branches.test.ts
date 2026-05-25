@@ -7,9 +7,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@infra/storage/local', () => ({
-  LocalStorageProvider: vi.fn().mockImplementation(() => ({
+  LocalStorageProvider: vi.fn().mockImplementation(function () { return {
     upload: vi.fn().mockResolvedValue({ url: '/local/report.md', id: 'report.md', provider: 'local' }),
-  })),
+  }; }),
 }));
 
 vi.mock('@infra/storage/factory', () => ({
@@ -71,9 +71,9 @@ describe('saveReport() — cloud upload failure after local success (line 73)', 
 
   it('returns cloudError when cloud provider upload throws after local succeeds', async () => {
     // Local succeeds
-    vi.mocked(LocalStorageProvider).mockImplementation(() => ({
+    vi.mocked(LocalStorageProvider).mockImplementation(function () { return {
       upload: vi.fn().mockResolvedValue({ url: '/local/report.md', id: 'report.md', provider: 'local' }),
-    }));
+    }; });
 
     // Cloud provider upload throws
     const cloudProviderMock = {
@@ -97,9 +97,9 @@ describe('saveReport() — cloud upload failure after local success (line 73)', 
   });
 
   it('uses String(err) when cloud upload throws a non-Error (line 73 false branch)', async () => {
-    vi.mocked(LocalStorageProvider).mockImplementation(() => ({
+    vi.mocked(LocalStorageProvider).mockImplementation(function () { return {
       upload: vi.fn().mockResolvedValue({ url: '/local/report.md', id: 'report.md', provider: 'local' }),
-    }));
+    }; });
 
     const cloudProviderMock = {
       upload: vi.fn().mockImplementation(() => Promise.reject('upload string error')),
@@ -125,9 +125,9 @@ describe('saveReport() — cloud upload success (line 73 return)', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('returns cloudUrl when cloud provider upload succeeds after local', async () => {
-    vi.mocked(LocalStorageProvider).mockImplementation(() => ({
+    vi.mocked(LocalStorageProvider).mockImplementation(function () { return {
       upload: vi.fn().mockResolvedValue({ url: '/local/report.md', id: 'report.md', provider: 'local' }),
-    }));
+    }; });
 
     const cloudProviderMock = {
       upload: vi.fn().mockResolvedValue({ url: 'https://drive.google.com/x', id: 'x', provider: 'google-drive' }),
@@ -155,9 +155,9 @@ describe('saveSonarQubeExport() — catch branch (line 121)', () => {
 
   it('logs to stderr when saveReport throws inside saveSonarQubeExport', async () => {
     // LocalStorageProvider upload throws to simulate local save failure
-    vi.mocked(LocalStorageProvider).mockImplementation(() => ({
+    vi.mocked(LocalStorageProvider).mockImplementation(function () { return {
       upload: vi.fn().mockRejectedValue(new Error('disk full')),
-    }));
+    }; });
     vi.mocked(createStorageProvider).mockRejectedValue(new Error('no cloud'));
 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);

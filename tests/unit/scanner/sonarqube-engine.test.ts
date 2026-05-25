@@ -64,20 +64,20 @@ vi.mock('@infra/utils/logger', () => ({
 // We do NOT want real Docker calls in unit tests.
 
 vi.mock('@infra/provisioner/docker-sonarqube.js', () => ({
-  DockerSonarQubeProvisioner: vi.fn().mockImplementation(() => ({
+  DockerSonarQubeProvisioner: vi.fn().mockImplementation(function () { return {
     provision: vi.fn().mockResolvedValue({ baseUrl: 'http://localhost:19999' }),
     waitReady: vi.fn().mockResolvedValue(undefined),
     teardown: vi.fn().mockResolvedValue(undefined),
-  })),
+  }; }),
 }));
 
 // ─── Mock DockerSonarScannerRunner for unit tests ──────────────────────────────
 // Controlled mock for the container-fallback path in managed mode.
 
 vi.mock('@infra/provisioner/docker-sonar-scanner.js', () => ({
-  DockerSonarScannerRunner: vi.fn().mockImplementation(() => ({
+  DockerSonarScannerRunner: vi.fn().mockImplementation(function () { return {
     run: vi.fn().mockResolvedValue({ exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL', stderr: '' }),
-  })),
+  }; }),
 }));
 
 import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube';
@@ -934,9 +934,9 @@ describe('SonarQubeEngine — managed mode', () => {
 
     // Container runner returns failure
     const MockScannerRunner = vi.mocked(DockerSonarScannerRunner);
-    MockScannerRunner.mockImplementationOnce(() => ({
+    MockScannerRunner.mockImplementationOnce(function () { return {
       run: vi.fn().mockResolvedValue({ exitCode: 1, stdout: '', stderr: 'ANALYSIS FAILED' }),
-    }) as unknown as DockerSonarScannerRunner);
+    }; } as unknown as () => DockerSonarScannerRunner);
 
     // Token gen succeeds; subsequent calls fail (irrelevant — scan already failed)
     vi.stubGlobal(
@@ -960,9 +960,9 @@ describe('SonarQubeEngine — managed mode', () => {
 
     // Container runner returns failure
     const MockScannerRunner = vi.mocked(DockerSonarScannerRunner);
-    MockScannerRunner.mockImplementationOnce(() => ({
+    MockScannerRunner.mockImplementationOnce(function () { return {
       run: vi.fn().mockResolvedValue({ exitCode: 1, stdout: '', stderr: 'ANALYSIS FAILED' }),
-    }) as unknown as DockerSonarScannerRunner);
+    }; } as unknown as () => DockerSonarScannerRunner);
 
     vi.stubGlobal(
       'fetch',
@@ -989,9 +989,9 @@ describe('SonarQubeEngine — managed mode', () => {
 
     // Container runner throws
     const MockScannerRunner = vi.mocked(DockerSonarScannerRunner);
-    MockScannerRunner.mockImplementationOnce(() => ({
+    MockScannerRunner.mockImplementationOnce(function () { return {
       run: vi.fn().mockRejectedValue(new Error('Docker not found')),
-    }) as unknown as DockerSonarScannerRunner);
+    }; } as unknown as () => DockerSonarScannerRunner);
 
     vi.stubGlobal(
       'fetch',
@@ -1013,11 +1013,11 @@ describe('SonarQubeEngine — managed mode', () => {
   it('tears down when waitReady throws (provision error path)', async () => {
     // Mock the provisioner so waitReady throws
     const MockProvisioner = vi.mocked(DockerSonarQubeProvisioner);
-    MockProvisioner.mockImplementationOnce(() => ({
+    MockProvisioner.mockImplementationOnce(function () { return {
       provision: vi.fn().mockResolvedValue({ baseUrl: 'http://localhost:19999' }),
       waitReady: vi.fn().mockRejectedValue(new Error('Container never became ready')),
       teardown: vi.fn().mockResolvedValue(undefined),
-    }) as unknown as DockerSonarQubeProvisioner);
+    }; } as unknown as () => DockerSonarQubeProvisioner);
 
     const runner = new MockRunner({
       '--version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
@@ -2038,11 +2038,11 @@ describe('SonarQubeEngine — managed mode token generation fallback + catch (li
     setSonarPropsFixture(new Map([['sonar.projectKey', 'my-project']]));
     vi.useFakeTimers();
     // Re-register provisioner mock in case vi.restoreAllMocks() cleared it
-    vi.mocked(DockerSonarQubeProvisioner).mockImplementation(() => ({
+    vi.mocked(DockerSonarQubeProvisioner).mockImplementation(function () { return {
       provision: vi.fn().mockResolvedValue({ baseUrl: 'http://localhost:19999' }),
       waitReady: vi.fn().mockResolvedValue(undefined),
       teardown: vi.fn().mockResolvedValue(undefined),
-    }) as never);
+    } as never; });
   });
   afterEach(() => {
     setSonarPropsFixture(new Map([['sonar.projectKey', 'my-project'], ['sonar.host.url', 'http://localhost:9000']]));
@@ -2126,14 +2126,14 @@ describe('SonarQubeEngine — _isLocalScannerAvailable catch (lines 572-573)', (
     setSonarPropsFixture(new Map([['sonar.projectKey', 'my-project']]));
     vi.useFakeTimers();
     // Re-register provisioner mock in case vi.restoreAllMocks() cleared it
-    vi.mocked(DockerSonarQubeProvisioner).mockImplementation(() => ({
+    vi.mocked(DockerSonarQubeProvisioner).mockImplementation(function () { return {
       provision: vi.fn().mockResolvedValue({ baseUrl: 'http://localhost:19999' }),
       waitReady: vi.fn().mockResolvedValue(undefined),
       teardown: vi.fn().mockResolvedValue(undefined),
-    }) as never);
-    vi.mocked(DockerSonarScannerRunner).mockImplementation(() => ({
+    } as never; });
+    vi.mocked(DockerSonarScannerRunner).mockImplementation(function () { return {
       run: vi.fn().mockResolvedValue({ exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL', stderr: '' }),
-    }) as never);
+    } as never; });
   });
   afterEach(() => {
     setSonarPropsFixture(new Map([['sonar.projectKey', 'my-project'], ['sonar.host.url', 'http://localhost:9000']]));
@@ -2579,11 +2579,11 @@ describe('SonarQubeEngine — observability (AC1-AC5, AC7, AC8)', () => {
     // Ensure the provisioner mock has a fresh default implementation (may be
     // stale after mockImplementationOnce consumed in an earlier test).
     const MockProvisioner = vi.mocked(DockerSonarQubeProvisioner);
-    MockProvisioner.mockImplementation(() => ({
+    MockProvisioner.mockImplementation(function () { return {
       provision: vi.fn().mockResolvedValue({ baseUrl: 'http://localhost:19999' }),
       waitReady: vi.fn().mockResolvedValue(undefined),
       teardown: vi.fn().mockResolvedValue(undefined),
-    }) as unknown as DockerSonarQubeProvisioner);
+    } as unknown as DockerSonarQubeProvisioner; });
 
     stubFetchForManagedMode(
       { projectStatus: { status: 'OK', conditions: [] } },
