@@ -10,7 +10,7 @@ import { defaultRegistry } from '@modules/ecosystem/index';
 import { ConfigLoadError } from '@core/errors';
 import { resolveDefaultLocale } from '@core/locale-detect';
 import { CLI_NAME, DEFAULT_REPORTS_SUBDIR } from '@infra/brand';
-import { getInitLocale } from '@app/i18n/init-locale';
+import { getInitLocale, type InitLocale } from '@app/i18n/init-locale';
 
 export interface InitCommandOptions {
   projectName?: string;
@@ -36,6 +36,61 @@ function parseBuildArgs(raw: string): Record<string, string> | undefined {
     }
   }
   return Object.keys(result).length > 0 ? result : undefined;
+}
+
+interface CollectRunnerConfigOpts {
+  pluginName: string;
+  nonInteractive: boolean | undefined;
+  inferredVersion: string | undefined;
+  t: InitLocale;
+  versionPromptWithInferred: (pluginName: string, inferred: string) => string;
+  versionPromptBlank: (pluginName: string) => string;
+}
+
+/**
+ * Collects the per-ecosystem runner configuration (language version + image
+ * source settings) through interactive prompts or non-interactive defaults.
+ * Returns a partial EcosystemRunnerConfig; the caller decides whether to
+ * attach it to the ecosystem entry.
+ */
+async function collectRunnerConfig(opts: CollectRunnerConfigOpts): Promise<EcosystemRunnerConfig> {
+  const { pluginName, nonInteractive, inferredVersion, t, versionPromptWithInferred, versionPromptBlank } = opts;
+  const runnerData: EcosystemRunnerConfig = {};
+
+  if (!nonInteractive) {
+    const versionDefault = inferredVersion ?? '';
+    const versionPromptMsg = inferredVersion
+      ? versionPromptWithInferred(pluginName, inferredVersion)
+      : versionPromptBlank(pluginName);
+    const versionAnswer = await prompt(versionPromptMsg, versionDefault);
+    const resolvedVersion = versionAnswer.trim() || undefined;
+    if (resolvedVersion) runnerData.language_version = resolvedVersion;
+  } else {
+    if (inferredVersion) runnerData.language_version = inferredVersion;
+  }
+
+  if (!nonInteractive) {
+    const imageSource = await selectPrompt(
+      t.imageSourcePrompt(pluginName),
+      [
+        { name: t.imageSourceDockerfile, value: 'dockerfile' as const },
+        { name: t.imageSourcePull, value: 'pull' as const },
+      ],
+      'dockerfile',
+    );
+    if (imageSource === 'dockerfile') {
+      runnerData.image_source = 'dockerfile';
+      const dfPath = await prompt(t.dockerfilePathPrompt(pluginName), './Dockerfile');
+      runnerData.dockerfile_path = dfPath.trim() || './Dockerfile';
+      const ctxAnswer = await prompt(t.buildContextPrompt(pluginName), '');
+      runnerData.build_context = ctxAnswer.trim() || '.';
+      const buildArgsAnswer = await prompt(t.buildArgsPrompt(pluginName), '');
+      const parsedArgs = parseBuildArgs(buildArgsAnswer);
+      if (parsedArgs) runnerData.build_args = parsedArgs;
+    }
+  }
+
+  return runnerData;
 }
 
 /**
@@ -174,114 +229,26 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       : undefined;
 
     // Build per-ecosystem runner object
-    const runnerData: EcosystemRunnerConfig = {};
+    const ecosystemVersionPrompts: Record<string, {
+      withInferred: (pluginName: string, inferred: string) => string;
+      blank: (pluginName: string) => string;
+    }> = {
+      npm: { withInferred: t.languageVersionPromptWithInferred, blank: t.languageVersionPromptBlank },
+      composer: { withInferred: t.phpVersionPromptWithInferred, blank: t.phpVersionPromptBlank },
+      pip: { withInferred: t.pythonVersionPromptWithInferred, blank: t.pythonVersionPromptBlank },
+    };
 
-    if (id === 'npm') {
-      // npm language version
-      if (!opts.nonInteractive) {
-        const versionDefault = inferredVersion ?? '';
-        const versionPromptMsg = inferredVersion
-          ? t.languageVersionPromptWithInferred(plugin.name, inferredVersion)
-          : t.languageVersionPromptBlank(plugin.name);
-        const versionAnswer = await prompt(versionPromptMsg, versionDefault);
-        const resolvedVersion = versionAnswer.trim() || undefined;
-        if (resolvedVersion) runnerData.language_version = resolvedVersion;
-      } else {
-        if (inferredVersion) runnerData.language_version = inferredVersion;
-      }
-
-      // image_source prompts for npm scanner
-      if (!opts.nonInteractive) {
-        const imageSource = await selectPrompt(
-          t.imageSourcePrompt(plugin.name),
-          [
-            { name: t.imageSourceDockerfile, value: 'dockerfile' as const },
-            { name: t.imageSourcePull, value: 'pull' as const },
-          ],
-          'dockerfile',
-        );
-        if (imageSource === 'dockerfile') {
-          runnerData.image_source = 'dockerfile';
-          const dfPath = await prompt(t.dockerfilePathPrompt(plugin.name), './Dockerfile');
-          runnerData.dockerfile_path = dfPath.trim() || './Dockerfile';
-          const ctxAnswer = await prompt(t.buildContextPrompt(plugin.name), '');
-          runnerData.build_context = ctxAnswer.trim() || '.';
-          const buildArgsAnswer = await prompt(t.buildArgsPrompt(plugin.name), '');
-          const parsedArgs = parseBuildArgs(buildArgsAnswer);
-          if (parsedArgs) runnerData.build_args = parsedArgs;
-        }
-      }
-    } else if (id === 'composer') {
-      // composer PHP language version
-      if (!opts.nonInteractive) {
-        const versionDefault = inferredVersion ?? '';
-        const versionPromptMsg = inferredVersion
-          ? t.phpVersionPromptWithInferred(plugin.name, inferredVersion)
-          : t.phpVersionPromptBlank(plugin.name);
-        const versionAnswer = await prompt(versionPromptMsg, versionDefault);
-        const resolvedVersion = versionAnswer.trim() || undefined;
-        if (resolvedVersion) runnerData.language_version = resolvedVersion;
-      } else {
-        if (inferredVersion) runnerData.language_version = inferredVersion;
-      }
-
-      // image_source prompts for composer scanner
-      if (!opts.nonInteractive) {
-        const imageSource = await selectPrompt(
-          t.imageSourcePrompt(plugin.name),
-          [
-            { name: t.imageSourceDockerfile, value: 'dockerfile' as const },
-            { name: t.imageSourcePull, value: 'pull' as const },
-          ],
-          'dockerfile',
-        );
-        if (imageSource === 'dockerfile') {
-          runnerData.image_source = 'dockerfile';
-          const dfPath = await prompt(t.dockerfilePathPrompt(plugin.name), './Dockerfile');
-          runnerData.dockerfile_path = dfPath.trim() || './Dockerfile';
-          const ctxAnswer = await prompt(t.buildContextPrompt(plugin.name), '');
-          runnerData.build_context = ctxAnswer.trim() || '.';
-          const buildArgsAnswer = await prompt(t.buildArgsPrompt(plugin.name), '');
-          const parsedArgs = parseBuildArgs(buildArgsAnswer);
-          if (parsedArgs) runnerData.build_args = parsedArgs;
-        }
-      }
-    } else if (id === 'pip') {
-      // pip Python language version
-      if (!opts.nonInteractive) {
-        const versionDefault = inferredVersion ?? '';
-        const versionPromptMsg = inferredVersion
-          ? t.pythonVersionPromptWithInferred(plugin.name, inferredVersion)
-          : t.pythonVersionPromptBlank(plugin.name);
-        const versionAnswer = await prompt(versionPromptMsg, versionDefault);
-        const resolvedPipVersion = versionAnswer.trim() || undefined;
-        if (resolvedPipVersion) runnerData.language_version = resolvedPipVersion;
-      } else {
-        if (inferredVersion) runnerData.language_version = inferredVersion;
-      }
-
-      // image_source prompts for pip scanner
-      if (!opts.nonInteractive) {
-        const imageSource = await selectPrompt(
-          t.imageSourcePrompt(plugin.name),
-          [
-            { name: t.imageSourceDockerfile, value: 'dockerfile' as const },
-            { name: t.imageSourcePull, value: 'pull' as const },
-          ],
-          'dockerfile',
-        );
-        if (imageSource === 'dockerfile') {
-          runnerData.image_source = 'dockerfile';
-          const dfPath = await prompt(t.dockerfilePathPrompt(plugin.name), './Dockerfile');
-          runnerData.dockerfile_path = dfPath.trim() || './Dockerfile';
-          const ctxAnswer = await prompt(t.buildContextPrompt(plugin.name), '');
-          runnerData.build_context = ctxAnswer.trim() || '.';
-          const buildArgsAnswer = await prompt(t.buildArgsPrompt(plugin.name), '');
-          const parsedArgs = parseBuildArgs(buildArgsAnswer);
-          if (parsedArgs) runnerData.build_args = parsedArgs;
-        }
-      }
-    }
+    const versionPrompts = ecosystemVersionPrompts[id];
+    const runnerData = versionPrompts
+      ? await collectRunnerConfig({
+          pluginName: plugin.name,
+          nonInteractive: opts.nonInteractive,
+          inferredVersion,
+          t,
+          versionPromptWithInferred: versionPrompts.withInferred,
+          versionPromptBlank: versionPrompts.blank,
+        })
+      : {};
 
     // Only attach runner if there's actual data to include
     const hasRunnerData = Object.keys(runnerData).length > 0;
