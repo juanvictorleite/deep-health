@@ -9,6 +9,7 @@ import {
 import type { CloudStorageConfig } from "@core/types/config";
 import type { StorageProvider } from "@infra/storage/provider";
 import type { ScanResultJson } from "@core/types/scan";
+import { __ } from "@core/i18n";
 
 /**
  * Outcome of a saveReport call.
@@ -46,11 +47,11 @@ export async function saveReport(
       providers.push(await createStorageProvider(cloudStorageConfig, cwd));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(`Cloud storage init failed: ${msg}\n`);
+      process.stderr.write(__('Cloud storage init failed: {{msg}}\n', { msg }));
       if (cloudStorageConfig.require_upload) {
         return {
           localUrl: '',
-          cloudError: `Cloud storage init failed: ${msg}`,
+          cloudError: __('Cloud storage init failed: {{msg}}', { msg }),
           cloudSkipped: false,
         };
       }
@@ -62,7 +63,7 @@ export async function saveReport(
     try {
       const result = await provider.upload(filename, content);
       process.stdout.write(
-        `Report saved [${result.provider}]: ${result.url}\n`,
+        __('Report saved [{{provider}}]: {{url}}\n', { provider: result.provider, url: result.url }),
       );
       if (result.provider === "local") {
         localUrl = result.url;
@@ -74,10 +75,10 @@ export async function saveReport(
       const msg = err instanceof Error ? err.message : String(err);
       if (!localUrl) {
         // Local save failure is always fatal
-        throw new Error(`Failed to save report locally: ${msg}`);
+        throw new Error(__('Failed to save report locally: {{msg}}', { msg }));
       }
       // Cloud failure
-      process.stderr.write(`Cloud upload failed: ${msg}\n`);
+      process.stderr.write(__('Cloud upload failed: {{msg}}\n', { msg }));
       return { localUrl, cloudError: msg, cloudSkipped: false };
     }
   }
@@ -119,7 +120,7 @@ export async function saveSonarQubeExport(
     );
   } catch (err) {
     process.stderr.write(
-      `SonarQube export save failed: ${err instanceof Error ? err.message : String(err)}\n`,
+      __('SonarQube export save failed: {{error}}\n', { error: err instanceof Error ? err.message : String(err) }),
     );
   }
 }

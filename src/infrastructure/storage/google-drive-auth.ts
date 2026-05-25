@@ -5,6 +5,7 @@ import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_GDRIVE_CONFIG_DIR } from '@infra/brand';
+import { __ } from '@core/i18n';
 
 export const OAUTH_SCOPES = [
   'https://www.googleapis.com/auth/drive.file',
@@ -119,8 +120,8 @@ export async function runOAuthFlow(): Promise<StoredTokens> {
     prompt: 'consent', // force refresh_token to be returned
   });
 
-  process.stdout.write('\nOpening browser for Google OAuth authorization...\n');
-  process.stdout.write(`\nIf the browser does not open, visit:\n  ${authUrl}\n\n`);
+  process.stdout.write(__('\nOpening browser for Google OAuth authorization...\n'));
+  process.stdout.write(__('\nIf the browser does not open, visit:\n  {{authUrl}}\n\n', { authUrl }));
 
   openBrowser(authUrl);
 

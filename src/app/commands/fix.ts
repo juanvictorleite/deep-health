@@ -12,6 +12,7 @@ import { createBranchAndCommit, buildBranchName } from "@infra/utils/git-commit"
 import { detectGitBranch } from "@infra/utils/git-branch";
 import type { CommandRunner } from "@core/types/common";
 import { CLI_NAME, DEFAULT_BRANCH_PREFIX } from "@infra/brand";
+import { __ } from "@core/i18n";
 
 export interface FixCommandOptions {
   config: string;
@@ -216,8 +217,7 @@ async function openPullRequest(
   const ghCheck = await runner.runArgs('gh', ['--version'], { cwd });
   if (ghCheck.exitCode !== 0) {
     process.stderr.write(
-      `[${CLI_NAME}] --open-pr requires the GitHub CLI (gh). ` +
-      'Install it from https://cli.github.com and run: gh auth login\n',
+      __('[{{cliName}}] --open-pr requires the GitHub CLI (gh). Install it from https://cli.github.com and run: gh auth login\n', { cliName: CLI_NAME }),
     );
     process.exit(3);
   }
@@ -225,7 +225,7 @@ async function openPullRequest(
   // Push branch
   const pushResult = await runner.runArgs('git', ['push', 'origin', branchName], { cwd });
   if (pushResult.exitCode !== 0) {
-    throw new Error(`git push failed: ${pushResult.stderr || pushResult.stdout}`);
+    throw new Error(__('git push failed: {{detail}}', { detail: pushResult.stderr || pushResult.stdout }));
   }
 
   const title = prTitle ?? `fix: apply safe dependency updates for ${config.project.name}`;
@@ -248,9 +248,9 @@ async function openPullRequest(
   );
 
   if (prResult.exitCode !== 0) {
-    throw new Error(`gh pr create failed: ${prResult.stderr || prResult.stdout}`);
+    throw new Error(__('gh pr create failed: {{detail}}', { detail: prResult.stderr || prResult.stdout }));
   }
 
   const prUrl = prResult.stdout.trim();
-  process.stdout.write(`[${CLI_NAME}] Pull request created: ${prUrl}\n`);
+  process.stdout.write(__('[{{cliName}}] Pull request created: {{prUrl}}\n', { cliName: CLI_NAME, prUrl }));
 }

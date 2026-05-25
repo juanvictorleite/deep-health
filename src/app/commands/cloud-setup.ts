@@ -9,6 +9,7 @@ import {
 } from '@infra/storage/google-drive-auth';
 import { CLI_NAME } from '@infra/brand';
 import { confirmPrompt, selectPrompt, inputPrompt } from '@infra/utils/inquirer-prompts';
+import { __ } from '@core/i18n';
 
 interface CloudSetupOptions {
   configPath: string;
@@ -89,7 +90,7 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
   try {
     rawConfig = await readFile(configPath, 'utf-8');
   } catch {
-    process.stderr.write(`Config file not found: ${configPath}\nRun "${CLI_NAME} init" first.\n`);
+    process.stderr.write(__('Config file not found: {{configPath}}\nRun "{{cliName}} init" first.\n', { configPath, cliName: CLI_NAME }));
     return 1;
   }
 
@@ -118,7 +119,7 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
   }
 
   if (!tokens) {
-    process.stdout.write('Starting Google OAuth 2.0 authorization flow...\n');
+    process.stdout.write(__('Starting Google OAuth 2.0 authorization flow...\n'));
 
     try {
       tokens = await runOAuthFlow();
@@ -126,7 +127,7 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
       process.stdout.write('\n');
     } catch (err) {
       process.stderr.write(
-        `OAuth flow failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        __('OAuth flow failed: {{error}}\n', { error: err instanceof Error ? err.message : String(err) }),
       );
       return 1;
     }
@@ -134,31 +135,30 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
 
   const email = await getAuthenticatedEmail(tokens);
   if (email) {
-    process.stdout.write(`✔ Authenticated as: ${email}\n`);
+    process.stdout.write(__('✔ Authenticated as: {{email}}\n', { email }));
   } else {
-    process.stdout.write('✔ Google Drive connected.\n');
+    process.stdout.write(__('✔ Google Drive connected.\n'));
   }
 
   // Ensure config has cloud_storage section (folder_id may be pre-set)
   const existingFolderId = (config.cloud_storage as { folder_id?: string } | undefined)
     ?.folder_id;
 
-  process.stdout.write('Fetching Google Drive folders...\n');
+  process.stdout.write(__('Fetching Google Drive folders...\n'));
 
   let folders: Array<{ id: string; name: string }>;
   try {
     folders = await listDriveFolders(tokens);
   } catch (err) {
     process.stderr.write(
-      `Failed to list folders: ${err instanceof Error ? err.message : String(err)}\n`,
+      __('Failed to list folders: {{error}}\n', { error: err instanceof Error ? err.message : String(err) }),
     );
     return 1;
   }
 
   if (folders.length === 0) {
     process.stdout.write(
-      'No folders found in your Google Drive.\n' +
-        'Create a folder in Google Drive first or enter the folder ID manually.\n',
+      __('No folders found in your Google Drive.\nCreate a folder in Google Drive first or enter the folder ID manually.\n'),
     );
   }
 
@@ -170,7 +170,7 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
   const selectedId = await selectPrompt('Select the destination folder:', choices, existingFolderId ?? undefined);
 
   if (!selectedId) {
-    process.stdout.write('Setup cancelled.\n');
+    process.stdout.write(__('Setup cancelled.\n'));
     return 0;
   }
 
@@ -179,13 +179,13 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
   if (folderId === '__manual__') {
     const manualId = await inputPrompt('Enter Google Drive folder ID:', existingFolderId ?? undefined);
     if (!manualId) {
-      process.stdout.write('Setup cancelled.\n');
+      process.stdout.write(__('Setup cancelled.\n'));
       return 0;
     }
     folderId = manualId;
   }
 
   await updateConfigFile(configPath, folderId);
-  process.stdout.write(`\n✔ Cloud storage configured. Folder ID saved to: ${configPath}\n`);
+  process.stdout.write(__('\n✔ Cloud storage configured. Folder ID saved to: {{configPath}}\n', { configPath }));
   return 0;
 }

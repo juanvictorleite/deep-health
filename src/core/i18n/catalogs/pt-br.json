@@ -162,5 +162,31 @@
   "Quality Gate": "Quality Gate",
   "Quality Gate Conditions": "Condições do Quality Gate",
   "Metrics": "Métricas",
-  "Issues": "Issues"
+  "Issues": "Issues",
+
+  "Config file not found: {{configPath}}\nRun \"{{cliName}} init\" first.\n": "Arquivo de configuração não encontrado: {{configPath}}\nExecute \"{{cliName}} init\" primeiro.\n",
+  "Starting Google OAuth 2.0 authorization flow...\n": "Iniciando fluxo de autorização Google OAuth 2.0...\n",
+  "OAuth flow failed: {{error}}\n": "Falha no fluxo OAuth: {{error}}\n",
+  "✔ Authenticated as: {{email}}\n": "✔ Autenticado como: {{email}}\n",
+  "✔ Google Drive connected.\n": "✔ Google Drive conectado.\n",
+  "Fetching Google Drive folders...\n": "Buscando pastas do Google Drive...\n",
+  "Failed to list folders: {{error}}\n": "Falha ao listar pastas: {{error}}\n",
+  "No folders found in your Google Drive.\nCreate a folder in Google Drive first or enter the folder ID manually.\n": "Nenhuma pasta encontrada no seu Google Drive.\nCrie uma pasta no Google Drive primeiro ou insira o ID da pasta manualmente.\n",
+  "Setup cancelled.\n": "Configuração cancelada.\n",
+  "\n✔ Cloud storage configured. Folder ID saved to: {{configPath}}\n": "\n✔ Armazenamento em nuvem configurado. ID da pasta salvo em: {{configPath}}\n",
+
+  "[{{cliName}}] --open-pr requires the GitHub CLI (gh). Install it from https://cli.github.com and run: gh auth login\n": "[{{cliName}}] --open-pr requer o GitHub CLI (gh). Instale em https://cli.github.com e execute: gh auth login\n",
+  "git push failed: {{detail}}": "git push falhou: {{detail}}",
+  "gh pr create failed: {{detail}}": "gh pr create falhou: {{detail}}",
+  "[{{cliName}}] Pull request created: {{prUrl}}\n": "[{{cliName}}] Pull request criado: {{prUrl}}\n",
+
+  "Cloud storage init failed: {{msg}}\n": "Falha ao inicializar armazenamento em nuvem: {{msg}}\n",
+  "Cloud storage init failed: {{msg}}": "Falha ao inicializar armazenamento em nuvem: {{msg}}",
+  "Report saved [{{provider}}]: {{url}}\n": "Relatório salvo [{{provider}}]: {{url}}\n",
+  "Failed to save report locally: {{msg}}": "Falha ao salvar relatório localmente: {{msg}}",
+  "Cloud upload failed: {{msg}}\n": "Falha no upload para a nuvem: {{msg}}\n",
+  "SonarQube export save failed: {{error}}\n": "Falha ao salvar exportação do SonarQube: {{error}}\n",
+
+  "\nOpening browser for Google OAuth authorization...\n": "\nAbrindo navegador para autorização Google OAuth...\n",
+  "\nIf the browser does not open, visit:\n  {{authUrl}}\n\n": "\nSe o navegador não abrir, acesse:\n  {{authUrl}}\n\n"
 }
