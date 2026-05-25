@@ -96,7 +96,7 @@ describe('runExecutiveReportCommand', () => {
     };
 
     const code = await runExecutiveReportCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -126,7 +126,7 @@ describe('runExecutiveReportCommand', () => {
     };
 
     await runExecutiveReportCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -167,7 +167,7 @@ describe('runExecutiveReportCommand', () => {
     };
 
     await runExecutiveReportCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -208,7 +208,7 @@ describe('runExecutiveReportCommand', () => {
     };
 
     await runExecutiveReportCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -247,7 +247,7 @@ describe('runExecutiveReportCommand', () => {
     };
 
     await runExecutiveReportCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -286,7 +286,7 @@ describe('runExecutiveReportCommand', () => {
     };
 
     const code = await runExecutiveReportCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -342,7 +342,7 @@ describe('runExecutiveReportCommand', () => {
     };
 
     const code = await runExecutiveReportCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -383,7 +383,7 @@ describe('runExecutiveReportCommand', () => {
     };
 
     const code = await runExecutiveReportCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -414,7 +414,7 @@ describe('runExecutiveReportCommand', () => {
     };
 
     const code = await runExecutiveReportCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -447,7 +447,7 @@ describe('runExecutiveReportCommand — branch coverage top-up', () => {
       runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
     };
     const code = await runExecutiveReportCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -468,7 +468,7 @@ describe('runExecutiveReportCommand — branch coverage top-up', () => {
       runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
     };
     const code = await runExecutiveReportCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,

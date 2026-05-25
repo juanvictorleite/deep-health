@@ -95,7 +95,7 @@ describe('runCloudSetup()', () => {
     vi.mocked(readFile).mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 
-    const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
+    const code = await runCloudSetup({ configPath: 'security-scan.config.json', cwd: '/cwd' });
     expect(code).toBe(1);
     stderrSpy.mockRestore();
   });
@@ -107,7 +107,7 @@ describe('runCloudSetup()', () => {
     });
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 
-    const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
+    const code = await runCloudSetup({ configPath: 'security-scan.config.json', cwd: '/cwd' });
     expect(code).toBe(1);
     stderrSpy.mockRestore();
   });
@@ -125,7 +125,7 @@ describe('runCloudSetup()', () => {
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
+    const code = await runCloudSetup({ configPath: 'security-scan.config.json', cwd: '/cwd' });
     expect(code).toBe(0);
     expect(runOAuthFlow).toHaveBeenCalled();
     stdoutSpy.mockRestore();
@@ -143,7 +143,7 @@ describe('runCloudSetup()', () => {
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
+    const code = await runCloudSetup({ configPath: 'security-scan.config.json', cwd: '/cwd' });
     expect(code).toBe(0);
     expect(runOAuthFlow).not.toHaveBeenCalled();
     stdoutSpy.mockRestore();
@@ -162,7 +162,7 @@ describe('runCloudSetup()', () => {
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
+    const code = await runCloudSetup({ configPath: 'security-scan.config.json', cwd: '/cwd' });
     expect(code).toBe(0);
     expect(runOAuthFlow).toHaveBeenCalled();
     expect(saveTokens).toHaveBeenCalledWith(mockTokens);
@@ -177,7 +177,7 @@ describe('runCloudSetup()', () => {
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
+    const code = await runCloudSetup({ configPath: 'security-scan.config.json', cwd: '/cwd' });
     expect(code).toBe(1);
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('OAuth flow failed'));
     stderrSpy.mockRestore();
@@ -195,7 +195,7 @@ describe('runCloudSetup()', () => {
     mockSelectPrompt.mockResolvedValueOnce(undefined);
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
-    const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
+    const code = await runCloudSetup({ configPath: 'security-scan.config.json', cwd: '/cwd' });
     expect(code).toBe(0);
     stdoutSpy.mockRestore();
   });
@@ -212,7 +212,7 @@ describe('runCloudSetup()', () => {
     mockInputPrompt.mockResolvedValueOnce('');
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
-    const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
+    const code = await runCloudSetup({ configPath: 'security-scan.config.json', cwd: '/cwd' });
     expect(code).toBe(0);
     stdoutSpy.mockRestore();
   });
@@ -228,7 +228,7 @@ describe('runCloudSetup()', () => {
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
+    const code = await runCloudSetup({ configPath: 'security-scan.config.json', cwd: '/cwd' });
     expect(code).toBe(1);
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to list folders'));
     stderrSpy.mockRestore();
@@ -245,7 +245,7 @@ describe('runCloudSetup()', () => {
     mockSelectPrompt.mockResolvedValueOnce('f1');
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
-    await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
+    await runCloudSetup({ configPath: 'security-scan.config.json', cwd: '/cwd' });
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('No folders found'));
     stdoutSpy.mockRestore();
   });
@@ -262,7 +262,7 @@ describe('runCloudSetup()', () => {
     mockInputPrompt.mockResolvedValueOnce('folder-xyz');
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
-    const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
+    const code = await runCloudSetup({ configPath: 'security-scan.config.json', cwd: '/cwd' });
     expect(code).toBe(0);
     stdoutSpy.mockRestore();
   });
@@ -299,7 +299,7 @@ describe('runCloudSetup()', () => {
     mockSelectPrompt.mockResolvedValueOnce('existing-folder-id');
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
-    const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
+    const code = await runCloudSetup({ configPath: 'security-scan.config.json', cwd: '/cwd' });
     expect(code).toBe(0);
     stdoutSpy.mockRestore();
   });
@@ -310,7 +310,7 @@ describe('runCloudSetup()', () => {
     vi.mocked(createOAuth2Client).mockImplementation(() => { throw 'missing env vars string'; });
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 
-    const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
+    const code = await runCloudSetup({ configPath: 'security-scan.config.json', cwd: '/cwd' });
     expect(code).toBe(1);
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('missing env vars string'));
     stderrSpy.mockRestore();
@@ -324,7 +324,7 @@ describe('runCloudSetup()', () => {
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
+    const code = await runCloudSetup({ configPath: 'security-scan.config.json', cwd: '/cwd' });
     expect(code).toBe(1);
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('oauth string error'));
     stderrSpy.mockRestore();
@@ -342,7 +342,7 @@ describe('runCloudSetup()', () => {
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
 
-    const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
+    const code = await runCloudSetup({ configPath: 'security-scan.config.json', cwd: '/cwd' });
     expect(code).toBe(1);
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('folders string error'));
     stderrSpy.mockRestore();
@@ -360,7 +360,7 @@ describe('runCloudSetup()', () => {
     mockSelectPrompt.mockResolvedValueOnce('');
 
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
-    const code = await runCloudSetup({ configPath: 'project-config.yml', cwd: '/cwd' });
+    const code = await runCloudSetup({ configPath: 'security-scan.config.json', cwd: '/cwd' });
     expect(code).toBe(0);
     stdoutSpy.mockRestore();
   });

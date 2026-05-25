@@ -52,7 +52,7 @@ describe('runOrchestrator() — branch coverage', () => {
 
     await expect(
       runOrchestrator(makeRunner(), minimalConfig, {
-        configPath: 'project-config.yml',
+        configPath: 'security-scan.config.json',
         cwd: '/proj',
         dryRun: false,
         verbose: false,
@@ -70,7 +70,7 @@ describe('runOrchestrator() — branch coverage', () => {
 
     await expect(
       runOrchestrator(makeRunner(), configWithCustomPrimary, {
-        configPath: 'project-config.yml',
+        configPath: 'security-scan.config.json',
         cwd: '/proj',
         dryRun: false,
         verbose: false,
@@ -81,7 +81,7 @@ describe('runOrchestrator() — branch coverage', () => {
 
   it('returns skipped status when scan phase is excluded from phases list', async () => {
     const result = await runOrchestrator(makeRunner(), minimalConfig, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: '/proj',
       dryRun: false,
       verbose: false,

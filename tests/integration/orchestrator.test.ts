@@ -103,7 +103,7 @@ class MockCommandRunner implements CommandRunner {
 }
 
 async function loadTestConfig() {
-  return unwrap(await loadConfig('project-config.yml', fixturesDir));
+  return unwrap(await loadConfig('security-scan.config.json', fixturesDir));
 }
 
 /** Build a minimal ProjectConfig with SonarQube configured */
@@ -167,7 +167,7 @@ describe('runOrchestrator — full pipeline', () => {
     });
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -187,7 +187,7 @@ describe('runOrchestrator — full pipeline', () => {
     );
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: true,
       verbose: false,
@@ -215,7 +215,7 @@ describe('runOrchestrator — full pipeline', () => {
     });
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -244,7 +244,7 @@ describe('runOrchestrator — full pipeline', () => {
     });
 
     await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -304,7 +304,7 @@ describe('runOrchestrator — full pipeline', () => {
     });
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -382,7 +382,7 @@ describe('runOrchestrator — full pipeline', () => {
     applierMock.mockClear();
 
     const result = await runOrchestrator(runner, osvFixerConfig, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -459,7 +459,7 @@ describe('runOrchestrator — full pipeline', () => {
     applierMock.mockClear();
 
     await runOrchestrator(runner, osvFixerConfig, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -535,7 +535,7 @@ describe('runOrchestrator — full pipeline', () => {
     });
 
     await runOrchestrator(runner, osvFixerConfig, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -608,7 +608,7 @@ describe('runOrchestrator — full pipeline', () => {
     const infoSpy = vi.spyOn(await import('@infra/utils/logger').then((m) => m.logger), 'info');
 
     await runOrchestrator(runner, osvFixerConfig, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -676,7 +676,7 @@ describe('runOrchestrator — full pipeline', () => {
     const infoSpy = vi.spyOn(await import('@infra/utils/logger').then((m) => m.logger), 'info');
 
     await runOrchestrator(runner, osvFixerDockerConfig, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: true,
       verbose: false,
@@ -717,7 +717,7 @@ describe('runOrchestrator — SonarQube integration', () => {
     });
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -748,7 +748,7 @@ describe('runOrchestrator — SonarQube integration', () => {
     });
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -781,7 +781,7 @@ describe('runOrchestrator — SonarQube integration', () => {
 
     await expect(
       runOrchestrator(runner, config, {
-        configPath: 'project-config.yml',
+        configPath: 'security-scan.config.json',
         cwd: fixturesDir,
         dryRun: false,
         verbose: false,
@@ -826,7 +826,7 @@ describe('runOrchestrator — SonarQube integration', () => {
     );
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -863,7 +863,7 @@ describe('runOrchestrator — SonarQube integration', () => {
     });
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -886,7 +886,7 @@ describe('runOrchestrator — SonarQube integration', () => {
     });
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -956,7 +956,7 @@ describe('runOrchestrator — on_failure policy for status=error (no throw)', ()
     // Unknown engine should now THROW (safe default = fail)
     await expect(
       runOrchestrator(runner, config, {
-        configPath: 'project-config.yml',
+        configPath: 'security-scan.config.json',
         cwd: fixturesDir,
         dryRun: false,
         verbose: false,
@@ -985,7 +985,7 @@ describe('runOrchestrator — on_failure policy for status=error (no throw)', ()
 
     await expect(
       runOrchestrator(runner, config, {
-        configPath: 'project-config.yml',
+        configPath: 'security-scan.config.json',
         cwd: fixturesDir,
         dryRun: false,
         verbose: false,
@@ -1012,7 +1012,7 @@ describe('runOrchestrator — on_failure policy for status=error (no throw)', ()
     reg.register(new ErrorStatusEngine('sonarqube', 'sonar quality gate failed'));
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -1056,7 +1056,7 @@ describe('runOrchestrator — on_failure policy for status=error (no throw)', ()
     // Unknown engine id — resolveOnFailure returns 'fail' (safe default)
     await expect(
       runOrchestrator(runner, config, {
-        configPath: 'project-config.yml',
+        configPath: 'security-scan.config.json',
         cwd: fixturesDir,
         dryRun: false,
         verbose: false,
@@ -1086,7 +1086,7 @@ describe('runOrchestrator — branch detection', () => {
     });
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -1108,7 +1108,7 @@ describe('runOrchestrator — branch detection', () => {
     });
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -1132,7 +1132,7 @@ describe('runOrchestrator — branch detection', () => {
 
     // Must not throw — branch detection failure is non-fatal
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -1173,7 +1173,7 @@ describe('runOrchestrator — generic on_failure resolution', () => {
     reg.register(new ErrorStatusEngine('sonarqube', 'sonar scan failed'));
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -1251,7 +1251,7 @@ describe('runOrchestrator — primary-by-engine-id (registry-order independence)
     reg.register(new StubScannerEngine('osv', osvResult));
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -1304,7 +1304,7 @@ describe('runOrchestrator — primary-by-engine-id (registry-order independence)
     // To avoid them blocking the pipeline, give them a config key so they resolve to 'warn'.
     // Actually: they return status='success' so they will NOT trigger on_failure at all.
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -1333,7 +1333,7 @@ describe('runOrchestrator — primary-by-engine-id (registry-order independence)
 
     await expect(
       runOrchestrator(runner, config, {
-        configPath: 'project-config.yml',
+        configPath: 'security-scan.config.json',
         cwd: fixturesDir,
         dryRun: false,
         verbose: false,
@@ -1401,7 +1401,7 @@ describe('runOrchestrator — primary-by-engine-id (registry-order independence)
 
     await expect(
       runOrchestrator(runner, baseConfig, {
-        configPath: 'project-config.yml',
+        configPath: 'security-scan.config.json',
         cwd: fixturesDir,
         dryRun: false,
         verbose: false,
@@ -1455,7 +1455,7 @@ describe('runOrchestrator — primary-by-engine-id (registry-order independence)
 
     await expect(
       runOrchestrator(runner, config, {
-        configPath: 'project-config.yml',
+        configPath: 'security-scan.config.json',
         cwd: fixturesDir,
         dryRun: false,
         verbose: false,

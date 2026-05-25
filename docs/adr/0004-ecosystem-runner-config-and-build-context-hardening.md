@@ -4,6 +4,10 @@
 
 Accepted — 2026-04-29
 
+## Superseded
+
+The `image_source` field and flat `dockerfile_path`/`build_context`/`build_args` fields described in this ADR have been replaced by a nested `build: { dockerfile, context, target, args, allow_context_escape }` configuration object. See the usage guide for current syntax. The build context boundary hardening (sections 3–4) remains in effect. `allow_build_context_escape` is now at `build.allow_context_escape`.
+
 ## Context
 
 ### Config proliferation: too many image paths
@@ -68,7 +72,7 @@ This enforcement applies to **both** image paths — the ephemeral path does not
 
 The config surface is defined as exactly two paths, consistent across npm, pip, and composer:
 
-**Path A — Ephemeral (`image_source: 'pull'`, default)**
+**Path A — Ephemeral (pull, default)**
 
 The CLI auto-builds an ephemeral container from a registry image. User-configurable fields:
 
@@ -79,19 +83,21 @@ The CLI auto-builds an ephemeral container from a registry image. User-configura
 
 If deeper customization is needed (e.g., custom base image, additional build steps, private registry), the user switches to Path B.
 
-**Path B — Dockerfile (`image_source: 'dockerfile'`)**
+**Path B — Dockerfile (build)**
 
 The user provides a Dockerfile. The CLI builds a local image from it. User-configurable fields:
 
 | Field | Purpose |
 |---|---|
-| `dockerfile_path` | Path to Dockerfile, relative to project root (required) |
-| `build_context` | Docker build context directory, relative to project root |
-| `build_args` | `--build-arg KEY=VALUE` pairs forwarded to `docker build` |
+| `build.dockerfile` | Path to Dockerfile, relative to project root |
+| `build.context` | Docker build context directory, relative to project root |
+| `build.target` | Multi-stage build target stage (optional) |
+| `build.args` | `--build-arg KEY=VALUE` pairs forwarded to `docker build` |
+| `build.allow_context_escape` | Permit build context to reach outside the project boundary (emits warning) |
 
 `native_deps` is not applicable on Path B — the Dockerfile owns its own build steps.
 
-The `image` field remains available on Path A as an explicit override (higher priority than `language_version`). It is mutually exclusive with `image_source: 'dockerfile'`, enforced by schema `superRefine`.
+The `image` field may coexist with `build`. When both are present, the CLI builds from the Dockerfile and tags the result with the value of `image`. Multiple ecosystems sharing the same `(build.dockerfile, build.context, build.target, build.args)` tuple receive the same auto-generated image tag (deduplication by content hash).
 
 ### 2. Remove deprecated composer fields — no backward compatibility
 
@@ -126,9 +132,9 @@ Both paths use `fs.realpath` on `contextDir` and `allowedRoot` before comparison
 
 The warn-only block in `build-project-image.ts` (lines 123–138) is replaced by a call to these two functions.
 
-### 4. Add `allow_build_context_escape` to all three runner configs
+### 4. Add `allow_context_escape` to the build config
 
-A new `allow_build_context_escape?: boolean` field (default `false`) is added to `NpmRunnerConfig`, `PipRunnerConfig`, and `ComposerRunnerConfig` in both the TypeScript interface and the Zod schema. It is only meaningful when `image_source: 'dockerfile'` and `build_context` resolves outside the allowed root. The schema does not validate the boundary (that is a runtime concern). The resolver passes the field value as `allowBuildContextEscape` to `buildProjectImage`.
+A `build.allow_context_escape?: boolean` field (default `false`) is part of the `build` block on each runner config. It is only meaningful when `build.context` resolves outside the allowed root. The schema does not validate the boundary (that is a runtime concern). The resolver passes the field value as `allowBuildContextEscape` to `buildProjectImage`.
 
 ## Consequences
 

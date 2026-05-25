@@ -183,7 +183,7 @@ security-scan init [options]
    - Comandos de validação (ex.: `npm test`, `php artisan test`)
    - Comandos de advisor (ex.: `npm audit --json`)
    - Versão do runtime (inferida ou digitada manualmente)
-   - Estratégia de imagem (`pull` ou `dockerfile`)
+   - Modo de build (pull ou build a partir do Dockerfile)
 6. Pergunta se deve ativar a integração com SonarQube.
 7. Pergunta o idioma dos relatórios (`en` ou `pt-br`).
 8. Pergunta se deve gerar relatórios Markdown e onde salvá-los.
@@ -600,37 +600,33 @@ Controla quais engines de scanning são usadas e como são configuradas.
 
 ### `runners`
 
-Configuração de container por ecossistema. Controla qual imagem Docker é usada, a versão do runtime e dependências opcionais de SO.
+Configuração de container por ecossistema. Controla qual imagem Docker é usada, a versão do runtime e dependências opcionais de SO. As configurações do runner são declaradas inline em cada entrada de ecossistema:
 
 ```json
 {
-  "runners": {
-    "npm": {
-      "language_version": "20",
-      "image_source": "pull",
-      "native_deps": [
-        "libvips-dev",
-        "build-essential",
-        "python3"
-      ]
+  "ecosystems": [
+    {
+      "id": "npm",
+      "runner": {
+        "language_version": "20",
+        "native_deps": ["libvips-dev", "build-essential", "python3"]
+      }
     },
-    "composer": {
-      "language_version": "8.1",
-      "image_source": "pull",
-      "native_deps": [
-        "imagemagick",
-        "libmagickwand-dev"
-      ]
+    {
+      "id": "composer",
+      "runner": {
+        "language_version": "8.1",
+        "native_deps": ["imagemagick", "libmagickwand-dev"]
+      }
     },
-    "pip": {
-      "language_version": "3.11",
-      "image_source": "pull",
-      "native_deps": [
-        "libjpeg-dev",
-        "libpq-dev"
-      ]
+    {
+      "id": "pip",
+      "runner": {
+        "language_version": "3.11",
+        "native_deps": ["libjpeg-dev", "libpq-dev"]
+      }
     }
-  }
+  ]
 }
 ```
 
@@ -685,59 +681,86 @@ Todos os CLIs de ecossistema (npm, composer, pip) e os scanners (osv-scanner) ex
 - As versões dos containers correspondem ao runtime declarado do projeto (inferido ou configurado).
 - Os containers são removidos automaticamente após cada execução (`--rm`).
 
-### Image Source: pull vs dockerfile
+### Resolução de Imagem: pull vs build
 
 Cada runner suporta duas estratégias de imagem:
 
-**`pull` (padrão):** Baixar uma imagem pré-construída do Docker Hub ou outro registry.
+**`pull` (padrão):** Baixar uma imagem pré-construída do Docker Hub ou outro registry. Nenhum campo `build` é necessário — basta definir `language_version` ou depender da inferência.
 
 ```json
 {
-  "runners": {
-    "npm": {
-      "image_source": "pull",
-      "language_version": "20"
-    }
-  }
-}
-```
-
-**`dockerfile`:** Construir uma imagem local a partir de um Dockerfile do próprio projeto. Use quando o projeto tem dependências de sistema não padrão ou uma imagem base personalizada.
-
-```json
-{
-  "runners": {
-    "npm": {
-      "image_source": "dockerfile",
-      "dockerfile_path": ".docker/node.Dockerfile",
-      "build_context": ".",
-      "build_args": {
-        "NODE_VERSION": "20",
-        "APP_ENV": "production"
+  "ecosystems": [
+    {
+      "id": "npm",
+      "runner": {
+        "language_version": "20"
       }
     }
-  }
+  ]
 }
 ```
 
-A estratégia `dockerfile` é mutuamente exclusiva com o campo `image`. Quando `allow_build_context_escape: true`, o contexto de build pode alcançar fora da raiz do projeto — isso emite um aviso porque envia uma árvore de diretórios maior para o daemon Docker.
+**`build`:** Construir uma imagem local a partir de um Dockerfile do próprio projeto. Use quando o projeto tem dependências de sistema não padrão ou uma imagem base personalizada.
+
+```json
+{
+  "ecosystems": [
+    {
+      "id": "npm",
+      "runner": {
+        "build": {
+          "dockerfile": ".docker/node.Dockerfile",
+          "context": ".",
+          "args": {
+            "NODE_VERSION": "20",
+            "APP_ENV": "production"
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+**Coexistência de `image` + `build`:** É possível combinar `image` e `build` para construir e marcar com um nome personalizado.
+
+```json
+{
+  "ecosystems": [
+    {
+      "id": "npm",
+      "runner": {
+        "image": "myapp:latest",
+        "build": {
+          "dockerfile": "Dockerfile",
+          "target": "node-stage"
+        }
+      }
+    }
+  ]
+}
+```
+
+**Estágios multi-stage:** Use `build.target` para selecionar um estágio específico de um Dockerfile multi-stage. Múltiplos ecossistemas que compartilham o mesmo `dockerfile`, `context`, `target` e `args` recebem automaticamente a mesma tag de imagem (deduplicação por hash de conteúdo) — sem rebuilds redundantes.
+
+Quando `build.allow_context_escape: true`, o contexto de build pode alcançar fora da raiz do projeto — isso emite um aviso porque envia uma árvore de diretórios maior para o daemon Docker.
 
 ### Resolução de Versão do Runtime
 
-Quando `image` não está definido, o runner resolve a imagem Docker a partir da versão do runtime usando esta precedência:
+Quando `image` não está definido e nenhum campo `build` está presente, o runner resolve a imagem Docker a partir da versão do runtime usando esta precedência:
 
 **npm:**
-1. `runners.npm.language_version` da configuração (ex.: `'20'` → `node:20`)
+1. `ecosystems[].runner.language_version` da configuração (ex.: `'20'` → `node:20`)
 2. Inferido de `.nvmrc` / `.node-version` / `package.json#engines.node`
 3. Recorre a `node:lts`
 
 **composer:**
-1. `runners.composer.language_version` da configuração (ex.: `'8.2'` → `php:8.2-cli`)
+1. `ecosystems[].runner.language_version` da configuração (ex.: `'8.2'` → `php:8.2-cli`)
 2. Inferido de `.php-version` / `composer.json#require.php`
 3. Recorre a `composer:2`
 
 **pip:**
-1. `runners.pip.language_version` da configuração (ex.: `'3.11'` → `python:3.11-slim`)
+1. `ecosystems[].runner.language_version` da configuração (ex.: `'3.11'` → `python:3.11-slim`)
 2. Inferido de `runtime.txt` / `.python-version`
 3. Recorre a `python:3-slim`
 
@@ -747,27 +770,26 @@ Alguns pacotes npm (ex.: `sharp`, `canvas`) ou extensões PHP (ex.: `imagick`) r
 
 ```json
 {
-  "runners": {
-    "npm": {
-      "native_deps": [
-        "libvips-dev",
-        "build-essential",
-        "python3"
-      ]
+  "ecosystems": [
+    {
+      "id": "npm",
+      "runner": {
+        "native_deps": ["libvips-dev", "build-essential", "python3"]
+      }
     },
-    "composer": {
-      "native_deps": [
-        "imagemagick",
-        "libmagickwand-dev"
-      ]
+    {
+      "id": "composer",
+      "runner": {
+        "native_deps": ["imagemagick", "libmagickwand-dev"]
+      }
     },
-    "pip": {
-      "native_deps": [
-        "libjpeg-dev",
-        "libpq-dev"
-      ]
+    {
+      "id": "pip",
+      "runner": {
+        "native_deps": ["libjpeg-dev", "libpq-dev"]
+      }
     }
-  }
+  ]
 }
 ```
 

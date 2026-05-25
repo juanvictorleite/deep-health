@@ -194,7 +194,7 @@ describe('runOrchestrator — advisor results threading to runEcosystemFix (AC4)
     registry.register(fakeNpmPlugin);
 
     await runOrchestrator(new MockRunner(), makeConfig('npm'), {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: '/project',
       dryRun: false,
       verbose: false,
@@ -238,7 +238,7 @@ describe('runOrchestrator — advisor results threading to runEcosystemFix (AC4)
     registry.register(fakeNpmPlugin);
 
     await runOrchestrator(new MockRunner(), config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: '/project',
       dryRun: false,
       verbose: false,

@@ -98,7 +98,7 @@ describe('runFixCommand', () => {
     };
 
     const code = await runFixCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -129,7 +129,7 @@ describe('runFixCommand', () => {
     };
 
     await runFixCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -170,7 +170,7 @@ describe('runFixCommand', () => {
     };
 
     await runFixCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -213,7 +213,7 @@ describe('runFixCommand', () => {
     };
 
     await runFixCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -256,7 +256,7 @@ describe('runFixCommand', () => {
     };
 
     await runFixCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -303,7 +303,7 @@ describe('runFixCommand', () => {
     };
 
     await runFixCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -347,7 +347,7 @@ describe('runFixCommand', () => {
     };
 
     await runFixCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -397,7 +397,7 @@ describe('runFixCommand', () => {
     };
 
     const code = await runFixCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -454,7 +454,7 @@ describe('runFixCommand', () => {
     };
 
     const code = await runFixCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -496,7 +496,7 @@ describe('runFixCommand', () => {
     };
 
     const code = await runFixCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -525,7 +525,7 @@ describe('runFixCommand', () => {
     };
 
     await runFixCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: true,
       verbose: false,

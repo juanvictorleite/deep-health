@@ -129,7 +129,7 @@ describe('runOrchestrator — composer runtime phase 1', () => {
 
     await expect(
       runOrchestrator(runner, config, {
-        configPath: 'project-config.yml',
+        configPath: 'security-scan.config.json',
         cwd: '/repo',
         dryRun: false,
         verbose: false,
@@ -156,7 +156,7 @@ describe('runOrchestrator — composer runtime phase 1', () => {
 
     await expect(
       runOrchestrator(runner, config, {
-        configPath: 'project-config.yml',
+        configPath: 'security-scan.config.json',
         cwd: '/repo',
         dryRun: false,
         verbose: false,
@@ -181,7 +181,7 @@ describe('runOrchestrator — composer runtime phase 1', () => {
     );
 
     await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: true,
       verbose: false,
@@ -218,7 +218,7 @@ describe('runOrchestrator — composer runtime phase 1', () => {
 
     await expect(
       runOrchestrator(runner, config, {
-        configPath: 'project-config.yml',
+        configPath: 'security-scan.config.json',
         cwd: '/repo',
         dryRun: false,
         verbose: false,

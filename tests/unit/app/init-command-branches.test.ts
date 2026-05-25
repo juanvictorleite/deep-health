@@ -88,7 +88,7 @@ describe('runInitCommand() — sonar properties created path', () => {
       force: true,
       projectName: 'SonarTest',
       client: 'Acme',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     expect(mockWriteSonar).toHaveBeenCalled();
@@ -110,7 +110,7 @@ describe('runInitCommand() — sonar properties created path', () => {
       force: true,
       projectName: 'SonarTest',
       client: 'Acme',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     const calls = stdoutSpy.mock.calls.map((c) => String(c[0]));
@@ -144,7 +144,7 @@ describe('runInitCommand — composer non-interactive with inferred version', ()
       nonInteractive: true,
       projectName: 'PHPProject',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
       ecosystems: ['composer'],
     } as Parameters<typeof runInitCommand>[0]);
 
@@ -184,7 +184,7 @@ describe('runInitCommand — outputs: undefined path', () => {
       force: true,
       projectName: 'NoMarkdown',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     expect(vi.mocked(generateConfigJson)).toHaveBeenCalledWith(
@@ -248,7 +248,7 @@ describe('runInitCommand — client prompt', () => {
       cwd: '/repo',
       force: true,
       projectName: 'P',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
       // client intentionally omitted → triggers prompt
     });
     stdoutSpy.mockRestore();
@@ -285,7 +285,7 @@ describe('runInitCommand — fixer strategy via selectPrompt', () => {
       force: true,
       projectName: 'P',
       client: 'C',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
     stdoutSpy.mockRestore();
 
@@ -322,7 +322,7 @@ describe('runInitCommand — inferVersion absent on plugin', () => {
       nonInteractive: true,
       projectName: 'P',
       client: 'C',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
       ecosystems: ['pip'],
     } as Parameters<typeof runInitCommand>[0]);
     stdoutSpy.mockRestore();
@@ -372,7 +372,7 @@ describe('runInitCommand — composer interactive with inferred version', () => 
       force: true,
       projectName: 'P',
       client: 'C',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
     stdoutSpy.mockRestore();
 
@@ -415,7 +415,7 @@ describe('runInitCommand() — branch coverage top-up', () => {
     await runInitCommand({
       cwd: '/repo',
       force: true,
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     stdoutSpy.mockRestore();
@@ -442,7 +442,7 @@ describe('runInitCommand() — branch coverage top-up', () => {
       force: true,
       projectName: 'Proj',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     stdoutSpy.mockRestore();
@@ -474,7 +474,7 @@ describe('runInitCommand() — branch coverage top-up', () => {
       force: true,
       projectName: 'Proj',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     stdoutSpy.mockRestore();

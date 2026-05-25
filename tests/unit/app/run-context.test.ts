@@ -47,14 +47,14 @@ describe('createRunContext', () => {
     vi.mocked(loadConfig).mockResolvedValue(ok(baseConfig) as Result<ProjectConfig, ConfigLoadError>);
 
     const result = await createRunContext({
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
       quiet: false,
     });
 
-    expect(loadConfig).toHaveBeenCalledWith('project-config.yml', '/repo', defaultRegistry);
+    expect(loadConfig).toHaveBeenCalledWith('security-scan.config.json', '/repo', defaultRegistry);
     expect(LocalExecutor).toHaveBeenCalledWith({ dryRun: false });
     expect(result.config).toBe(baseConfig);
     expect(result.runner).toBeDefined();
@@ -64,7 +64,7 @@ describe('createRunContext', () => {
     vi.mocked(loadConfig).mockResolvedValue(ok(baseConfig) as Result<ProjectConfig, ConfigLoadError>);
 
     await createRunContext({
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: true,
       verbose: false,
@@ -78,7 +78,7 @@ describe('createRunContext', () => {
     vi.mocked(loadConfig).mockResolvedValue(ok(baseConfig) as Result<ProjectConfig, ConfigLoadError>);
 
     await createRunContext({
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: true,
       verbose: true,
@@ -93,7 +93,7 @@ describe('createRunContext', () => {
     vi.mocked(loadConfig).mockResolvedValue(ok(baseConfig) as Result<ProjectConfig, ConfigLoadError>);
 
     await createRunContext({
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -108,7 +108,7 @@ describe('createRunContext', () => {
     vi.mocked(loadConfig).mockResolvedValue(ok(baseConfig) as Result<ProjectConfig, ConfigLoadError>);
 
     await createRunContext({
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,

@@ -218,7 +218,7 @@ describe("runOrchestrator — SECURITY_SCAN_NO_AUTO_FIX kill-switch", () => {
     });
 
     const result = await runOrchestrator(runner, config, {
-      configPath: "project-config.yml",
+      configPath: "security-scan.config.json",
       cwd: "/repo",
       dryRun: false,
       verbose: false,
@@ -258,7 +258,7 @@ describe("runOrchestrator — SECURITY_SCAN_NO_AUTO_FIX kill-switch", () => {
     });
 
     await runOrchestrator(runner, config, {
-      configPath: "project-config.yml",
+      configPath: "security-scan.config.json",
       cwd: "/repo",
       dryRun: false,
       verbose: false,
@@ -300,7 +300,7 @@ describe("runOrchestrator — lockfileVersion 1 warning (lines 783-789)", () => 
     });
 
     await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,

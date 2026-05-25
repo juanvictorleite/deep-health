@@ -272,7 +272,7 @@ describe('pipeline-e2e — npm project with auto_safe vuln', () => {
     });
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -305,7 +305,7 @@ describe('pipeline-e2e — npm project with auto_safe vuln', () => {
     });
 
     await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -336,7 +336,7 @@ describe('pipeline-e2e — composer project with breaking vuln', () => {
     });
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -368,7 +368,7 @@ describe('pipeline-e2e — composer project with breaking vuln', () => {
     });
 
     await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -400,7 +400,7 @@ describe('pipeline-e2e — clean project (no vulnerabilities)', () => {
     });
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,
@@ -431,7 +431,7 @@ describe('pipeline-e2e — clean project (no vulnerabilities)', () => {
     const runner = new MockCommandRunner({});
 
     const result = await runOrchestrator(runner, config, {
-      configPath: 'project-config.yml',
+      configPath: 'security-scan.config.json',
       cwd: fixturesDir,
       dryRun: false,
       verbose: false,

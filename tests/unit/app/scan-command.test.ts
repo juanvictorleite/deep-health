@@ -44,7 +44,7 @@ describe('runScanCommand()', () => {
   it('returns 0 when scan is clean', async () => {
     vi.mocked(runScanner).mockResolvedValue(makeScan('success', 0));
     const code = await runScanCommand(makeCtx(), {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/proj',
       dryRun: false,
       verbose: false,
@@ -57,7 +57,7 @@ describe('runScanCommand()', () => {
   it('returns 1 when scan has breaking vulnerabilities', async () => {
     vi.mocked(runScanner).mockResolvedValue(makeScan('success', 2));
     const code = await runScanCommand(makeCtx(), {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/proj',
       dryRun: false,
       verbose: false,
@@ -70,7 +70,7 @@ describe('runScanCommand()', () => {
   it('returns 2 when scan status is error', async () => {
     vi.mocked(runScanner).mockResolvedValue(makeScan('error', 0));
     const code = await runScanCommand(makeCtx(), {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/proj',
       dryRun: false,
       verbose: false,
@@ -83,7 +83,7 @@ describe('runScanCommand()', () => {
   it('passes JSON output when json=true', async () => {
     vi.mocked(runScanner).mockResolvedValue(makeScan('success', 0));
     await runScanCommand(makeCtx(), {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/proj',
       dryRun: false,
       verbose: false,
@@ -97,7 +97,7 @@ describe('runScanCommand()', () => {
   it('passes output path to writeOutput when provided', async () => {
     vi.mocked(runScanner).mockResolvedValue(makeScan('success', 0));
     await runScanCommand(makeCtx(), {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/proj',
       dryRun: false,
       verbose: false,

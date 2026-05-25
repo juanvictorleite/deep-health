@@ -89,7 +89,7 @@ describe('runFixCommand() — phases split branch (line 61)', () => {
     });
 
     await runFixCommand(makeCtx(), {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -125,7 +125,7 @@ describe('runFixCommand() — advisorResults branch (line 127)', () => {
     });
 
     await runFixCommand(makeCtx(), {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -174,7 +174,7 @@ describe('runFixCommand() — breaking packages warning branch (lines 92-109)', 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
     await runFixCommand(makeCtx(), {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -204,7 +204,7 @@ describe('runFixCommand() — return codes (lines 186-187)', () => {
     });
 
     const code = await runFixCommand(makeCtx(), {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -229,7 +229,7 @@ describe('runFixCommand() — return codes (lines 186-187)', () => {
     });
 
     const code = await runFixCommand(makeCtx(), {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -272,7 +272,7 @@ describe('runFixCommand() — branch coverage top-up', () => {
     });
 
     const code = await runFixCommand(makeCtx(), {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -311,7 +311,7 @@ describe('runFixCommand() — branch coverage top-up', () => {
 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     await runFixCommand(makeCtx(), {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -343,7 +343,7 @@ describe('runFixCommand() — branch coverage top-up', () => {
       runner: { environment: 'local' as const, run: vi.fn(), runArgs: vi.fn(), dryRun: false },
     };
     const code = await runFixCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -382,7 +382,7 @@ describe('runFixCommand() — branch coverage top-up', () => {
 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     await runFixCommand(makeCtx(), {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -414,7 +414,7 @@ describe('runFixCommand() — branch coverage top-up', () => {
       runner: { environment: 'local' as const, run: vi.fn(), runArgs: vi.fn(), dryRun: false },
     };
     const code = await runFixCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,
@@ -567,7 +567,7 @@ describe('runFixCommand() — --open-pr: gh not installed', () => {
 
     await expect(
       runFixCommand(ctx, {
-        config: 'project-config.yml',
+        config: 'security-scan.config.json',
         cwd: '/repo',
         dryRun: false,
         verbose: false,
@@ -605,7 +605,7 @@ describe('runFixCommand() — dry-run skips branch creation', () => {
     };
 
     await runFixCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: true,
       verbose: false,
@@ -663,7 +663,7 @@ describe('runFixCommand() — --open-pr: push + gh pr create called, PR URL prin
     };
 
     const code = await runFixCommand(ctx, {
-      config: 'project-config.yml',
+      config: 'security-scan.config.json',
       cwd: '/repo',
       dryRun: false,
       verbose: false,

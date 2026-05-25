@@ -57,7 +57,7 @@ describe('init.ts line 141 — plugin without inferVersion uses undefined (: und
         nonInteractive: true,
         projectName: 'TestProject',
         client: 'TestClient',
-        output: '/project/project-config.yml',
+        output: '/project/security-scan.config.json',
       }),
     ).resolves.not.toThrow();
   });
