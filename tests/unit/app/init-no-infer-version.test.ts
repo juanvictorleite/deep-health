@@ -24,7 +24,7 @@ vi.mock('@modules/ecosystem/index.js', () => ({
 }));
 
 vi.mock('@infra/config/generator.js', () => ({
-  generateConfigYaml: vi.fn().mockReturnValue('config: yaml'),
+  generateConfigJson: vi.fn().mockReturnValue('{"config":"json"}'),
 }));
 
 vi.mock('@infra/utils/prompt.js', () => ({

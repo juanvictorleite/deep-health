@@ -1,6 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { parse as yamlParse, stringify as yamlStringify } from 'yaml';
 import type { ProjectConfig } from '@core/types/config';
 import {
   createOAuth2Client,
@@ -73,14 +72,14 @@ async function listDriveFolders(tokens: {
 
 async function updateConfigFile(configPath: string, folderId: string): Promise<void> {
   const raw = await readFile(configPath, 'utf-8');
-  const doc = yamlParse(raw) as Record<string, unknown>;
+  const doc = JSON.parse(raw) as Record<string, unknown>;
 
   doc['cloud_storage'] = {
     provider: 'google_drive',
     folder_id: folderId,
   };
 
-  await writeFile(configPath, yamlStringify(doc), 'utf-8');
+  await writeFile(configPath, JSON.stringify(doc, null, 2), 'utf-8');
 }
 
 export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
@@ -102,7 +101,7 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
     return 1;
   }
 
-  const config = yamlParse(rawConfig) as ProjectConfig;
+  const config = JSON.parse(rawConfig) as ProjectConfig;
 
   // Check for existing tokens
   const existingTokens = await loadStoredTokens();

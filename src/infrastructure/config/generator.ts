@@ -276,7 +276,3 @@ export function generateConfigJson(opts: GenerateConfigOptions = {}): string {
 
   return JSON.stringify(config, null, 2);
 }
-
-// Re-export under legacy name for any callers that haven't been updated yet
-// (removed when all call sites are migrated)
-export { generateConfigJson as generateConfigYaml };

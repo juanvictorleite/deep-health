@@ -14,7 +14,7 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 vi.mock('@infra/config/generator', () => ({
-  generateConfigYaml: vi.fn(() => 'project:\n  name: demo\n'),
+  generateConfigJson: vi.fn(() => '{"project":{"name":"demo"}}'),
 }));
 
 vi.mock('@infra/utils/prompt', () => ({
@@ -33,7 +33,7 @@ vi.mock('@app/commands/sonar-properties-template', () => ({
 
 import { prompt } from '@infra/utils/prompt';
 import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
-import { generateConfigYaml } from '@infra/config/generator';
+import { generateConfigJson } from '@infra/config/generator';
 import { runInitCommand } from '@app/commands/init';
 import { writeSonarPropertiesTemplateIfMissing } from '@app/commands/sonar-properties-template';
 
@@ -148,7 +148,7 @@ describe('runInitCommand — composer non-interactive with inferred version', ()
       ecosystems: ['composer'],
     } as Parameters<typeof runInitCommand>[0]);
 
-    expect(vi.mocked(generateConfigYaml)).toHaveBeenCalledWith(
+    expect(vi.mocked(generateConfigJson)).toHaveBeenCalledWith(
       expect.objectContaining({
         ecosystemConfigs: expect.arrayContaining([
           expect.objectContaining({
@@ -187,7 +187,7 @@ describe('runInitCommand — outputs: undefined path', () => {
       output: 'project-config.yml',
     });
 
-    expect(vi.mocked(generateConfigYaml)).toHaveBeenCalledWith(
+    expect(vi.mocked(generateConfigJson)).toHaveBeenCalledWith(
       expect.objectContaining({ outputs: undefined }),
     );
   });
@@ -300,7 +300,7 @@ describe('runInitCommand — fixer strategy via selectPrompt', () => {
     expect(choices.map((c) => c.value)).toEqual(
       expect.arrayContaining(['osv', 'npm-audit', 'osv-then-audit']),
     );
-    expect(vi.mocked(generateConfigYaml)).toHaveBeenCalled();
+    expect(vi.mocked(generateConfigJson)).toHaveBeenCalled();
   });
 });
 
@@ -425,7 +425,7 @@ describe('runInitCommand() — branch coverage top-up', () => {
     expect(promptted.some((q) => q.includes('Client name') || q.includes('Nome do cliente'))).toBe(true);
   });
 
-  it('selectPrompt called with "Language / Idioma" first; generateConfigYaml called with reportLanguage: en', async () => {
+  it('selectPrompt called with "Language / Idioma" first; generateConfigJson called with reportLanguage: en', async () => {
     setupInteractiveMocks();
     mockCheckbox.mockResolvedValue([]);
     mockSelect.mockImplementation(async (msg: string, choices: Array<{ name: string; value: string }>) => {
@@ -447,7 +447,7 @@ describe('runInitCommand() — branch coverage top-up', () => {
 
     stdoutSpy.mockRestore();
 
-    expect(vi.mocked(generateConfigYaml)).toHaveBeenCalledWith(
+    expect(vi.mocked(generateConfigJson)).toHaveBeenCalledWith(
       expect.objectContaining({ reportLanguage: 'en' }),
     );
   });

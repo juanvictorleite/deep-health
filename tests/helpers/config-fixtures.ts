@@ -3,9 +3,9 @@
  *
  * Provides:
  *  - `minimalConfigJson` — a valid minimal security-scan.config.json object (as string)
- *  - `minimalConfigYaml` — alias kept for backward compatibility (returns JSON now)
  *  - `withTempConfig(content, fn)` — writes a uniquely named temp .json file, runs `fn`, then cleans up
  *  - `minimalConfigWith(overrides)` — builds a minimal JSON string with extra top-level fields merged in
+ *  - `minimalConfigWithObj(extra)` — merges extra fields (as a plain object) into the minimal base config
  */
 
 import { writeFile, unlink } from 'node:fs/promises';
@@ -32,12 +32,6 @@ const MINIMAL_CONFIG_OBJ = {
 export const minimalConfigJson: string = JSON.stringify(MINIMAL_CONFIG_OBJ, null, 2) + '\n';
 
 /**
- * Backward-compatible alias — callers that imported minimalConfigYaml now receive
- * JSON content. The loader now parses JSON, so this is transparent.
- */
-export const minimalConfigYaml: string = minimalConfigJson;
-
-/**
  * Builds a minimal valid config JSON string with extra top-level fields merged in.
  *
  * @param extra - Additional fields as a JSON object string appended as top-level keys.
@@ -52,15 +46,7 @@ export function minimalConfigWith(extraJson: string): string {
   const base = { ...MINIMAL_CONFIG_OBJ } as Record<string, unknown>;
 
   // Parse the extra JSON fragment
-  let extraObj: Record<string, unknown>;
-  try {
-    extraObj = JSON.parse(extraJson) as Record<string, unknown>;
-  } catch {
-    // If the extra is not valid JSON on its own, treat it as a literal top-level
-    // field string in `key: value` format (legacy YAML-style callers).
-    // We convert simple `key: value` patterns for backward compat.
-    extraObj = parseLegacyYamlLike(extraJson);
-  }
+  const extraObj = JSON.parse(extraJson) as Record<string, unknown>;
 
   const merged = { ...base, ...extraObj };
   return JSON.stringify(merged, null, 2) + '\n';
@@ -73,32 +59,6 @@ export function minimalConfigWithObj(extra: Record<string, unknown>): string {
   const base = { ...MINIMAL_CONFIG_OBJ } as Record<string, unknown>;
   const merged = { ...base, ...extra };
   return JSON.stringify(merged, null, 2) + '\n';
-}
-
-/**
- * Very limited YAML-style `key: value` parser for backward compat with test
- * callers that used to pass YAML snippets to minimalConfigWith.
- *
- * Handles only simple single-depth patterns like:
- *   `unknown_top_key: oops`
- *   `scanners:\n  osv:\n    runner: docker`
- *
- * For complex nested structures use `minimalConfigWithObj` instead.
- */
-function parseLegacyYamlLike(raw: string): Record<string, unknown> {
-  // Very naive approach: try to handle the test cases that relied on YAML strings.
-  // The tests that pass YAML snippets to minimalConfigWith in loader.test.ts now
-  // pass JSON objects directly, so this fallback path is only for any remaining
-  // callers not yet migrated.
-  const result: Record<string, unknown> = {};
-  const firstLine = raw.trim().split('\n')[0] ?? '';
-  const colonIdx = firstLine.indexOf(':');
-  if (colonIdx > 0) {
-    const key = firstLine.slice(0, colonIdx).trim();
-    const val = firstLine.slice(colonIdx + 1).trim();
-    result[key] = val || {};
-  }
-  return result;
 }
 
 /**

@@ -1,7 +1,7 @@
 import { writeFile, access, mkdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
-import { generateConfigYaml, type GenerateConfigOptions, type EcosystemRunnerConfig } from '@infra/config/generator';
+import { generateConfigJson, type GenerateConfigOptions, type EcosystemRunnerConfig } from '@infra/config/generator';
 import { generateJsonSchema } from '@infra/config/schema-export';
 import { writeSonarPropertiesTemplateIfMissing } from './sonar-properties-template';
 import { prompt } from '@infra/utils/prompt';
@@ -306,7 +306,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   const outputFormats: ('markdown')[] = [];
   if (enableMarkdown) outputFormats.push('markdown');
 
-  const json = generateConfigYaml({
+  const json = generateConfigJson({
     projectName,
     client,
     reportLanguage,

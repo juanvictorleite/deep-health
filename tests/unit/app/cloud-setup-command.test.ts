@@ -72,11 +72,17 @@ const mockTokens = {
   token_type: 'Bearer',
 };
 
-const mockConfigContent = `
-project:
-  name: test-project
-  client: acme
-`;
+const mockConfigContent = JSON.stringify({
+  config_version: '1',
+  project: { name: 'test-project', client: 'acme' },
+  ecosystems: [],
+  protected_packages: {},
+  safe_update_policy: {
+    allow_patch_and_minor_within_constraints: true,
+    require_authorization_for_constraint_change: false,
+  },
+  conflict_resolution: 'fail',
+}, null, 2);
 
 describe('runCloudSetup()', () => {
   beforeEach(() => {
@@ -262,14 +268,21 @@ describe('runCloudSetup()', () => {
   });
 
   it('pre-selects existing folder when config already has cloud_storage.folder_id (lines 151, 183-186)', async () => {
-    const configWithFolder = `
-project:
-  name: test-project
-  client: acme
-cloud_storage:
-  provider: google_drive
-  folder_id: existing-folder-id
-`;
+    const configWithFolder = JSON.stringify({
+      config_version: '1',
+      project: { name: 'test-project', client: 'acme' },
+      ecosystems: [],
+      protected_packages: {},
+      safe_update_policy: {
+        allow_patch_and_minor_within_constraints: true,
+        require_authorization_for_constraint_change: false,
+      },
+      conflict_resolution: 'fail',
+      cloud_storage: {
+        provider: 'google_drive',
+        folder_id: 'existing-folder-id',
+      },
+    }, null, 2);
     vi.mocked(readFile).mockResolvedValue(configWithFolder);
     vi.mocked(loadStoredTokens).mockResolvedValue(mockTokens);
     mockUserinfoGet.mockResolvedValue({ data: { email: 'user@example.com' } });

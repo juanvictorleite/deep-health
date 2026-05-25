@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import {
   loadConfig,
   DEFAULT_CONFIG_PATH,
-  generateConfigYaml,
+  generateConfigJson,
   runOrchestrator,
   generateExecutiveReport,
   executiveReportFilename,
@@ -28,8 +28,8 @@ describe('src/index.ts barrel exports', () => {
     expect(typeof loadConfig).toBe('function');
   });
 
-  it('generateConfigYaml is a function', () => {
-    expect(typeof generateConfigYaml).toBe('function');
+  it('generateConfigJson is a function', () => {
+    expect(typeof generateConfigJson).toBe('function');
   });
 
   it('runOrchestrator is a function', () => {

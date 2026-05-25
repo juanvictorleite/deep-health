@@ -1,5 +1,5 @@
 export { loadConfig, DEFAULT_CONFIG_PATH } from '@infra/config/loader';
-export { generateConfigYaml } from '@infra/config/generator';
+export { generateConfigJson } from '@infra/config/generator';
 export { runOrchestrator } from '@orchestration/orchestrator';
 export {
   generateExecutiveReport,

@@ -9,7 +9,7 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 vi.mock('@infra/config/generator', () => ({
-  generateConfigYaml: vi.fn(() => 'project:\n  name: demo\n'),
+  generateConfigJson: vi.fn(() => '{"project":{"name":"demo"}}'),
   normalizeSonarProjectKey: vi.fn((name: string) => name.replace(/\s+/g, '-')),
 }));
 
@@ -32,7 +32,7 @@ vi.mock('@infra/utils/detect-ecosystems', () => ({
 }));
 
 import { writeFile, mkdir, access } from 'node:fs/promises';
-import { generateConfigYaml } from '@infra/config/generator';
+import { generateConfigJson } from '@infra/config/generator';
 import { generateJsonSchema } from '@infra/config/schema-export';
 import { prompt } from '@infra/utils/prompt';
 import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
@@ -66,7 +66,7 @@ describe('runInitCommand — non-interactive', () => {
       output: 'project-config.yml',
     });
 
-    expect(generateConfigYaml).toHaveBeenCalledWith(
+    expect(generateConfigJson).toHaveBeenCalledWith(
       expect.objectContaining({
         ecosystemConfigs: expect.arrayContaining([
           expect.objectContaining({ id: 'composer' }),
@@ -103,7 +103,7 @@ describe('runInitCommand — non-interactive', () => {
       output: 'project-config.yml',
     });
 
-    expect(generateConfigYaml).toHaveBeenCalledWith(
+    expect(generateConfigJson).toHaveBeenCalledWith(
       expect.objectContaining({
         ecosystemConfigs: expect.arrayContaining([
           // npm ecosystem entry should have runner.language_version set
@@ -116,7 +116,7 @@ describe('runInitCommand — non-interactive', () => {
       }),
     );
     // Verify version is on the npm ecosystem entry's runner, not as a top-level version field
-    const call = vi.mocked(generateConfigYaml).mock.calls[0]![0];
+    const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
     const npmEntry = call.ecosystemConfigs?.find((e) => e.id === 'npm');
     expect(npmEntry?.runner?.language_version).toBe('20');
     expect((npmEntry as any)?.version).toBeUndefined();
@@ -146,7 +146,7 @@ describe('runInitCommand — non-interactive', () => {
       output: 'project-config.yml',
     });
 
-    expect(generateConfigYaml).toHaveBeenCalledWith(
+    expect(generateConfigJson).toHaveBeenCalledWith(
       expect.objectContaining({
         ecosystemConfigs: expect.arrayContaining([
           expect.objectContaining({
@@ -207,7 +207,7 @@ describe('runInitCommand — interactive version prompts', () => {
       output: 'project-config.yml',
     });
 
-    expect(generateConfigYaml).toHaveBeenCalledWith(
+    expect(generateConfigJson).toHaveBeenCalledWith(
       expect.objectContaining({
         ecosystemConfigs: expect.arrayContaining([
           expect.objectContaining({
@@ -218,7 +218,7 @@ describe('runInitCommand — interactive version prompts', () => {
       }),
     );
     // Verify version is on runner, not on the npm ecosystem entry directly
-    const npmEntryCheck = vi.mocked(generateConfigYaml).mock.calls[0]![0];
+    const npmEntryCheck = vi.mocked(generateConfigJson).mock.calls[0]![0];
     const npmEcoEntry = npmEntryCheck.ecosystemConfigs?.find((e) => e.id === 'npm');
     expect(npmEcoEntry?.runner?.language_version).toBe('20');
     expect((npmEcoEntry as any)?.version).toBeUndefined();
@@ -265,12 +265,12 @@ describe('runInitCommand — interactive version prompts', () => {
     });
 
     // Blank response → runner.language_version should be undefined (no runner or runner without language_version)
-    const blankVersionCall = vi.mocked(generateConfigYaml).mock.calls[0]![0];
+    const blankVersionCall = vi.mocked(generateConfigJson).mock.calls[0]![0];
     const npmBlankEntry = blankVersionCall.ecosystemConfigs?.find((e) => e.id === 'npm');
     // Either no runner attached, or runner without language_version
     expect(npmBlankEntry?.runner?.language_version).toBeUndefined();
     expect((npmBlankEntry as any)?.version).toBeUndefined();
-    expect(generateConfigYaml).toHaveBeenCalledWith(
+    expect(generateConfigJson).toHaveBeenCalledWith(
       expect.objectContaining({
         ecosystemConfigs: expect.arrayContaining([
           expect.objectContaining({ id: 'npm' }),
@@ -317,12 +317,12 @@ describe('runInitCommand — interactive version prompts', () => {
     expect(versionPromptQuestions.some((q) => q.includes('Composer'))).toBe(false);
 
     // ecosystemConfigs should only contain npm
-    expect(generateConfigYaml).toHaveBeenCalledWith(
+    expect(generateConfigJson).toHaveBeenCalledWith(
       expect.objectContaining({
         ecosystemConfigs: expect.arrayContaining([expect.objectContaining({ id: 'npm' })]),
       }),
     );
-    const call = vi.mocked(generateConfigYaml).mock.calls[0]![0];
+    const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
     const composerEntry = call.ecosystemConfigs?.find((e) => e.id === 'composer');
     expect(composerEntry).toBeUndefined();
   });
@@ -377,7 +377,7 @@ describe('runInitCommand — interactive dockerfile image_source prompts', () =>
       output: 'project-config.yml',
     });
 
-    const call = vi.mocked(generateConfigYaml).mock.calls[0]![0];
+    const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
     const npmEco = call.ecosystemConfigs?.find((e) => e.id === 'npm');
     const pipEco = call.ecosystemConfigs?.find((e) => e.id === 'pip');
     const composerEco = call.ecosystemConfigs?.find((e) => e.id === 'composer');
@@ -623,7 +623,7 @@ describe('runInitCommand — ecosystem detection', () => {
       output: 'project-config.yml',
     });
 
-    const call = vi.mocked(generateConfigYaml).mock.calls[0]![0];
+    const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
     expect(call.ecosystemConfigs?.map((e) => e.id)).toEqual(['composer']);
   });
 
@@ -640,7 +640,7 @@ describe('runInitCommand — ecosystem detection', () => {
       output: 'project-config.yml',
     });
 
-    const call = vi.mocked(generateConfigYaml).mock.calls[0]![0];
+    const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
     const ids = call.ecosystemConfigs?.map((e) => e.id) ?? [];
     // All three plugins should be present when nothing detected
     expect(ids).toContain('npm');
@@ -658,7 +658,7 @@ describe('runInitCommand — SonarQube mode selection', () => {
     mockDetectEcosystems.mockResolvedValue(new Set());
   });
 
-  it('prompts for mode when SonarQube is enabled in interactive mode and passes managed to generateConfigYaml', async () => {
+  it('prompts for mode when SonarQube is enabled in interactive mode and passes managed to generateConfigJson', async () => {
     mockCheckbox.mockResolvedValue(['npm']);
     mockConfirm.mockImplementation(async (msg: string) => {
       if (msg.includes('SonarQube')) return true;
@@ -690,7 +690,7 @@ describe('runInitCommand — SonarQube mode selection', () => {
       'managed',
     );
 
-    expect(generateConfigYaml).toHaveBeenCalledWith(
+    expect(generateConfigJson).toHaveBeenCalledWith(
       expect.objectContaining({
         enableSonarQube: true,
         sonarQubeMode: 'managed',
@@ -698,7 +698,7 @@ describe('runInitCommand — SonarQube mode selection', () => {
     );
   });
 
-  it('passes external mode to generateConfigYaml when user selects external', async () => {
+  it('passes external mode to generateConfigJson when user selects external', async () => {
     mockCheckbox.mockResolvedValue(['npm']);
     mockConfirm.mockImplementation(async (msg: string) => {
       if (msg.includes('SonarQube')) return true;
@@ -721,7 +721,7 @@ describe('runInitCommand — SonarQube mode selection', () => {
       output: 'project-config.yml',
     });
 
-    expect(generateConfigYaml).toHaveBeenCalledWith(
+    expect(generateConfigJson).toHaveBeenCalledWith(
       expect.objectContaining({
         enableSonarQube: true,
         sonarQubeMode: 'external',
@@ -754,7 +754,7 @@ describe('runInitCommand — SonarQube mode selection', () => {
     });
 
     expect(selectCalls.some((m) => m.includes('SonarQube mode'))).toBe(false);
-    expect(generateConfigYaml).toHaveBeenCalledWith(
+    expect(generateConfigJson).toHaveBeenCalledWith(
       expect.objectContaining({
         enableSonarQube: false,
         sonarQubeMode: 'managed',
@@ -772,7 +772,7 @@ describe('runInitCommand — SonarQube mode selection', () => {
       output: 'project-config.yml',
     });
 
-    expect(generateConfigYaml).toHaveBeenCalledWith(
+    expect(generateConfigJson).toHaveBeenCalledWith(
       expect.objectContaining({
         sonarQubeMode: 'managed',
       }),
@@ -961,15 +961,15 @@ describe('runInitCommand — i18n', () => {
 
     // No selectPrompt should be called in non-interactive mode
     expect(mockSelect).not.toHaveBeenCalled();
-    // generateConfigYaml should have been called with a valid reportLanguage
-    expect(generateConfigYaml).toHaveBeenCalledWith(
+    // generateConfigJson should have been called with a valid reportLanguage
+    expect(generateConfigJson).toHaveBeenCalledWith(
       expect.objectContaining({
         reportLanguage: expect.stringMatching(/^(en|pt-br)$/),
       }),
     );
   });
 
-  it('selected language is passed to generateConfigYaml as reportLanguage (backward compat)', async () => {
+  it('selected language is passed to generateConfigJson as reportLanguage (backward compat)', async () => {
     mockCheckbox.mockResolvedValue([]);
     mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
       if (msg === 'Language / Idioma') return 'pt-br';
@@ -986,7 +986,7 @@ describe('runInitCommand — i18n', () => {
       output: 'project-config.yml',
     });
 
-    expect(generateConfigYaml).toHaveBeenCalledWith(
+    expect(generateConfigJson).toHaveBeenCalledWith(
       expect.objectContaining({ reportLanguage: 'pt-br' }),
     );
   });
