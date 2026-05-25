@@ -71,7 +71,7 @@ describe('runInitCommand — non-interactive', () => {
       nonInteractive: true,
       projectName: 'My Project',
       client: 'My Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     expect(generateConfigJson).toHaveBeenCalledWith(
@@ -108,7 +108,7 @@ describe('runInitCommand — non-interactive', () => {
       nonInteractive: true,
       projectName: 'Versioned Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     expect(generateConfigJson).toHaveBeenCalledWith(
@@ -151,7 +151,7 @@ describe('runInitCommand — non-interactive', () => {
       nonInteractive: true,
       projectName: 'PHP Versioned Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     expect(generateConfigJson).toHaveBeenCalledWith(
@@ -214,7 +214,7 @@ describe('runInitCommand — interactive version prompts', () => {
       force: true,
       projectName: 'Interactive Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     expect(generateConfigJson).toHaveBeenCalledWith(
@@ -271,7 +271,7 @@ describe('runInitCommand — interactive version prompts', () => {
       force: true,
       projectName: 'Blank Version Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     // Blank response → runner.language_version should be undefined (no runner or runner without language_version)
@@ -319,7 +319,7 @@ describe('runInitCommand — interactive version prompts', () => {
       force: true,
       projectName: 'Npm Only Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     // Version prompt should only appear for npm, never for composer
@@ -338,7 +338,7 @@ describe('runInitCommand — interactive version prompts', () => {
   });
 });
 
-describe('runInitCommand — interactive dockerfile image_source prompts', () => {
+describe('runInitCommand — interactive build mode prompts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Default: no ecosystems detected → nothing pre-selected (checkboxPrompt mock controls selection)
@@ -347,13 +347,13 @@ describe('runInitCommand — interactive dockerfile image_source prompts', () =>
     mockDetectProjectScripts.mockResolvedValue([]);
   });
 
-  it('wires image_source -> dockerfile_path -> build_context -> build_args for npm/pip/composer', async () => {
+  it('wires build mode -> build.dockerfile/context/target/args for npm/pip/composer', async () => {
     // All ecosystems selected
     mockCheckbox.mockResolvedValue(['npm', 'composer', 'pip']);
-    // selectPrompt: return 'en' for language; 'dockerfile' for image source; first choice for fixer
+    // selectPrompt: return 'en' for language; 'build' for build mode; first choice for fixer
     mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
       if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
-      if (msg.includes('Image source') || msg.includes('Origem')) return 'dockerfile';
+      if (msg.includes('Image mode') || msg.includes('Modo de imagem')) return 'build';
       return choices[0].value;
     });
     // confirmPrompt: skip validation/advisors/sonarqube; no markdown
@@ -363,19 +363,22 @@ describe('runInitCommand — interactive dockerfile image_source prompts', () =>
       // Skip version prompts
       if (question.includes('Language version') || question.includes('PHP language version') || question.includes('Python language version') || question.includes('PHP') || question.includes('Python')) return '';
 
-      // npm dockerfile flow
+      // npm build flow
       if (question.includes('[npm] Dockerfile path')) return '.docker/node.Dockerfile';
       if (question.includes('[npm] Build context')) return 'docker/';
+      if (question.includes('[npm] Build target stage')) return '';
       if (question.includes('[npm] Build args')) return 'NODE_VERSION=22,APP_ENV=production';
 
-      // composer dockerfile flow
+      // composer build flow
       if (question.includes('[Composer] Dockerfile path')) return '.docker/php.Dockerfile';
       if (question.includes('[Composer] Build context')) return '.docker/';
+      if (question.includes('[Composer] Build target stage')) return 'php-stage';
       if (question.includes('[Composer] Build args')) return 'PHP_VERSION=8.2,APP_ENV=production';
 
-      // pip dockerfile flow
+      // pip build flow
       if (question.includes('[pip] Dockerfile path')) return '.docker/pip.Dockerfile';
       if (question.includes('[pip] Build context')) return 'python/';
+      if (question.includes('[pip] Build target stage')) return '';
       if (question.includes('[pip] Build args')) return 'PYTHON_VERSION=3.11,PIP_INDEX_URL=https://pypi.org/simple';
 
       return defaultValue ?? '';
@@ -384,9 +387,9 @@ describe('runInitCommand — interactive dockerfile image_source prompts', () =>
     await runInitCommand({
       cwd: '/repo',
       force: true,
-      projectName: 'Dockerfile Init Project',
+      projectName: 'Build Mode Init Project',
       client: 'ACME',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
@@ -395,34 +398,64 @@ describe('runInitCommand — interactive dockerfile image_source prompts', () =>
     const composerEco = call.ecosystemConfigs?.find((e) => e.id === 'composer');
 
     expect(npmEco?.runner).toMatchObject({
-      image_source: 'dockerfile',
-      dockerfile_path: '.docker/node.Dockerfile',
-      build_context: 'docker/',
-      build_args: {
-        NODE_VERSION: '22',
-        APP_ENV: 'production',
+      build: {
+        dockerfile: '.docker/node.Dockerfile',
+        context: 'docker/',
+        args: {
+          NODE_VERSION: '22',
+          APP_ENV: 'production',
+        },
       },
     });
+    // npm: no target provided → target field absent
+    expect(npmEco?.runner?.build?.target).toBeUndefined();
 
     expect(pipEco?.runner).toMatchObject({
-      image_source: 'dockerfile',
-      dockerfile_path: '.docker/pip.Dockerfile',
-      build_context: 'python/',
-      build_args: {
-        PYTHON_VERSION: '3.11',
-        PIP_INDEX_URL: 'https://pypi.org/simple',
+      build: {
+        dockerfile: '.docker/pip.Dockerfile',
+        context: 'python/',
+        args: {
+          PYTHON_VERSION: '3.11',
+          PIP_INDEX_URL: 'https://pypi.org/simple',
+        },
       },
     });
 
     expect(composerEco?.runner).toMatchObject({
-      image_source: 'dockerfile',
-      dockerfile_path: '.docker/php.Dockerfile',
-      build_context: '.docker/',
-      build_args: {
-        PHP_VERSION: '8.2',
-        APP_ENV: 'production',
+      build: {
+        dockerfile: '.docker/php.Dockerfile',
+        context: '.docker/',
+        target: 'php-stage',
+        args: {
+          PHP_VERSION: '8.2',
+          APP_ENV: 'production',
+        },
       },
     });
+  });
+
+  it('omits build field when user selects pull mode', async () => {
+    mockCheckbox.mockResolvedValue(['npm']);
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      if (msg.includes('Image mode') || msg.includes('Modo de imagem')) return 'pull';
+      return choices[0].value;
+    });
+    mockConfirm.mockResolvedValue(false);
+    mockPrompt.mockImplementation(async (_question: string, defaultValue?: string) => defaultValue ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Pull Mode Project',
+      client: 'ACME',
+      output: 'security-scan.config.json',
+    });
+
+    const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
+    const npmEco = call.ecosystemConfigs?.find((e) => e.id === 'npm');
+    // pull mode: no build field on runner
+    expect(npmEco?.runner?.build).toBeUndefined();
   });
 });
 
@@ -450,7 +483,7 @@ describe('runInitCommand — existing file guard', () => {
         cwd: '/repo',
         force: false,
         nonInteractive: true,
-        output: 'project-config.yml',
+        output: 'security-scan.config.json',
       }),
     ).rejects.toThrow(ConfigLoadError);
   });
@@ -462,7 +495,7 @@ describe('runInitCommand — existing file guard', () => {
       cwd: '/repo',
       force: false,
       nonInteractive: true,
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     }).catch((e) => e);
 
     expect(err).toBeInstanceOf(ConfigLoadError);
@@ -480,7 +513,7 @@ describe('runInitCommand — existing file guard', () => {
         nonInteractive: true,
         projectName: 'Force Project',
         client: 'Client',
-        output: 'project-config.yml',
+        output: 'security-scan.config.json',
       }),
     ).resolves.toBeUndefined();
 
@@ -497,7 +530,7 @@ describe('runInitCommand — existing file guard', () => {
         nonInteractive: true,
         projectName: 'New Project',
         client: 'Client',
-        output: 'project-config.yml',
+        output: 'security-scan.config.json',
       }),
     ).resolves.toBeUndefined();
 
@@ -517,7 +550,7 @@ describe('runInitCommand — existing file guard', () => {
         nonInteractive: true,
         projectName: 'ENOENT Project',
         client: 'Client',
-        output: 'project-config.yml',
+        output: 'security-scan.config.json',
       }),
     ).resolves.toBeUndefined();
 
@@ -537,7 +570,7 @@ describe('runInitCommand — existing file guard', () => {
         nonInteractive: true,
         projectName: 'Permission Project',
         client: 'Client',
-        output: 'project-config.yml',
+        output: 'security-scan.config.json',
       }),
     ).rejects.toThrow('EACCES: permission denied');
 
@@ -582,7 +615,7 @@ describe('runInitCommand — ecosystem detection', () => {
       force: true,
       projectName: 'Detection Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     const npmChoice = capturedChoices.find((c) => c.value === 'npm');
@@ -619,7 +652,7 @@ describe('runInitCommand — ecosystem detection', () => {
       force: true,
       projectName: 'Hint Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     expect(capturedMessage).toMatch(/Space/i);
@@ -636,7 +669,7 @@ describe('runInitCommand — ecosystem detection', () => {
       nonInteractive: true,
       projectName: 'Detected Composer',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
@@ -653,7 +686,7 @@ describe('runInitCommand — ecosystem detection', () => {
       nonInteractive: true,
       projectName: 'Fallback Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
@@ -696,7 +729,7 @@ describe('runInitCommand — SonarQube mode selection', () => {
       force: true,
       projectName: 'Sonar Managed Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     expect(mockSelect).toHaveBeenCalledWith(
@@ -736,7 +769,7 @@ describe('runInitCommand — SonarQube mode selection', () => {
       force: true,
       projectName: 'Sonar External Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     expect(generateConfigJson).toHaveBeenCalledWith(
@@ -768,7 +801,7 @@ describe('runInitCommand — SonarQube mode selection', () => {
       force: true,
       projectName: 'No Sonar Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     expect(selectCalls.some((m) => m.includes('SonarQube mode'))).toBe(false);
@@ -787,7 +820,7 @@ describe('runInitCommand — SonarQube mode selection', () => {
       nonInteractive: true,
       projectName: 'Non-Interactive Sonar',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     expect(generateConfigJson).toHaveBeenCalledWith(
@@ -823,7 +856,7 @@ describe('runInitCommand — SonarQube mode selection', () => {
       force: true,
       projectName: 'Choices Verify Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     const managedChoice = capturedChoices.find((c: any) => c.value === 'managed');
@@ -865,7 +898,7 @@ describe('runInitCommand — i18n', () => {
       force: true,
       projectName: 'Lang First Test',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     // Language / Idioma must be the very first selectPrompt call
@@ -888,7 +921,7 @@ describe('runInitCommand — i18n', () => {
       force: true,
       projectName: 'Bilingual Label Test',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     expect(capturedMessages).toContain('Language / Idioma');
@@ -912,7 +945,7 @@ describe('runInitCommand — i18n', () => {
       force: true,
       projectName: 'Choices Test',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     expect(capturedChoices.some((c) => c.value === 'en' && c.name === 'English (en)')).toBe(true);
@@ -937,7 +970,7 @@ describe('runInitCommand — i18n', () => {
       force: true,
       projectName: 'EN Strings Test',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     // EN locale: enableSonarQubePrompt is 'Enable SonarQube scanner?'
@@ -962,7 +995,7 @@ describe('runInitCommand — i18n', () => {
       force: true,
       projectName: 'PT-BR Strings Test',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     // PT-BR locale: enableSonarQubePrompt is 'Habilitar scanner SonarQube?'
@@ -976,7 +1009,7 @@ describe('runInitCommand — i18n', () => {
       nonInteractive: true,
       projectName: 'Non-interactive i18n test',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     // No selectPrompt should be called in non-interactive mode
@@ -1003,7 +1036,7 @@ describe('runInitCommand — i18n', () => {
       force: true,
       projectName: 'Backward Compat Test',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     expect(generateConfigJson).toHaveBeenCalledWith(
@@ -1027,7 +1060,7 @@ describe('runInitCommand — i18n', () => {
       force: true,
       projectName: 'No Old Prompt Test',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     expect(selectMessages.some((m) => m === 'Report language')).toBe(false);
@@ -1052,7 +1085,7 @@ describe('runInitCommand — schema file write', () => {
       nonInteractive: true,
       projectName: 'Schema Test',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     const writeFileMock = vi.mocked(writeFile);
@@ -1069,7 +1102,7 @@ describe('runInitCommand — schema file write', () => {
       nonInteractive: true,
       projectName: 'Schema Path Test',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     const writeFileMock = vi.mocked(writeFile);
@@ -1088,7 +1121,7 @@ describe('runInitCommand — schema file write', () => {
       nonInteractive: true,
       projectName: 'Schema Generate Test',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     expect(vi.mocked(generateJsonSchema)).toHaveBeenCalled();
@@ -1101,7 +1134,7 @@ describe('runInitCommand — schema file write', () => {
       nonInteractive: true,
       projectName: 'Schema Content Test',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     const writeFileMock = vi.mocked(writeFile);
@@ -1124,7 +1157,7 @@ describe('runInitCommand — schema file write', () => {
       nonInteractive: true,
       projectName: 'Schema Mkdir Test',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     const mkdirMock = vi.mocked(mkdir);
@@ -1187,7 +1220,7 @@ describe('runInitCommand — script detection flow (interactive)', () => {
       force: true,
       projectName: 'Script Detection Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     // The script checkbox prompt message should mention the count
@@ -1234,7 +1267,7 @@ describe('runInitCommand — script detection flow (interactive)', () => {
       force: true,
       projectName: 'Recommended Pre-check Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     const testChoice = capturedChoices.find((c) => c.name.includes('test'));
@@ -1269,7 +1302,7 @@ describe('runInitCommand — script detection flow (interactive)', () => {
       force: true,
       projectName: 'Fallback Confirm Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     // The confirm flow should have been used for validation commands
@@ -1308,7 +1341,7 @@ describe('runInitCommand — script detection flow (interactive)', () => {
       force: true,
       projectName: 'Scripts In Config Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
@@ -1351,7 +1384,7 @@ describe('runInitCommand — script detection flow (interactive)', () => {
       force: true,
       projectName: 'Uncovered Defaults Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     // Should have 'test' from detected + 'build' from plugin defaults (not covered by detected)
@@ -1390,7 +1423,7 @@ describe('runInitCommand — script detection flow (non-interactive)', () => {
       nonInteractive: true,
       projectName: 'Non-interactive Scripts Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
@@ -1417,7 +1450,7 @@ describe('runInitCommand — script detection flow (non-interactive)', () => {
       nonInteractive: true,
       projectName: 'Non-interactive Fallback Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
@@ -1447,7 +1480,7 @@ describe('runInitCommand — script detection flow (non-interactive)', () => {
       nonInteractive: true,
       projectName: 'No Recommended Scripts Project',
       client: 'Client',
-      output: 'project-config.yml',
+      output: 'security-scan.config.json',
     });
 
     const call = vi.mocked(generateConfigJson).mock.calls[0]![0];

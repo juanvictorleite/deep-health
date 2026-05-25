@@ -43,12 +43,13 @@ export interface InitLocale {
   pythonVersionPromptWithInferred: (pluginName: string, inferred: string) => string;
   pythonVersionPromptBlank: (pluginName: string) => string;
 
-  // ── Image source ──────────────────────────────────────────────────────────────
-  imageSourcePrompt: (pluginName: string) => string;
-  imageSourcePull: string;
-  imageSourceDockerfile: string;
-  dockerfilePathPrompt: (pluginName: string) => string;
+  // ── Build mode ────────────────────────────────────────────────────────────────
+  buildModePrompt: (pluginName: string) => string;
+  buildModePull: string;
+  buildModeBuild: string;
+  buildDockerfilePrompt: (pluginName: string) => string;
   buildContextPrompt: (pluginName: string) => string;
+  buildTargetPrompt: (pluginName: string) => string;
   buildArgsPrompt: (pluginName: string) => string;
 
   // ── SonarQube ─────────────────────────────────────────────────────────────────

@@ -46,14 +46,16 @@ export const en: InitLocale = {
   pythonVersionPromptBlank: (pluginName) =>
     `  [${pluginName}] Python language version (blank to skip)`,
 
-  // ── Image source ──────────────────────────────────────────────────────────────
-  imageSourcePrompt: (pluginName) => `  [${pluginName}] Image source`,
-  imageSourcePull:
-    'pull — uses a standard registry image (may lack project-specific extensions or tools)',
-  imageSourceDockerfile:
-    'dockerfile (recommended) — builds from your project Dockerfile with all extensions and tools pre-installed',
-  dockerfilePathPrompt: (pluginName) => `  [${pluginName}] Dockerfile path`,
+  // ── Build mode ────────────────────────────────────────────────────────────────
+  buildModePrompt: (pluginName) => `  [${pluginName}] Image mode`,
+  buildModePull:
+    'pull — uses a standard registry image (may lack project-specific tools)',
+  buildModeBuild:
+    'build (recommended) — builds from your project Dockerfile with all tools pre-installed',
+  buildDockerfilePrompt: (pluginName) => `  [${pluginName}] Dockerfile path`,
   buildContextPrompt: (pluginName) => `  [${pluginName}] Build context (blank for '.')`,
+  buildTargetPrompt: (pluginName) =>
+    `  [${pluginName}] Build target stage (blank to skip)`,
   buildArgsPrompt: (pluginName) =>
     `  [${pluginName}] Build args (KEY=VALUE comma-separated, blank to skip)`,
 

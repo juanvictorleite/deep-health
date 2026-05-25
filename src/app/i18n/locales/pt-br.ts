@@ -47,15 +47,17 @@ export const ptBr: InitLocale = {
   pythonVersionPromptBlank: (pluginName) =>
     `  [${pluginName}] Versão do Python (deixe em branco para ignorar)`,
 
-  // ── Image source ──────────────────────────────────────────────────────────────
-  imageSourcePrompt: (pluginName) => `  [${pluginName}] Origem da imagem`,
-  imageSourcePull:
-    'pull — usa uma imagem padrão do registry (pode não ter extensões ou ferramentas do projeto)',
-  imageSourceDockerfile:
-    'dockerfile (recomendado) — constrói a partir do Dockerfile do projeto com todas as extensões e ferramentas instaladas',
-  dockerfilePathPrompt: (pluginName) => `  [${pluginName}] Caminho do Dockerfile`,
+  // ── Build mode ────────────────────────────────────────────────────────────────
+  buildModePrompt: (pluginName) => `  [${pluginName}] Modo de imagem`,
+  buildModePull:
+    'pull — usa uma imagem padrão do registry (pode não ter ferramentas do projeto)',
+  buildModeBuild:
+    'build (recomendado) — constrói a partir do Dockerfile do projeto com todas as ferramentas instaladas',
+  buildDockerfilePrompt: (pluginName) => `  [${pluginName}] Caminho do Dockerfile`,
   buildContextPrompt: (pluginName) =>
     `  [${pluginName}] Contexto de build (deixe em branco para '.')`,
+  buildTargetPrompt: (pluginName) =>
+    `  [${pluginName}] Estágio alvo do build (deixe em branco para ignorar)`,
   buildArgsPrompt: (pluginName) =>
     `  [${pluginName}] Argumentos de build (CHAVE=VALOR separados por vírgula, deixe em branco para ignorar)`,
 

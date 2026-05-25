@@ -72,23 +72,30 @@ async function collectRunnerConfig(opts: CollectRunnerConfigOpts): Promise<Ecosy
   }
 
   if (!nonInteractive) {
-    const imageSource = await selectPrompt(
-      t.imageSourcePrompt(pluginName),
+    const buildMode = await selectPrompt(
+      t.buildModePrompt(pluginName),
       [
-        { name: t.imageSourceDockerfile, value: 'dockerfile' as const },
-        { name: t.imageSourcePull, value: 'pull' as const },
+        { name: t.buildModeBuild, value: 'build' as const },
+        { name: t.buildModePull, value: 'pull' as const },
       ],
-      'dockerfile',
+      'build',
     );
-    if (imageSource === 'dockerfile') {
-      runnerData.image_source = 'dockerfile';
-      const dfPath = await prompt(t.dockerfilePathPrompt(pluginName), 'Dockerfile');
-      runnerData.dockerfile_path = dfPath.trim() || 'Dockerfile';
+    if (buildMode === 'build') {
+      const dfPath = await prompt(t.buildDockerfilePrompt(pluginName), 'Dockerfile');
       const ctxAnswer = await prompt(t.buildContextPrompt(pluginName), '');
-      runnerData.build_context = ctxAnswer.trim() || '.';
+      const targetAnswer = await prompt(t.buildTargetPrompt(pluginName), '');
       const buildArgsAnswer = await prompt(t.buildArgsPrompt(pluginName), '');
       const parsedArgs = parseBuildArgs(buildArgsAnswer);
-      if (parsedArgs) runnerData.build_args = parsedArgs;
+
+      const buildConfig: NonNullable<EcosystemRunnerConfig['build']> = {
+        dockerfile: dfPath.trim() || 'Dockerfile',
+        context: ctxAnswer.trim() || '.',
+      };
+      const resolvedTarget = targetAnswer.trim();
+      if (resolvedTarget) buildConfig.target = resolvedTarget;
+      if (parsedArgs) buildConfig.args = parsedArgs;
+
+      runnerData.build = buildConfig;
     }
   }
 
