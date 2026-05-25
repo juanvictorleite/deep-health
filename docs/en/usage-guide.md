@@ -109,9 +109,9 @@ security-scan --version
 security-scan init
 ```
 
-This starts an interactive wizard that detects your ecosystems (npm, composer, pip), asks you to confirm or adjust the configuration, and writes a `project-config.yml` to the current directory.
+This starts an interactive wizard that detects your ecosystems (npm, composer, pip), asks you to confirm or adjust the configuration, and writes a `security-scan.config.json` to the current directory. The generated file includes a `$schema` field for IDE autocomplete.
 
-> **This step is done only once.** The generated `project-config.yml` is committed to the repository. On subsequent runs, skip straight to step 2.
+> **This step is done only once.** The generated `security-scan.config.json` is committed to the repository. On subsequent runs, skip straight to step 2.
 
 ### Recurring usage
 
@@ -131,7 +131,7 @@ security-scan fix
 
 Runs the full pipeline: scan → apply safe updates → validate → revert if broken → generate executive report.
 
-> **Typical workflow:** if the project already has `project-config.yml`, the day-to-day flow is just `security-scan fix`.
+> **Typical workflow:** if the project already has `security-scan.config.json`, the day-to-day flow is just `security-scan fix`.
 
 ---
 
@@ -139,7 +139,7 @@ Runs the full pipeline: scan → apply safe updates → validate → revert if b
 
 ### `init`
 
-Generates a `project-config.yml` template for the current project.
+Generates a `security-scan.config.json` config for the current project.
 
 ```
 security-scan init [options]
@@ -150,12 +150,12 @@ security-scan init [options]
 | `--project-name <name>` | string | prompted | Project name written into the config |
 | `--client <name>` | string | prompted | Client name written into the config |
 | `--cwd <path>` | string | current directory | Working directory for ecosystem detection |
-| `--output <path>` | string | `./project-config.yml` | Output file path |
+| `--output <path>` | string | `./security-scan.config.json` | Output file path |
 | `--force` | boolean | `false` | Overwrite the file if it already exists |
 
 **What happens during `init`:**
 
-1. Checks if `project-config.yml` already exists (fails unless `--force` is set).
+1. Checks if `security-scan.config.json` already exists (fails unless `--force` is set).
 2. Prompts for project name and client name (or uses CLI flags).
 3. Detects the runtime environment by reading project files:
    - **npm**: reads `.nvmrc`, `.node-version`, `package.json#engines.node`
@@ -171,7 +171,7 @@ security-scan init [options]
 6. Asks whether to enable SonarQube integration.
 7. Asks for the report language (`en` or `pt-br`).
 8. Asks whether to generate Markdown reports and where to save them.
-9. Writes the generated `project-config.yml`.
+9. Writes the generated `security-scan.config.json`.
 10. If SonarQube is enabled and `sonar-project.properties` does not exist, creates a starter template.
 
 **Example — non-interactive (CI-friendly):**
@@ -199,7 +199,7 @@ security-scan scan [options]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `-c, --config <path>` | string | `./project-config.yml` | Path to config file |
+| `-c, --config <path>` | string | `./security-scan.config.json` | Path to config file |
 | `--cwd <path>` | string | current directory | Working directory (project root) |
 | `--dry-run` | boolean | `false` | Print what would run, execute nothing |
 | `-v, --verbose` | boolean | `false` | Enable verbose output |
@@ -209,7 +209,7 @@ security-scan scan [options]
 
 **What happens during `scan`:**
 
-1. Loads and validates `project-config.yml` using the Zod schema. Exits with code `3` on validation error.
+1. Loads and validates `security-scan.config.json` using the Zod schema. Exits with code `3` on validation error.
 2. Runs `osv-scanner` inside an ephemeral Docker container against all detected lockfiles in the working directory.
 3. Parses the OSV output and classifies each finding:
    - `auto_safe` — patch/minor update within current constraints
@@ -265,7 +265,7 @@ security-scan fix [options]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `-c, --config <path>` | string | `./project-config.yml` | Path to config file |
+| `-c, --config <path>` | string | `./security-scan.config.json` | Path to config file |
 | `--cwd <path>` | string | current directory | Working directory (project root) |
 | `--phases <phases>` | string | all phases | Comma-separated list of phases to run. Accepted values: `scan`, `npm`, `composer`, `pip`, `report` |
 | `--no-report` | boolean | `false` | Skip executive report generation |
@@ -352,7 +352,7 @@ security-scan executive-report [options]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `-c, --config <path>` | string | `./project-config.yml` | Path to config file |
+| `-c, --config <path>` | string | `./security-scan.config.json` | Path to config file |
 | `--cwd <path>` | string | current directory | Working directory |
 | `--client <name>` | string | from config | Client name (overrides `project.client` in config) |
 | `--project <name>` | string | from config | Project name (overrides `project.name` in config) |
@@ -366,9 +366,9 @@ security-scan executive-report [options]
 
 1. Runs a fresh vulnerability scan (before state).
 2. Runs the full orchestrator pipeline.
-3. Renders the executive HTML report via Handlebars templates.
+3. Renders the executive HTML report.
 4. Saves the report to the configured output directory.
-The report language is controlled by `report_language` in `project-config.yml` (`en` or `pt-br`).
+The report language is controlled by `report_language` in `security-scan.config.json` (`"en"` or `"pt-br"`).
 
 **Example:**
 
@@ -381,60 +381,86 @@ security-scan executive-report --client "Acme Corp" --output report.html
 
 ## Configuration Reference
 
-`project-config.yml` is the single source of truth for all security-scan behavior. Below is a fully annotated reference covering every field.
+`security-scan.config.json` is the single source of truth for all security-scan behavior. Below is a fully annotated reference covering every field.
 
 ### `project`
 
-```yaml
-project:
-  name: 'My Project'    # Required. Project name used in reports.
-  client: 'Acme Corp'   # Required. Client name used in reports.
+```json
+{
+  "project": {
+    "name": "My Project",
+    "client": "Acme Corp"
+  }
+}
 ```
 
 ### `report_language`
 
-```yaml
-report_language: 'en'   # 'en' (default) | 'pt-br'
+```json
+{
+  "report_language": "en"
+}
 ```
 
 Controls the locale for generated executive reports. Affects all text in the HTML and Markdown reports. Does not affect CLI output.
 
 ### `config_version`
 
-```yaml
-config_version: '1'    # Optional. For forward-compatibility detection.
+```json
+{
+  "config_version": "1"
+}
 ```
 
 ### `ecosystems`
 
 Declarative list of ecosystems to scan and update. At least one entry is required.
 
-```yaml
-ecosystems:
-  - id: 'npm'
-    fixer: 'osv-then-audit'          # osv | npm-audit | osv-then-audit
-    validationCommands:
-      - name: 'Tests'
-        command: 'npm test'
-        timeout_seconds: 120          # optional; default: 300 (5 minutes)
-    advisors:
-      - name: 'audit'
-        command: 'npm audit --json'
-        format: 'json'               # json | text (default: text)
-
-  - id: 'composer'
-    fixer: 'osv'
-    validationCommands:
-      - name: 'Tests'
-        command: 'php artisan test'
-        timeout_seconds: 300
-    advisors: []
-
-  - id: 'pip'
-    fixer: 'osv'
-    validationCommands:
-      - name: 'Tests'
-        command: 'pytest'
+```json
+{
+  "ecosystems": [
+    {
+      "id": "npm",
+      "fixer": "osv-then-audit",
+      "validationCommands": [
+        {
+          "name": "Tests",
+          "command": "npm test",
+          "timeout_seconds": 120
+        }
+      ],
+      "advisors": [
+        {
+          "name": "audit",
+          "command": "npm audit --json",
+          "format": "json"
+        }
+      ]
+    },
+    {
+      "id": "composer",
+      "fixer": "osv",
+      "validationCommands": [
+        {
+          "name": "Tests",
+          "command": "php artisan test",
+          "timeout_seconds": 300
+        }
+      ],
+      "advisors": []
+    },
+    {
+      "id": "pip",
+      "fixer": "osv",
+      "validationCommands": [
+        {
+          "name": "Tests",
+          "command": "pytest"
+        }
+      ]
+    }
+  ]
+}
 ```
 
 **Ecosystem fields:**
@@ -452,29 +478,43 @@ ecosystems:
 | `advisors[].command` | string | Yes | Shell command string |
 | `advisors[].format` | `json` \| `text` | No | Output format; use `json` for `npm audit --json` |
 
-**Security note on `validationCommands`:** These run inside the ecosystem's Docker container via `sh -c`. They are not exposed to external input — only commands authored in `project-config.yml` (which you control) are executed. Commands starting with `git`, `gh`, or `open` are exempted and run on the host.
+**Security note on `validationCommands`:** These run inside the ecosystem's Docker container via `sh -c`. They are not exposed to external input — only commands authored in `security-scan.config.json` (which you control) are executed. Commands starting with `git`, `gh`, or `open` are exempted and run on the host.
 
 ### `protected_packages`
 
 Packages listed here are never updated beyond their declared constraint. Any update requiring a constraint change requires explicit `--authorize-breaking`.
 
-```yaml
-protected_packages:
-  npm:
-    - package: 'tailwindcss'
-      constraint: '^3.3.3'
-      reason: 'Tailwind v4 has breaking config and migration requirements'
-    - package: 'react'
-      constraint: '^18.0.0'
-      reason: 'React 19 migration requires full QA cycle'
-  composer:
-    - package: 'laravel/framework'
-      constraint: '^10.8'
-      reason: 'Major upgrade to Laravel 11 requires a dedicated project'
-  pip:
-    - package: 'django'
-      constraint: '>=4.2,<5.0'
-      reason: 'Django 5.x has breaking changes'
+```json
+{
+  "protected_packages": {
+    "npm": [
+      {
+        "package": "tailwindcss",
+        "constraint": "^3.3.3",
+        "reason": "Tailwind v4 has breaking config and migration requirements"
+      },
+      {
+        "package": "react",
+        "constraint": "^18.0.0",
+        "reason": "React 19 migration requires full QA cycle"
+      }
+    ],
+    "composer": [
+      {
+        "package": "laravel/framework",
+        "constraint": "^10.8",
+        "reason": "Major upgrade to Laravel 11 requires a dedicated project"
+      }
+    ],
+    "pip": [
+      {
+        "package": "django",
+        "constraint": ">=4.2,<5.0",
+        "reason": "Django 5.x has breaking changes"
+      }
+    ]
+  }
+}
 ```
 
 **Fields per entry:**
@@ -487,10 +527,13 @@ protected_packages:
 
 ### `safe_update_policy`
 
-```yaml
-safe_update_policy:
-  allow_patch_and_minor_within_constraints: true    # default: true
-  require_authorization_for_constraint_change: true  # default: true
+```json
+{
+  "safe_update_policy": {
+    "allow_patch_and_minor_within_constraints": true,
+    "require_authorization_for_constraint_change": true
+  }
+}
 ```
 
 | Field | Default | Description |
@@ -502,30 +545,33 @@ safe_update_policy:
 
 Controls which scanning engines are used and how they are configured.
 
-```yaml
-scanners:
-  primary: 'osv'           # Engine id used as Gate A source. Default: 'osv'
-  osv:
-    runner: 'docker'       # docker (default) | local | auto
-    image: 'ghcr.io/google/osv-scanner:latest'   # optional; default shown
-    args: []               # optional: additional CLI args forwarded to osv-scanner
-  sonarqube:
-    enabled: false         # set true to enable SonarQube integration
-    mode: 'external'       # external (default) | managed
-    on_failure: 'warn'     # warn (default) | fail
-    # external mode: reads from sonar-project.properties; SONAR_TOKEN env var supplies auth.
-    # managed mode: CLI provisions an ephemeral SonarQube CE container, generates a token,
-    #               then tears it down after the scan.
-    scanner_image: 'sonarsource/sonar-scanner-cli:latest'   # optional
-    server_image: 'sonarqube:lts-community'                 # optional (managed mode only)
-    send_branch_name: false        # Developer/Enterprise edition only; false = CE-safe
-    ce_task_timeout_seconds: 120   # seconds to wait for CE task completion
-    scanner_timeout_seconds: 300   # seconds before killing the sonar-scanner process
-    dynamic_timeout: true          # scale timeouts based on ncloc from previous analysis
-    timeout_scale:
-      scanner_seconds_per_kloc: 3  # seconds of scanner budget per 1000 lines
-      ce_seconds_per_kloc: 1.5     # seconds of CE budget per 1000 lines
-    scanner_jvm_opts: '-Xmx2048m'  # optional; increase heap for large codebases
+```json
+{
+  "scanners": {
+    "primary": "osv",
+    "osv": {
+      "runner": "docker",
+      "image": "ghcr.io/google/osv-scanner:latest",
+      "args": []
+    },
+    "sonarqube": {
+      "enabled": false,
+      "mode": "external",
+      "on_failure": "warn",
+      "scanner_image": "sonarsource/sonar-scanner-cli:latest",
+      "server_image": "sonarqube:lts-community",
+      "send_branch_name": false,
+      "ce_task_timeout_seconds": 120,
+      "scanner_timeout_seconds": 300,
+      "dynamic_timeout": true,
+      "timeout_scale": {
+        "scanner_seconds_per_kloc": 3,
+        "ce_seconds_per_kloc": 1.5
+      },
+      "scanner_jvm_opts": "-Xmx2048m"
+    }
+  }
+}
 ```
 
 **OSV runner modes:**
@@ -540,43 +586,36 @@ scanners:
 
 Per-ecosystem container configuration. Controls which Docker image is used, the runtime version, and optional OS-level dependencies.
 
-```yaml
-runners:
-  npm:
-    language_version: '20'    # inferred from .nvmrc / package.json if absent
-    # image: 'node:20'        # explicit override; takes precedence over language_version
-    image_source: 'pull'      # pull (default) | dockerfile
-    # dockerfile_path: './Dockerfile'   # required when image_source='dockerfile'
-    # build_context: '.'                # defaults to project root
-    # build_args:                       # passed as --build-arg KEY=VALUE to docker build
-    #   NODE_VERSION: '20'
-    native_deps:              # OS packages to apt-get install before npm commands
-      - libvips-dev           # required by sharp@0.x
-      - build-essential       # required by native addons using node-gyp
-      - python3               # required by node-gyp on some distros
-    # allow_build_context_escape: false   # security: allow build context outside project root
-
-  composer:
-    language_version: '8.1'   # inferred from .php-version / composer.json if absent
-    # image: 'php:8.1-cli'    # explicit override
-    image_source: 'pull'      # pull | dockerfile
-    # dockerfile_path: './Dockerfile'
-    # build_context: '.'
-    # build_args: {}
-    native_deps:
-      - imagemagick
-      - libmagickwand-dev
-
-  pip:
-    language_version: '3.11'  # inferred from runtime.txt / .python-version if absent
-    # image: 'python:3.11-slim' # explicit override
-    image_source: 'pull'      # pull | dockerfile
-    # dockerfile_path: './Dockerfile'
-    # build_context: '.'
-    # build_args: {}
-    native_deps:
-      - libjpeg-dev            # required by Pillow
-      - libpq-dev              # required by psycopg2
+```json
+{
+  "runners": {
+    "npm": {
+      "language_version": "20",
+      "image_source": "pull",
+      "native_deps": [
+        "libvips-dev",
+        "build-essential",
+        "python3"
+      ]
+    },
+    "composer": {
+      "language_version": "8.1",
+      "image_source": "pull",
+      "native_deps": [
+        "imagemagick",
+        "libmagickwand-dev"
+      ]
+    },
+    "pip": {
+      "language_version": "3.11",
+      "image_source": "pull",
+      "native_deps": [
+        "libjpeg-dev",
+        "libpq-dev"
+      ]
+    }
+  }
+}
 ```
 
 All runners execute inside ephemeral Docker containers. There is no `local` mode for ecosystem runners — that option exists only for the OSV scanner (`scanners.osv.runner`).
@@ -585,15 +624,20 @@ All runners execute inside ephemeral Docker containers. There is no `local` mode
 
 Controls which paths `osv-scanner` inspects.
 
-```yaml
-scan:
-  auto_discover: true    # default: true; also scan project root for lockfiles
-  paths:                 # explicit paths to scan
-    - 'frontend/'        # directories (trailing /) are scanned recursively via -r
-    - 'backend/package-lock.json'   # explicit file paths use --lockfile
-  exclude:               # paths to exclude
-    - 'vendor/'
-    - 'node_modules/'
+```json
+{
+  "scan": {
+    "auto_discover": true,
+    "paths": [
+      "frontend/",
+      "backend/package-lock.json"
+    ],
+    "exclude": [
+      "vendor/",
+      "node_modules/"
+    ]
+  }
+}
 ```
 
 **Constraints on paths:** All entries must be relative (no leading `/`) and must not contain `..` segments or glob characters. Paths resolve relative to `/project` inside the container.
@@ -602,13 +646,14 @@ scan:
 
 Controls report output location and formats.
 
-```yaml
-outputs:
-  dir: './reports'            # output directory; default: .security-scan/reports
-  sub_folders: false          # when true, engine reports go into sub-folders (sonarqube/)
-  formats:
-    - 'markdown'              # HTML is always generated; markdown and docx are opt-in
-    # - 'docx'               # generate DOCX executive report
+```json
+{
+  "outputs": {
+    "dir": "./reports",
+    "sub_folders": false,
+    "formats": ["markdown"]
+  }
+}
 ```
 
 The executive HTML report is always generated. Markdown and DOCX are generated only when included in `formats`.
@@ -630,24 +675,33 @@ Each runner supports two image strategies:
 
 **`pull` (default):** Pull a pre-built image from Docker Hub or another registry.
 
-```yaml
-runners:
-  npm:
-    image_source: 'pull'
-    language_version: '20'   # resolves to node:20
+```json
+{
+  "runners": {
+    "npm": {
+      "image_source": "pull",
+      "language_version": "20"
+    }
+  }
+}
 ```
 
 **`dockerfile`:** Build a local image from a project-owned Dockerfile. Use this when your project has non-standard system dependencies or a custom base image.
 
-```yaml
-runners:
-  npm:
-    image_source: 'dockerfile'
-    dockerfile_path: '.docker/node.Dockerfile'
-    build_context: '.'
-    build_args:
-      NODE_VERSION: '20'
-      APP_ENV: 'production'
+```json
+{
+  "runners": {
+    "npm": {
+      "image_source": "dockerfile",
+      "dockerfile_path": ".docker/node.Dockerfile",
+      "build_context": ".",
+      "build_args": {
+        "NODE_VERSION": "20",
+        "APP_ENV": "production"
+      }
+    }
+  }
+}
 ```
 
 The `dockerfile` strategy is mutually exclusive with the `image` field. When `allow_build_context_escape: true`, the build context may reach outside the project root — this emits a warning because it sends a larger directory tree to the Docker daemon.
@@ -675,21 +729,30 @@ When `image` is not set, the runner resolves the Docker image from the runtime v
 
 Some npm packages (e.g. `sharp`, `canvas`) or PHP extensions (e.g. `imagick`) require OS-level libraries to compile. Use `native_deps` to install them via `apt-get` inside the ephemeral container:
 
-```yaml
-runners:
-  npm:
-    native_deps:
-      - libvips-dev       # required by sharp
-      - build-essential   # required by any native addon using node-gyp
-      - python3           # required by node-gyp on some distros
-  composer:
-    native_deps:
-      - imagemagick
-      - libmagickwand-dev
-  pip:
-    native_deps:
-      - libjpeg-dev       # Pillow
-      - libpq-dev         # psycopg2
+```json
+{
+  "runners": {
+    "npm": {
+      "native_deps": [
+        "libvips-dev",
+        "build-essential",
+        "python3"
+      ]
+    },
+    "composer": {
+      "native_deps": [
+        "imagemagick",
+        "libmagickwand-dev"
+      ]
+    },
+    "pip": {
+      "native_deps": [
+        "libjpeg-dev",
+        "libpq-dev"
+      ]
+    }
+  }
+}
 ```
 
 Packages are installed with `apt-get install -y --no-install-recommends` before the ecosystem CLI runs. Package names must follow Debian naming conventions (lowercase alphanumeric, hyphens, dots, plus signs only).
@@ -710,14 +773,17 @@ The primary scanning engine. OSV Scanner uses Google's [Open Source Vulnerabilit
 
 **Configuration:**
 
-```yaml
-scanners:
-  primary: 'osv'     # OSV is the default Gate A source
-  osv:
-    runner: 'docker'
-    image: 'ghcr.io/google/osv-scanner:latest'
-    args:
-      - '--experimental-call-analysis'   # optional extra flags
+```json
+{
+  "scanners": {
+    "primary": "osv",
+    "osv": {
+      "runner": "docker",
+      "image": "ghcr.io/google/osv-scanner:latest",
+      "args": ["--experimental-call-analysis"]
+    }
+  }
+}
 ```
 
 OSV Scanner runs in an ephemeral Docker container. The project directory is mounted read-only inside the container. No lockfiles are modified during the scan phase.
@@ -730,12 +796,16 @@ An optional secondary scanning engine for code quality analysis.
 
 Uses a pre-existing SonarQube instance. Configuration comes from `sonar-project.properties` in the project root. Authentication uses the `SONAR_TOKEN` environment variable.
 
-```yaml
-scanners:
-  sonarqube:
-    enabled: true
-    mode: 'external'
-    on_failure: 'warn'   # warn | fail
+```json
+{
+  "scanners": {
+    "sonarqube": {
+      "enabled": true,
+      "mode": "external",
+      "on_failure": "warn"
+    }
+  }
+}
 ```
 
 Create `sonar-project.properties`:
@@ -774,14 +844,18 @@ The user associated with the token must have **Browse** permission on the projec
 
 The CLI provisions an ephemeral SonarQube Community Edition container, runs the scan, then tears it down.
 
-```yaml
-scanners:
-  sonarqube:
-    enabled: true
-    mode: 'managed'
-    server_image: 'sonarqube:lts-community'
-    scanner_image: 'sonarsource/sonar-scanner-cli:latest'
-    on_failure: 'warn'
+```json
+{
+  "scanners": {
+    "sonarqube": {
+      "enabled": true,
+      "mode": "managed",
+      "server_image": "sonarqube:lts-community",
+      "scanner_image": "sonarsource/sonar-scanner-cli:latest",
+      "on_failure": "warn"
+    }
+  }
+}
 ```
 
 Note: `send_branch_name: true` requires SonarQube Developer Edition or higher. Community Edition does not support branch analysis.
@@ -870,10 +944,13 @@ The protected packages and safe update policy mechanisms work together to preven
 
 ### Safe Update Policy Rules
 
-```yaml
-safe_update_policy:
-  allow_patch_and_minor_within_constraints: true
-  require_authorization_for_constraint_change: true
+```json
+{
+  "safe_update_policy": {
+    "allow_patch_and_minor_within_constraints": true,
+    "require_authorization_for_constraint_change": true
+  }
+}
 ```
 
 With the defaults above:
@@ -902,7 +979,7 @@ All commands follow the same exit code convention:
 | `0` | Clean — success | No vulnerabilities found, or all vulnerabilities resolved |
 | `1` | Issues found | Vulnerabilities found, update errors, or pending vulnerabilities remain after fix |
 | `2` | Scanner/gate error | Gate validation failure, OSV error, or unexpected scanner failure |
-| `3` | Configuration error | `project-config.yml` not found, invalid schema, or `init` output path error |
+| `3` | Configuration error | `security-scan.config.json` not found, invalid schema, or `init` output path error |
 
 These codes make security-scan usable as a gate in CI/CD pipelines:
 
@@ -1010,7 +1087,7 @@ Then restart your terminal. From that point on, whenever you enter a directory w
 ### "Config file not found"
 
 ```
-Config file not found: ./project-config.yml
+Config file not found: ./security-scan.config.json
 Run "security-scan init" first.
 ```
 
@@ -1023,7 +1100,7 @@ security-scan init
 Or specify the path explicitly:
 
 ```bash
-security-scan scan --config /path/to/project-config.yml
+security-scan scan --config /path/to/security-scan.config.json
 ```
 
 ### Docker not available
@@ -1042,7 +1119,7 @@ docker ps
 ### "File already exists" during init
 
 ```
-File already exists: ./project-config.yml
+File already exists: ./security-scan.config.json
 Use --force to overwrite.
 ```
 
@@ -1094,10 +1171,14 @@ This happens when `composer.lock` was generated in an environment with a differe
 **Solutions:**
 
 1. **Make sure the PHP version is correct in the config:**
-   ```yaml
-   runners:
-     composer:
-       language_version: '8.2'  # should match the production version
+   ```json
+   {
+     "runners": {
+       "composer": {
+         "language_version": "8.2"
+       }
+     }
+   }
    ```
 
 2. **Regenerate the lockfile in the correct environment:**
@@ -1129,13 +1210,21 @@ When using `osv-then-audit` strategy and `npm audit fix` breaks validation, secu
 
 Increase `timeout_seconds` for the relevant validation command:
 
-```yaml
-ecosystems:
-  - id: composer
-    validationCommands:
-      - name: 'Tests'
-        command: 'php artisan test'
-        timeout_seconds: 600    # increase from default 300
+```json
+{
+  "ecosystems": [
+    {
+      "id": "composer",
+      "validationCommands": [
+        {
+          "name": "Tests",
+          "command": "php artisan test",
+          "timeout_seconds": 600
+        }
+      ]
+    }
+  ]
+}
 ```
 
 ---
@@ -1154,12 +1243,16 @@ security-scan automatically reverts all changes to that ecosystem and continues 
 
 Yes. Use `scan.paths` to specify which subdirectories to scan:
 
-```yaml
-scan:
-  auto_discover: false
-  paths:
-    - 'packages/frontend/'
-    - 'packages/backend/'
+```json
+{
+  "scan": {
+    "auto_discover": false,
+    "paths": [
+      "packages/frontend/",
+      "packages/backend/"
+    ]
+  }
+}
 ```
 
 **Q: Does security-scan support yarn or pnpm?**
@@ -1180,15 +1273,23 @@ security-scan fix --authorize-breaking <ecosystem>
 
 **Q: How do I add a new ecosystem to an existing config?**
 
-Add a new entry to `ecosystems` in `project-config.yml`:
+Add a new entry to `ecosystems` in `security-scan.config.json`:
 
-```yaml
-ecosystems:
-  - id: pip
-    fixer: 'osv'
-    validationCommands:
-      - name: 'Tests'
-        command: 'pytest'
+```json
+{
+  "ecosystems": [
+    {
+      "id": "pip",
+      "fixer": "osv",
+      "validationCommands": [
+        {
+          "name": "Tests",
+          "command": "pytest"
+        }
+      ]
+    }
+  ]
+}
 ```
 
 **Q: Are my secrets safe with SonarQube managed mode?**
@@ -1197,10 +1298,14 @@ In managed mode, the CLI generates a temporary token via the SonarQube admin API
 
 **Q: How do I pin the OSV Scanner version?**
 
-```yaml
-scanners:
-  osv:
-    image: 'ghcr.io/google/osv-scanner:v1.9.0'
+```json
+{
+  "scanners": {
+    "osv": {
+      "image": "ghcr.io/google/osv-scanner:v1.9.0"
+    }
+  }
+}
 ```
 
 **Q: Can I generate reports in both English and Portuguese?**

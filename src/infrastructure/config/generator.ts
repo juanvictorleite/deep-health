@@ -250,7 +250,7 @@ export function generateConfigJson(opts: GenerateConfigOptions = {}): string {
 
   // Assemble the full config object — $schema field goes first for IDE autocomplete
   const config: Record<string, unknown> = {
-    $schema: './node_modules/@anthropic/osv-security-cli/config-schema.json',
+    $schema: './.security-scan/config-schema.json',
     config_version: '1',
     project: {
       name: opts.projectName ?? 'My Project',

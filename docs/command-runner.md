@@ -170,7 +170,7 @@ interface CommandResult {
 
 ## SEC-004 — Trust Boundary Summary
 
-`security-scan` executes command strings that come from `project-config.yml`. The trust model is:
+`security-scan` executes command strings that come from `security-scan.config.json`. The trust model is:
 
 | Config field | Source | Shell method | Execution context | Risk |
 |---|---|---|---|---|
@@ -181,7 +181,7 @@ interface CommandResult {
 | Branch names (git operations) | git output | `runArgs()` — no shell | Host runner | External value; shell-safe by design |
 | Package names (scan result) | OSV JSON | `runArgs()` — no shell | Ecosystem container | External value; shell-safe by design |
 
-**The trust boundary is the repository owner.** An attacker who can modify `project-config.yml` already has write access to the repository (they could equally modify `package.json`, `.github/workflows/`, etc.). If you use `security-scan` in a context where `project-config.yml` is written by untrusted parties, treat those command strings as untrusted input and audit them before running the tool.
+**The trust boundary is the repository owner.** An attacker who can modify `security-scan.config.json` already has write access to the repository (they could equally modify `package.json`, `.github/workflows/`, etc.). If you use `security-scan` in a context where `security-scan.config.json` is written by untrusted parties, treat those command strings as untrusted input and audit them before running the tool.
 
 ### What Docker-only protects against (and what it doesn't)
 

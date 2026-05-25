@@ -2,7 +2,7 @@
 # security-scan — Guia de Início Rápido
 
 Instale, configure e rode seu primeiro `fix` em menos de 5 minutos.
-Para configuração avançada, consulte o [Guia de Uso Completo](./usage-guide-security-scan.md).
+Para configuração avançada, consulte o [Guia de Uso Completo](./usage-guide.md).
 
 ---
 
@@ -61,7 +61,7 @@ Na **raiz do projeto** que você quer analisar, rode:
 security-scan init
 ```
 
-O assistente interativo vai guiá-lo pelas perguntas de configuração. Ao final, ele cria o arquivo `project-config.yml` no diretório atual com as configurações do projeto.
+O assistente interativo vai guiá-lo pelas perguntas de configuração. Ao final, ele cria o arquivo `security-scan.config.json` no diretório atual com as configurações do projeto.
 
 > Dica: rode `init` dentro do diretório do projeto, não em um diretório pai — isso garante que os caminhos relativos (Dockerfile, lockfiles) sejam detectados corretamente.
 
@@ -102,4 +102,4 @@ security-scan fix --dry-run
 
 ---
 
-Para configurações avançadas (Dockerfile personalizado, SonarQube, múltiplos projetos, variáveis de ambiente), consulte o [Guia de Uso Completo](./usage-guide-security-scan.md).
+Para configurações avançadas (Dockerfile personalizado, SonarQube, múltiplos projetos, variáveis de ambiente), consulte o [Guia de Uso Completo](./usage-guide.md).

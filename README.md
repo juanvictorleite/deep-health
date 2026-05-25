@@ -68,7 +68,7 @@ npx security-scan --help
 security-scan init
 ```
 
-This creates a `project-config.yml` in the current directory with sane defaults based on your runtime environment.
+This creates a `security-scan.config.json` in the current directory with sane defaults based on your runtime environment.
 
 **2. Scan for vulnerabilities**
 
@@ -90,7 +90,7 @@ That's it. Results are printed to stdout. Pass `--output report.html` to save th
 
 ### `init`
 
-Generate a `project-config.yml` template.
+Generate a `security-scan.config.json` template.
 
 ```bash
 security-scan init [options]
@@ -98,7 +98,7 @@ security-scan init [options]
 Options:
   --project-name <name>   Project name
   --client <name>         Client name
-  --output <path>         Output path (default: ./project-config.yml)
+  --output <path>         Output path (default: ./security-scan.config.json)
   --force                 Overwrite existing file
 ```
 
@@ -110,7 +110,7 @@ Run the vulnerability scan only (no updates applied).
 security-scan scan [options]
 
 Options:
-  -c, --config <path>     Path to project-config.yml (default: ./project-config.yml)
+  -c, --config <path>     Path to security-scan.config.json (default: ./security-scan.config.json)
   --cwd <path>            Working directory (default: current directory)
   --dry-run               Show commands without executing
   -v, --verbose           Verbose output
@@ -127,7 +127,7 @@ Full workflow: scan → apply safe updates → generate executive report.
 security-scan fix [options]
 
 Options:
-  -c, --config <path>             Path to project-config.yml
+  -c, --config <path>             Path to security-scan.config.json
   --phases <phases>               Comma-separated phases: scan,npm,composer,pip,report
                                   (default: "scan,npm,composer,pip")
   --no-report                     Skip executive report generation
@@ -151,14 +151,14 @@ Generate an executive HTML report from the last scan results.
 security-scan executive-report [options]
 
 Options:
-  --client <name>     Client name (overrides project-config.yml)
-  --project <name>    Project name (overrides project-config.yml)
+  --client <name>     Client name (overrides security-scan.config.json)
+  --project <name>    Project name (overrides security-scan.config.json)
   -o, --output <path> Write report to file
 ```
 
 ### `cloud-setup`
 
-Interactive Google Drive folder picker — saves the selected folder ID to `project-config.yml` for automatic report distribution.
+Interactive Google Drive folder picker — saves the selected folder ID to `security-scan.config.json` for automatic report distribution.
 
 ```bash
 security-scan cloud-setup
@@ -168,80 +168,106 @@ security-scan cloud-setup
 
 ## Configuration
 
-`security-scan init` generates a starter `project-config.yml`. Here is a full annotated example:
+`security-scan init` generates a starter `security-scan.config.json`. The generated file includes a `$schema` field that enables IDE autocomplete. Here is a full annotated example:
 
-```yaml
-config_version: '1'
+```json
+{
+  "$schema": "./.security-scan/config-schema.json",
+  "config_version": "1",
 
-project:
-  name: 'My Project'
-  client: 'Acme Corp'
+  "project": {
+    "name": "My Project",
+    "client": "Acme Corp"
+  },
 
-ecosystems:
-  - id: 'npm'
-    fixer: 'osv'                    # osv | npm-audit | osv-then-audit
-    validationCommands:
-      - name: 'tests'
-        command: 'npm test'
-        timeout_seconds: 120        # optional, default: 300 (5 min)
-    advisors:
-      - name: 'audit'
-        command: 'npm audit --json'
-        format: 'json'
-  - id: 'composer'
-    fixer: 'osv'
-    validationCommands:
-      - name: 'tests'
-        command: 'php artisan test'
+  "ecosystems": [
+    {
+      "id": "npm",
+      "fixer": "osv",
+      "validationCommands": [
+        {
+          "name": "tests",
+          "command": "npm test",
+          "timeout_seconds": 120
+        }
+      ],
+      "advisors": [
+        {
+          "name": "audit",
+          "command": "npm audit --json",
+          "format": "json"
+        }
+      ]
+    },
+    {
+      "id": "composer",
+      "fixer": "osv",
+      "validationCommands": [
+        {
+          "name": "tests",
+          "command": "php artisan test"
+        }
+      ]
+    }
+  ],
 
-# Packages that must never be updated beyond their stated constraint.
-# Any update requiring a constraint change needs explicit --authorize-breaking.
-protected_packages:
-  npm:
-    - package: 'tailwindcss'
-      constraint: '^3.3.3'
-      reason: 'Tailwind v4 has breaking config and migration requirements'
-  composer:
-    - package: 'laravel/framework'
-      constraint: '^10.8'
-      reason: 'Major upgrade to Laravel 11 requires a dedicated project'
+  "protected_packages": {
+    "npm": [
+      {
+        "package": "tailwindcss",
+        "constraint": "^3.3.3",
+        "reason": "Tailwind v4 has breaking config and migration requirements"
+      }
+    ],
+    "composer": [
+      {
+        "package": "laravel/framework",
+        "constraint": "^10.8",
+        "reason": "Major upgrade to Laravel 11 requires a dedicated project"
+      }
+    ]
+  },
 
-safe_update_policy:
-  # Patch and minor updates within current constraints are applied automatically
-  # when tests pass.
-  allow_patch_and_minor_within_constraints: true
-  # Constraint changes always require explicit human authorization.
-  require_authorization_for_constraint_change: true
+  "safe_update_policy": {
+    "allow_patch_and_minor_within_constraints": true,
+    "require_authorization_for_constraint_change": true
+  },
 
-conflict_resolution: 'manual'
+  "conflict_resolution": "manual",
 
-# Optional: configure scanner engines
-scanners:
-  primary: 'osv'          # engine id to use as Gate A source (default: 'osv')
-  osv:
-    runner: 'docker'      # docker | local | auto
-  sonarqube:
-    enabled: false        # set true to enable SonarQube integration
+  "scanners": {
+    "primary": "osv",
+    "osv": {
+      "runner": "docker"
+    },
+    "sonarqube": {
+      "enabled": false
+    }
+  },
 
-# Optional: per-ecosystem Docker runner configuration
-runners:
-  npm:
-    language_version: '20' # override Node version for Docker image
-  composer:
-    language_version: '8.2'
-  pip:
-    language_version: '3.11'
+  "runners": {
+    "npm": {
+      "language_version": "20"
+    },
+    "composer": {
+      "language_version": "8.2"
+    },
+    "pip": {
+      "language_version": "3.11"
+    }
+  },
 
-# Optional: report output
-outputs:
-  formats: ['markdown']
-  dir: 'reports'
+  "outputs": {
+    "formats": ["markdown"],
+    "dir": "reports"
+  },
 
-# Optional: Google Drive report distribution
-cloud_storage:
-  provider: 'google_drive'
-  folder_id: 'YOUR_FOLDER_ID'
-  require_upload: false   # set true to fail CI when upload fails
+  "cloud_storage": {
+    "provider": "google_drive",
+    "folder_id": "YOUR_FOLDER_ID",
+    "require_upload": false
+  }
+}
 ```
 
 ---
@@ -365,7 +391,7 @@ src/
 │   ├── ecosystem/ # npm, composer, pip plugins
 │   └── scanner/   # OSV, SonarQube engines; ExternalScannerAdapter base class
 ├── orchestration/ # Main workflow coordinator
-└── reporting/     # HTML report generation (Handlebars + i18n)
+└── reporting/     # HTML report generation (templates + i18n)
 ```
 
 Ecosystem plugins and scanner engines are registered at runtime, making it straightforward to add new package managers (pip, bundler, etc.) or scanning engines without touching the core orchestrator.
@@ -376,16 +402,16 @@ Ecosystem plugins and scanner engines are registered at runtime, making it strai
 
 ### SEC-004 — Validation command execution
 
-`validationCommands` and advisor commands from `project-config.yml` are now executed **inside the ecosystem's Docker container** (node, php, python) via `sh -c`, not on the host. This means:
+`validationCommands` and advisor commands from `security-scan.config.json` are now executed **inside the ecosystem's Docker container** (node, php, python) via `sh -c`, not on the host. This means:
 
 - `jest --coverage`, `php artisan test`, `pytest` — run inside the project's pinned runtime container
 - Only commands starting with `git`, `gh`, or `open` are exempted and run on the host
 
-**Trust boundary:** these strings are authored by the repository owner (same person who checks in `project-config.yml`), not by external sources. Variable data (package names, versions, CVE ids) is never interpolated into validation command strings.
+**Trust boundary:** these strings are authored by the repository owner (same person who checks in `security-scan.config.json`), not by external sources. Variable data (package names, versions, CVE ids) is never interpolated into validation command strings.
 
 **OAuth browser opener** (`cloud-setup`): the Google OAuth URL is opened via `execFile` with `shell: false`, passing the URL as a discrete `argv` element. Shell metacharacters in the URL cannot cause command injection because no shell is involved in the spawn.
 
-> If you use `security-scan` in a context where `project-config.yml` is written by untrusted parties, treat those command strings as untrusted input and review them before running the tool.
+> If you use `security-scan` in a context where `security-scan.config.json` is written by untrusted parties, treat those command strings as untrusted input and review them before running the tool.
 
 ---
 

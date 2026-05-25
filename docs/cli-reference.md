@@ -14,7 +14,7 @@ All commands require Docker and Node.js ≥ 26. Use `nvm use` to activate the co
 
 ### `init`
 
-Generates a `project-config.yml` starter template in the current directory.
+Generates a `security-scan.config.json` starter config in the current directory.
 
 ```bash
 security-scan init [options]
@@ -22,14 +22,14 @@ security-scan init [options]
 Options:
   --project-name <name>   Project name written into config
   --client <name>         Client name written into config
-  --output <path>         Output path (default: ./project-config.yml)
+  --output <path>         Output path (default: ./security-scan.config.json)
   --force                 Overwrite if the file already exists
 ```
 
 **What it does:**
 
 1. Detects the runtime environment (PHP version from `composer.json`, Node version from `.nvmrc` / `package.json`, Python version from `runtime.txt` / `.python-version`).
-2. Renders a `project-config.yml` from the built-in Handlebars template (`infrastructure/config/templates/project-config.hbs.ts`).
+2. Generates `security-scan.config.json` programmatically via the config generator (`infrastructure/config/generator.ts`). The generated file includes a `$schema` field for IDE autocomplete.
 3. Writes to the output path. Fails if the file exists and `--force` is not set.
 
 **Exit codes:** `0` success, `3` config/output error.
@@ -44,7 +44,7 @@ Runs the vulnerability scan only. No files are modified.
 security-scan scan [options]
 
 Options:
-  -c, --config <path>   Path to project-config.yml (default: ./project-config.yml)
+  -c, --config <path>   Path to security-scan.config.json (default: ./security-scan.config.json)
   --cwd <path>          Working directory (default: current directory)
   --dry-run             Print what would run, execute nothing
   -v, --verbose         Enable verbose output
@@ -55,7 +55,7 @@ Options:
 
 **What it does:**
 
-1. Loads `project-config.yml` and validates with Zod schema.
+1. Loads `security-scan.config.json` and validates with Zod schema.
 2. Calls `runScanner()` which runs `osv-scanner` in an ephemeral Docker container against detected lockfiles.
 3. Formats and emits the result (text summary or JSON).
 
@@ -78,7 +78,7 @@ Full workflow: scan → apply safe updates per ecosystem → generate executive 
 security-scan fix [options]
 
 Options:
-  -c, --config <path>             Path to project-config.yml
+  -c, --config <path>             Path to security-scan.config.json
   --phases <phases>               Comma-separated phases to run.
                                   Accepted values: scan, npm, composer, pip, report
                                   Default: all phases
@@ -145,20 +145,20 @@ Generates an executive HTML report from the last scan results stored on disk.
 security-scan executive-report [options]
 
 Options:
-  --client <name>     Client name (overrides project-config.yml)
-  --project <name>    Project name (overrides project-config.yml)
+  --client <name>     Client name (overrides security-scan.config.json)
+  --project <name>    Project name (overrides security-scan.config.json)
   -o, --output <path> Write report to file
 ```
 
 **What it does:**
 
-Reads the most recent scan JSON outputs from the reports directory and renders the executive HTML template via Handlebars. Supports `en` and `pt-br` locales (set via `report_language` in config).
+Reads the most recent scan JSON outputs from the reports directory and renders the executive HTML report. Supports `en` and `pt-br` locales (set via `report_language` in config).
 
 ---
 
 ### `cloud-setup`
 
-Interactive Google Drive folder picker. Saves the chosen folder ID to `project-config.yml`.
+Interactive Google Drive folder picker. Saves the chosen folder ID to `security-scan.config.json`.
 
 ```bash
 security-scan cloud-setup
@@ -168,7 +168,7 @@ security-scan cloud-setup
 
 1. Initiates Google OAuth flow (opens browser via `execFile` with `shell: false` — no shell injection possible).
 2. Lists your Google Drive folders interactively.
-3. Writes the selected folder ID to `cloud_storage.google_drive.folder_id` in `project-config.yml`.
+3. Writes the selected folder ID to `cloud_storage.google_drive.folder_id` in `security-scan.config.json`.
 
 Once configured, `security-scan fix` automatically uploads the executive report to that Drive folder after each run.
 
@@ -176,93 +176,109 @@ Once configured, `security-scan fix` automatically uploads the executive report 
 
 ## Configuration Reference
 
-Full annotated `project-config.yml`:
+Full annotated `security-scan.config.json`:
 
-```yaml
-project:
-  name: 'My Project'
-  client: 'Acme Corp'
+```json
+{
+  "$schema": "./.security-scan/config-schema.json",
 
-report_language: 'en'       # 'en' | 'pt-br'
+  "project": {
+    "name": "My Project",
+    "client": "Acme Corp"
+  },
 
-# Per-ecosystem configuration (at least one required)
-ecosystems:
-  - id: npm
-    fixer: 'osv-then-audit'   # osv | npm-audit | osv-then-audit
-    validationCommands:
-      - name: 'Tests'
-        command: 'npm test'
-        timeout_seconds: 120  # optional; default: 300 (5 min)
-  - id: composer
-    fixer: 'osv'
-  - id: pip
-    fixer: 'osv'
+  "report_language": "en",
 
-# Packages that must never be updated beyond their stated constraint.
-protected_packages:
-  composer:
-    - package: 'laravel/framework'
-      constraint: '^10.8'
-      reason: 'Major upgrade to Laravel 11 requires a dedicated project'
-  npm:
-    - package: 'tailwindcss'
-      constraint: '^3.3.3'
-      reason: 'Tailwind v4 has breaking config changes'
-  pip:
-    - package: 'django'
-      constraint: '>=4.2,<5.0'
-      reason: 'Django 5.x has breaking changes'
+  "ecosystems": [
+    {
+      "id": "npm",
+      "fixer": "osv-then-audit",
+      "validationCommands": [
+        {
+          "name": "Tests",
+          "command": "npm test",
+          "timeout_seconds": 120
+        }
+      ]
+    },
+    {
+      "id": "composer",
+      "fixer": "osv"
+    },
+    {
+      "id": "pip",
+      "fixer": "osv"
+    }
+  ],
 
-safe_update_policy:
-  allow_patch_and_minor_within_constraints: true
-  require_authorization_for_constraint_change: true
+  "protected_packages": {
+    "composer": [
+      {
+        "package": "laravel/framework",
+        "constraint": "^10.8",
+        "reason": "Major upgrade to Laravel 11 requires a dedicated project"
+      }
+    ],
+    "npm": [
+      {
+        "package": "tailwindcss",
+        "constraint": "^3.3.3",
+        "reason": "Tailwind v4 has breaking config changes"
+      }
+    ],
+    "pip": [
+      {
+        "package": "django",
+        "constraint": ">=4.2,<5.0",
+        "reason": "Django 5.x has breaking changes"
+      }
+    ]
+  },
 
-conflict_resolution: 'manual'
+  "safe_update_policy": {
+    "allow_patch_and_minor_within_constraints": true,
+    "require_authorization_for_constraint_change": true
+  },
 
-# Scanner settings
-scanners:
-  primary: 'osv'              # engine id to use as Gate A source (default: 'osv')
-  osv:
-    runner: 'docker'          # docker | local | auto (separate seam — see ADR-0001)
-    image: 'ghcr.io/google/osv-scanner:latest'   # optional override
-  sonarqube:
-    enabled: false            # set true to run SonarQube scan
-    on_failure: 'warn'        # warn | fail
+  "conflict_resolution": "manual",
 
-# Runner settings (per-ecosystem Docker container configuration)
-runners:
-  npm:
-    language_version: '20'    # optional; inferred from .nvmrc / package.json#engines.node
-    image_source: 'pull'      # pull (default) | dockerfile
-    # image: 'node:20'        # optional explicit override; resolved from language_version otherwise
-    # native_deps:            # OS packages to apt-get install before npm ci runs
-    #   - libvips-dev         # required by sharp@0.x on glibc 2.28 images (e.g. node:14)
-    #   - build-essential     # required by any native addon that uses node-gyp
-    #   - python3             # required by node-gyp on some distros
-  composer:
-    language_version: '8.1'   # optional; inferred from composer.json#require.php
-    # native_deps:            # OS packages required by PHP extensions
-    #   - imagemagick
-    #   - libmagickwand-dev
-  pip:
-    language_version: '3.11'  # optional; inferred from runtime.txt / .python-version
-    # native_deps:            # OS packages required by C-extension pip packages
-    #   - libjpeg-dev         # Pillow
-    #   - libpq-dev           # psycopg2
+  "scanners": {
+    "primary": "osv",
+    "osv": {
+      "runner": "docker",
+      "image": "ghcr.io/google/osv-scanner:latest"
+    },
+    "sonarqube": {
+      "enabled": false,
+      "on_failure": "warn"
+    }
+  },
 
-# Output settings
-outputs:
-  dir: './reports'
-  sub_folders: false
-  formats:
-    - 'markdown'              # HTML is always generated; markdown and docx are opt-in
-    # - 'docx'               # Generate DOCX executive report
+  "runners": {
+    "npm": {
+      "language_version": "20",
+      "image_source": "pull"
+    },
+    "composer": {
+      "language_version": "8.1"
+    },
+    "pip": {
+      "language_version": "3.11"
+    }
+  },
 
-# Cloud storage (optional)
-cloud_storage:
-  provider: 'google_drive'
-  folder_id: 'YOUR_FOLDER_ID'  # set via: security-scan cloud-setup
-  require_upload: false         # if true, fix exits 1 when upload fails
+  "outputs": {
+    "dir": "./reports",
+    "sub_folders": false,
+    "formats": ["markdown"]
+  },
+
+  "cloud_storage": {
+    "provider": "google_drive",
+    "folder_id": "YOUR_FOLDER_ID",
+    "require_upload": false
+  }
+}
 ```
 
 ---

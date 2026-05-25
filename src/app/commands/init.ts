@@ -2,6 +2,7 @@ import { writeFile, access, mkdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
 import { generateConfigYaml, type GenerateConfigOptions, type EcosystemRunnerConfig } from '@infra/config/generator';
+import { generateJsonSchema } from '@infra/config/schema-export';
 import { writeSonarPropertiesTemplateIfMissing } from './sonar-properties-template';
 import { prompt } from '@infra/utils/prompt';
 import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
@@ -9,7 +10,7 @@ import { detectEcosystems } from '@infra/utils/detect-ecosystems';
 import { defaultRegistry } from '@modules/ecosystem/index';
 import { ConfigLoadError } from '@core/errors';
 import { resolveDefaultLocale } from '@core/locale-detect';
-import { CLI_NAME, DEFAULT_REPORTS_SUBDIR } from '@infra/brand';
+import { CLI_NAME, DEFAULT_AUDIT_SUBDIR, DEFAULT_REPORTS_SUBDIR } from '@infra/brand';
 import { getInitLocale, type InitLocale } from '@app/i18n/init-locale';
 
 export interface InitCommandOptions {
@@ -320,6 +321,14 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, json, 'utf-8');
   process.stdout.write(t.createdFile(outputPath));
+
+  // Write the JSON Schema file so IDEs can provide autocomplete and validation.
+  const schemaDir = resolve(opts.cwd, DEFAULT_AUDIT_SUBDIR);
+  const schemaOutputPath = resolve(schemaDir, 'config-schema.json');
+  await mkdir(schemaDir, { recursive: true });
+  const schema = generateJsonSchema();
+  await writeFile(schemaOutputPath, JSON.stringify(schema, null, 2), 'utf-8');
+  process.stdout.write(t.createdFile(schemaOutputPath));
 
   // When SonarQube is enabled, make sure the project has a sonar-project.properties.
   // That file is SonarQube's convention for project-level analysis config (sources,

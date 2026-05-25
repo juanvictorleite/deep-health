@@ -6,13 +6,13 @@ Accepted — 2026-04-25
 
 ## Context
 
-`security-scan` executes user-authored shell commands from `project-config.yml`:
+`security-scan` executes user-authored shell commands from `security-scan.config.json`:
 
 - `ecosystems[].validationCommands[].command` (e.g. `npm test`, `php artisan test --compact`, `pytest -x`)
 - `ecosystems[].advisors[].command` (e.g. `npm audit --json`)
 - `runtime.test_command` (legacy field, similar trust profile)
 
-These are passed to the runner as **shell strings** (`shell: true` on host, `sh -lc` / `sh -c` inside containers). They are **not** sanitized — operators write them as if writing a shell script, which is intentional. The trust model assumes the repository owner authors `project-config.yml`.
+These are passed to the runner as **shell strings** (`shell: true` on host, `sh -lc` / `sh -c` inside containers). They are **not** sanitized — operators write them as if writing a shell script, which is intentional. The trust model assumes the repository owner authors `security-scan.config.json`.
 
 [ADR-0001](./0001-docker-only-runtime.md) made Docker the only runtime for ecosystem CLIs, which materially reduced the blast radius of a hostile config — but did not eliminate it. After ADR-0001, malicious validation commands run inside an ephemeral container instead of on the host, but the container:
 

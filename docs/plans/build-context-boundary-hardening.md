@@ -41,8 +41,8 @@ Este plano cobre dois conjuntos de mudanças que compartilham os mesmos arquivos
 
 **Também nesta mesma etapa:**
 
-5. `src/infrastructure/config/templates/project-config.hbs.ts`
-   - Remove blocos `{{#if composerFrameworkProfile}}` e qualquer outro bloco Handlebars referente a `framework_profile` ou `image_strategy`
+5. Config generator (`src/infrastructure/config/generator.ts`)
+   - Remove campos `composerFrameworkProfile` e quaisquer referências a `framework_profile` ou `image_strategy` (a geração de config foi migrada para JSON via `generator.ts`; o arquivo de template antigo é um stub deprecated)
 
 6. `src/infrastructure/provisioner/php-profiles.ts`
    - Remove referências de comentário a `image_strategy` (campo comentado/documentado no arquivo)
@@ -213,7 +213,7 @@ Step 3 (novo módulo boundary) ──► Step 4 (substituir warn-only) ───
 | Breaking change: configs com `image_strategy` ou `framework_profile` | Baixa | Baixo | Projeto pré-produção; mensagem de erro orienta remoção dos campos |
 | Zod `.strict()` + `.superRefine()` em conflito com campos removidos | Baixa | Baixo | `.strict()` rejeita campos desconhecidos antes do `.superRefine()`; comportamento já existente |
 | Cross-platform paths (Windows): separador `\` vs `/` | Baixa | Médio | `path.relative` + `!rel.startsWith('..')` — não usa `startsWith` no path completo |
-| TOCTOU: filesystem muda entre `realpath` e `docker build` | Muito baixa | Baixo | Fora de escopo — modelo de confiança trata `project-config.yml` como trusted; o fix cobre erros não-intencionais |
+| TOCTOU: filesystem muda entre `realpath` e `docker build` | Muito baixa | Baixo | Fora de escopo — modelo de confiança trata `security-scan.config.json` como trusted; o fix cobre erros não-intencionais |
 | Cache do módulo compartilhado entre testes (estado global) | Média | Médio | Testes devem limpar o cache ou mockar o módulo; usar `vi.resetModules()` ou exportar função de limpeza para testes |
 
 ---

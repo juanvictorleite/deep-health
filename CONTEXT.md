@@ -98,7 +98,7 @@ When a new domain concept stabilizes during design work, add it here. When a ter
 
 ## Reporting
 
-**Executive Report** — Handlebars-rendered HTML summary saved per run. Driven by `OrchestratorResult` + post-fix scan. Internationalized via `i18n/` (en, pt-br).
+**Executive Report** — HTML summary saved per run, generated via the reporting template engine. Driven by `OrchestratorResult` + post-fix scan. Internationalized via `i18n/` (en, pt-br).
 
 **Audit Trail** — JSON record of each run (timestamp, CLI version, dry-run flag, scan, updates, status). Written by `writeAuditTrail()`.
 
@@ -108,7 +108,7 @@ When a new domain concept stabilizes during design work, add it here. When a ter
 
 ## Config & Workflow
 
-**Project Config** — `security-scan.config.json` / `project-config.yml`. Loaded and validated by `src/infrastructure/config/loader.ts`.
+**Project Config** — `security-scan.config.json`. Loaded and validated by `src/infrastructure/config/loader.ts`.
 
 **Config Version** — `config_version: '1'`. Future incompatible schema changes bump this.
 

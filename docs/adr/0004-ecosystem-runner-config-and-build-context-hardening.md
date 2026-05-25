@@ -101,7 +101,7 @@ The `image` field remains available on Path A as an explicit override (higher pr
 - `ComposerRunnerConfigSchema` Zod schema (`src/infrastructure/config/schema.ts`)
 - `init.ts` interactive prompt (`src/app/commands/init.ts`)
 - Config generator options (`src/infrastructure/config/generator.ts`)
-- Handlebars template (`src/infrastructure/config/templates/project-config.hbs.ts`)
+- Config generator (`src/infrastructure/config/generator.ts`) — config is now generated as JSON; the old template file (`src/infrastructure/config/templates/`) is a deprecated stub
 - `php-profiles.ts` comment references (`src/infrastructure/provisioner/php-profiles.ts`)
 
 Existing config files that contain `image_strategy` or `framework_profile` under `runners.composer` will fail at schema load time with a clear error message. Because the schema uses `.strict()`, unknown fields are rejected. The error message should guide the user to remove the deprecated fields and use `image_source: 'dockerfile'` + `dockerfile_path` if they were using `image_strategy: 'build'`.

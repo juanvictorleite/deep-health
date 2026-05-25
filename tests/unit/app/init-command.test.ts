@@ -13,6 +13,10 @@ vi.mock('@infra/config/generator', () => ({
   normalizeSonarProjectKey: vi.fn((name: string) => name.replace(/\s+/g, '-')),
 }));
 
+vi.mock('@infra/config/schema-export', () => ({
+  generateJsonSchema: vi.fn(() => ({ type: 'object', properties: {} })),
+}));
+
 vi.mock('@infra/utils/prompt', () => ({
   prompt: vi.fn(),
 }));
@@ -29,6 +33,7 @@ vi.mock('@infra/utils/detect-ecosystems', () => ({
 
 import { writeFile, mkdir, access } from 'node:fs/promises';
 import { generateConfigYaml } from '@infra/config/generator';
+import { generateJsonSchema } from '@infra/config/schema-export';
 import { prompt } from '@infra/utils/prompt';
 import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
 import { detectEcosystems } from '@infra/utils/detect-ecosystems';
@@ -1006,5 +1011,105 @@ describe('runInitCommand — i18n', () => {
     });
 
     expect(selectMessages.some((m) => m === 'Report language')).toBe(false);
+  });
+});
+
+// ─── Schema file write ────────────────────────────────────────────────────────
+
+describe('runInitCommand — schema file write', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
+    mockDetectEcosystems.mockResolvedValue(new Set());
+  });
+
+  it('writes the JSON Schema file to .security-scan/config-schema.json during init', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      projectName: 'Schema Test',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    const writeFileMock = vi.mocked(writeFile);
+    const schemaCalls = writeFileMock.mock.calls.filter(
+      ([filePath]) => String(filePath).endsWith('.security-scan/config-schema.json'),
+    );
+    expect(schemaCalls.length).toBe(1);
+  });
+
+  it('schema file path ends with .security-scan/config-schema.json relative to cwd', async () => {
+    await runInitCommand({
+      cwd: '/my/project',
+      force: true,
+      nonInteractive: true,
+      projectName: 'Schema Path Test',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    const writeFileMock = vi.mocked(writeFile);
+    const schemaCall = writeFileMock.mock.calls.find(
+      ([filePath]) => String(filePath).endsWith('.security-scan/config-schema.json'),
+    );
+    expect(schemaCall).toBeDefined();
+    expect(String(schemaCall![0])).toContain('/my/project');
+    expect(String(schemaCall![0])).toContain('.security-scan/config-schema.json');
+  });
+
+  it('calls generateJsonSchema to produce the schema content', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      projectName: 'Schema Generate Test',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    expect(vi.mocked(generateJsonSchema)).toHaveBeenCalled();
+  });
+
+  it('schema file content is valid JSON-serialized schema object', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      projectName: 'Schema Content Test',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    const writeFileMock = vi.mocked(writeFile);
+    const schemaCall = writeFileMock.mock.calls.find(
+      ([filePath]) => String(filePath).endsWith('.security-scan/config-schema.json'),
+    );
+    expect(schemaCall).toBeDefined();
+    const content = String(schemaCall![1]);
+    // Content must be valid JSON
+    expect(() => JSON.parse(content)).not.toThrow();
+    const parsed = JSON.parse(content) as Record<string, unknown>;
+    // The mock returns { type: 'object', properties: {} }
+    expect(parsed).toHaveProperty('type', 'object');
+  });
+
+  it('mkdir is called with .security-scan dir before writing schema (recursive:true)', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      projectName: 'Schema Mkdir Test',
+      client: 'Client',
+      output: 'project-config.yml',
+    });
+
+    const mkdirMock = vi.mocked(mkdir);
+    const securityScanMkdirCall = mkdirMock.mock.calls.find(
+      ([dirPath]) => String(dirPath).endsWith('.security-scan'),
+    );
+    expect(securityScanMkdirCall).toBeDefined();
+    expect(securityScanMkdirCall![1]).toEqual({ recursive: true });
   });
 });

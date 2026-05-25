@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { generateConfigJson, normalizeSonarProjectKey } from '@infra/config/generator';
+import { generateJsonSchema } from '@infra/config/schema-export';
 import { ProjectConfigSchema } from '@infra/config/schema';
 
 /**
@@ -505,6 +506,12 @@ describe('generateConfigJson — $schema field', () => {
     expect((parsed['$schema'] as string).length).toBeGreaterThan(0);
   });
 
+  it('$schema field points to .security-scan/config-schema.json (local schema convention)', () => {
+    const json = generateConfigJson();
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    expect(parsed['$schema']).toBe('./.security-scan/config-schema.json');
+  });
+
   it('$schema field is present regardless of options', () => {
     const variants = [
       generateConfigJson(),
@@ -525,5 +532,46 @@ describe('generateConfigJson — $schema field', () => {
     // Remove $schema before Zod validation (Zod strict mode rejects unknown keys)
     const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
+  });
+});
+
+describe('generateJsonSchema', () => {
+  it('returns a JSON Schema object with type: object', () => {
+    const schema = generateJsonSchema();
+    // zod-to-json-schema wraps in a definitions object; the root may be a $ref or have type
+    expect(schema).toBeDefined();
+    expect(typeof schema).toBe('object');
+    expect(schema).not.toBeNull();
+  });
+
+  it('output is JSON-serializable', () => {
+    const schema = generateJsonSchema();
+    expect(() => JSON.stringify(schema)).not.toThrow();
+    const serialized = JSON.stringify(schema);
+    expect(typeof serialized).toBe('string');
+    expect(serialized.length).toBeGreaterThan(0);
+  });
+
+  it('includes key properties: project, ecosystems, protected_packages', () => {
+    const schema = generateJsonSchema();
+    const serialized = JSON.stringify(schema);
+    // The schema should reference these properties somewhere in its definitions
+    expect(serialized).toContain('project');
+    expect(serialized).toContain('ecosystems');
+    expect(serialized).toContain('protected_packages');
+  });
+
+  it('returns a new object on each call (not a singleton)', () => {
+    const schema1 = generateJsonSchema();
+    const schema2 = generateJsonSchema();
+    // Both should have the same structure but be distinct objects
+    expect(JSON.stringify(schema1)).toBe(JSON.stringify(schema2));
+    expect(schema1).not.toBe(schema2);
+  });
+
+  it('generated JSON Schema is non-trivially structured (has definitions or properties)', () => {
+    const schema = generateJsonSchema();
+    const hasDefinitions = 'definitions' in schema || '$defs' in schema || 'properties' in schema;
+    expect(hasDefinitions).toBe(true);
   });
 });

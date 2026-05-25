@@ -674,8 +674,8 @@ flowchart LR
     SCAN_AFTER --> GEN_RPT
 
     GEN_RPT["generateExecutiveReport()\nreporting/executive.ts"]
-    GEN_RPT --> HBS["Handlebars renderer\n(reporting/templates/executive.hbs.ts)"]
-    HBS --> I18N["i18n loader\n(en / pt-br)"]
+    GEN_RPT --> RPT_RENDER["HTML report renderer\n(reporting/templates/)"]
+    RPT_RENDER --> I18N["i18n loader\n(en / pt-br)"]
     I18N --> HTML["Executive HTML report"]
 
     HTML --> SAVE["saveReport()\napp/report-saver.ts"]
@@ -910,7 +910,7 @@ Retry triggers only on transient Docker errors (`docker pull`, `network timeout`
 
 ### Config versioning
 
-`config_version: '1'` is an optional field in `project-config.yml`. Unsupported versions produce a user-friendly error:
+`config_version: "1"` is an optional field in `security-scan.config.json`. Unsupported versions produce a user-friendly error:
 
 ```
 Unsupported config_version "2". This version of security-scan supports config_version "1".
