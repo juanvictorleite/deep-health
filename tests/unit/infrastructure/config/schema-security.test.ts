@@ -247,13 +247,14 @@ describe('DockerImageRefSchema — scanners.osv.image', () => {
 // Group B — build_args validation
 // ---------------------------------------------------------------------------
 
-describe('build_args — valid key/value pairs', () => {
+describe('build.args — valid key/value pairs', () => {
   it('accepts uppercase keys with alphanumeric values', () => {
     const result = ProjectConfigSchema.safeParse(
       makeRunnerConfig('npm', {
-        image_source: 'dockerfile',
-        dockerfile_path: 'Dockerfile',
-        build_args: { NODE_VERSION: '20', APP_ENV: 'production' },
+        build: {
+          dockerfile: 'Dockerfile',
+          args: { NODE_VERSION: '20', APP_ENV: 'production' },
+        },
       }),
     );
     expect(result.success).toBe(true);
@@ -262,22 +263,24 @@ describe('build_args — valid key/value pairs', () => {
   it('accepts keys starting with underscore', () => {
     const result = ProjectConfigSchema.safeParse(
       makeRunnerConfig('npm', {
-        image_source: 'dockerfile',
-        dockerfile_path: 'Dockerfile',
-        build_args: { _PRIVATE: 'value' },
+        build: {
+          dockerfile: 'Dockerfile',
+          args: { _PRIVATE: 'value' },
+        },
       }),
     );
     expect(result.success).toBe(true);
   });
 });
 
-describe('build_args — invalid keys', () => {
+describe('build.args — invalid keys', () => {
   it('rejects lowercase key', () => {
     const result = ProjectConfigSchema.safeParse(
       makeRunnerConfig('npm', {
-        image_source: 'dockerfile',
-        dockerfile_path: 'Dockerfile',
-        build_args: { lower_key: 'val' },
+        build: {
+          dockerfile: 'Dockerfile',
+          args: { lower_key: 'val' },
+        },
       }),
     );
     expect(result.success).toBe(false);
@@ -286,9 +289,10 @@ describe('build_args — invalid keys', () => {
   it('rejects key with space', () => {
     const result = ProjectConfigSchema.safeParse(
       makeRunnerConfig('npm', {
-        image_source: 'dockerfile',
-        dockerfile_path: 'Dockerfile',
-        build_args: { 'KEY SPACE': 'val' },
+        build: {
+          dockerfile: 'Dockerfile',
+          args: { 'KEY SPACE': 'val' },
+        },
       }),
     );
     expect(result.success).toBe(false);
@@ -297,22 +301,24 @@ describe('build_args — invalid keys', () => {
   it('rejects key starting with digit', () => {
     const result = ProjectConfigSchema.safeParse(
       makeRunnerConfig('npm', {
-        image_source: 'dockerfile',
-        dockerfile_path: 'Dockerfile',
-        build_args: { '123KEY': 'val' },
+        build: {
+          dockerfile: 'Dockerfile',
+          args: { '123KEY': 'val' },
+        },
       }),
     );
     expect(result.success).toBe(false);
   });
 });
 
-describe('build_args — invalid values', () => {
+describe('build.args — invalid values', () => {
   it('rejects value containing newline', () => {
     const result = ProjectConfigSchema.safeParse(
       makeRunnerConfig('npm', {
-        image_source: 'dockerfile',
-        dockerfile_path: 'Dockerfile',
-        build_args: { KEY: 'val\ninjected' },
+        build: {
+          dockerfile: 'Dockerfile',
+          args: { KEY: 'val\ninjected' },
+        },
       }),
     );
     expect(result.success).toBe(false);
@@ -321,9 +327,10 @@ describe('build_args — invalid values', () => {
   it('rejects value containing carriage return', () => {
     const result = ProjectConfigSchema.safeParse(
       makeRunnerConfig('npm', {
-        image_source: 'dockerfile',
-        dockerfile_path: 'Dockerfile',
-        build_args: { KEY: 'val\rinjected' },
+        build: {
+          dockerfile: 'Dockerfile',
+          args: { KEY: 'val\rinjected' },
+        },
       }),
     );
     expect(result.success).toBe(false);
@@ -631,21 +638,22 @@ describe('ComposerRunnerConfig — removed deprecated fields are rejected', () =
 });
 
 // ---------------------------------------------------------------------------
-// Group H — allow_build_context_escape field accepted in all three runners
+// Group H — build.allow_context_escape field accepted in all three runners
 // ---------------------------------------------------------------------------
 
-describe('allow_build_context_escape — accepted in all ecosystem runner configs', () => {
+describe('build.allow_context_escape — accepted in all ecosystem runner configs', () => {
   it.each(['npm', 'pip', 'composer'] as const)(
-    'accepts allow_build_context_escape: true in ecosystems[%s].runner',
+    'accepts allow_context_escape: true in ecosystems[%s].runner.build',
     (ecosystem) => {
       const result = ProjectConfigSchema.safeParse({
         ...minimalConfig,
         ecosystems: [{
           id: ecosystem,
           runner: {
-            image_source: 'dockerfile',
-            dockerfile_path: 'Dockerfile',
-            allow_build_context_escape: true,
+            build: {
+              dockerfile: 'Dockerfile',
+              allow_context_escape: true,
+            },
           },
         }],
       });
@@ -654,16 +662,17 @@ describe('allow_build_context_escape — accepted in all ecosystem runner config
   );
 
   it.each(['npm', 'pip', 'composer'] as const)(
-    'accepts allow_build_context_escape: false in ecosystems[%s].runner',
+    'accepts allow_context_escape: false in ecosystems[%s].runner.build',
     (ecosystem) => {
       const result = ProjectConfigSchema.safeParse({
         ...minimalConfig,
         ecosystems: [{
           id: ecosystem,
           runner: {
-            image_source: 'dockerfile',
-            dockerfile_path: 'Dockerfile',
-            allow_build_context_escape: false,
+            build: {
+              dockerfile: 'Dockerfile',
+              allow_context_escape: false,
+            },
           },
         }],
       });
@@ -672,16 +681,17 @@ describe('allow_build_context_escape — accepted in all ecosystem runner config
   );
 
   it.each(['npm', 'pip', 'composer'] as const)(
-    'accepts omitted allow_build_context_escape (field is optional) in ecosystems[%s].runner',
+    'accepts omitted allow_context_escape (field is optional) in ecosystems[%s].runner.build',
     (ecosystem) => {
       const result = ProjectConfigSchema.safeParse({
         ...minimalConfig,
         ecosystems: [{
           id: ecosystem,
           runner: {
-            image_source: 'dockerfile',
-            dockerfile_path: 'Dockerfile',
-            // allow_build_context_escape deliberately omitted
+            build: {
+              dockerfile: 'Dockerfile',
+              // allow_context_escape deliberately omitted
+            },
           },
         }],
       });
@@ -690,16 +700,17 @@ describe('allow_build_context_escape — accepted in all ecosystem runner config
   );
 
   it.each(['npm', 'pip', 'composer'] as const)(
-    'rejects non-boolean allow_build_context_escape in ecosystems[%s].runner',
+    'rejects non-boolean allow_context_escape in ecosystems[%s].runner.build',
     (ecosystem) => {
       const result = ProjectConfigSchema.safeParse({
         ...minimalConfig,
         ecosystems: [{
           id: ecosystem,
           runner: {
-            image_source: 'dockerfile',
-            dockerfile_path: 'Dockerfile',
-            allow_build_context_escape: 'yes',
+            build: {
+              dockerfile: 'Dockerfile',
+              allow_context_escape: 'yes' as unknown as boolean,
+            },
           },
         }],
       });

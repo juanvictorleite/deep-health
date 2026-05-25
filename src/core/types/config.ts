@@ -65,12 +65,45 @@ export interface OsvScannerConfig {
 }
 
 /**
- * Image source axis — shared by npm, pip, and composer runners.
- * - 'pull' (default): pull a pre-built image from a registry.
- * - 'dockerfile': build a local image from a project-owned Dockerfile.
- *   Requires `dockerfile_path`. Mutually exclusive with `image`.
+ * Docker Compose-like build configuration for runner images.
+ * When present, the image is built locally rather than pulled from a registry.
+ * `image` and `build` can coexist — if both are set, the image is built and
+ * tagged with the custom image name.
  */
-export type ImageSource = 'pull' | 'dockerfile';
+export interface BuildConfig {
+  /**
+   * Path to the Dockerfile relative to the project root.
+   * Must not start with './' or contain '..' segments.
+   * Example: 'Dockerfile', '.docker/node.Dockerfile'
+   */
+  dockerfile: string;
+  /**
+   * Build context directory for docker build, relative to the project root.
+   * Defaults to the project root when absent.
+   * Example: '.', 'docker/'
+   */
+  context?: string;
+  /**
+   * Multi-stage build target to stop at.
+   * Example: 'node-stage', 'production'
+   */
+  target?: string;
+  /**
+   * Build arguments passed as --build-arg KEY=VALUE to docker build.
+   * Example: { NODE_VERSION: '20', APP_ENV: 'production' }
+   */
+  args?: Record<string, string>;
+  /**
+   * When true, allows the Docker build context to resolve outside the project
+   * boundary (git root, or projectDir when not in a git repository).
+   *
+   * ⚠ Security: enabling this sends the full directory tree outside the project
+   * to the Docker daemon, potentially exposing sensitive files. A warning is
+   * emitted when this flag is active and the boundary is crossed.
+   * Default: false.
+   */
+  allow_context_escape?: boolean;
+}
 
 /** npm runner configuration */
 export interface NpmRunnerConfig {
@@ -79,7 +112,7 @@ export interface NpmRunnerConfig {
    * When absent, the image is resolved from the inferred/configured Node version
    * (e.g. Node 20 → 'node:20').  Falls back to 'node:lts'.
    * Takes precedence over `language_version`.
-   * Mutually exclusive with `image_source='dockerfile'`.
+   * When `build` is also set, this becomes the tag for the built image.
    */
   image?: string;
   /**
@@ -92,18 +125,12 @@ export interface NpmRunnerConfig {
    */
   language_version?: string;
   /**
-   * Image source axis.
-   * - 'pull' (default): pull a registry image.
-   * - 'dockerfile': build from a project-owned Dockerfile; requires `dockerfile_path`.
-   *   Mutually exclusive with `image`.
+   * Docker Compose-like build configuration.
+   * When present, the image is built from the specified Dockerfile.
+   * When both `image` and `build` are set, the image is built and tagged
+   * with the custom image name.
    */
-  image_source?: ImageSource;
-  /**
-   * Path to the Dockerfile relative to the project root.
-   * Required when image_source='dockerfile'.
-   * Example: 'Dockerfile', '.docker/node.Dockerfile'
-   */
-  dockerfile_path?: string;
+  build?: BuildConfig;
   /**
    * OS-level packages to install via apt-get before running npm commands.
    * Use this when a project depends on native npm addons that require system
@@ -119,31 +146,6 @@ export interface NpmRunnerConfig {
    * hyphens, dots, plus signs only).
    */
   native_deps?: readonly string[];
-  /**
-   * Build context path for docker build, relative to projectDir.
-   * Defaults to the project root when absent.
-   * Only used when image_source='dockerfile'.
-   * Example: '.', 'docker/'
-   */
-  build_context?: string;
-  /**
-   * Build arguments to pass as --build-arg KEY=VALUE to docker build.
-   * Only used when image_source='dockerfile'.
-   * Example: { NODE_VERSION: '20', APP_ENV: 'production' }
-   */
-  build_args?: Record<string, string>;
-  /**
-   * When true, allows the Docker build context to resolve outside the project
-   * boundary (git root, or projectDir when not in a git repository).
-   * Only relevant when image_source='dockerfile' and build_context resolves
-   * outside the allowed root.
-   *
-   * ⚠ Security: enabling this sends the full directory tree outside the project
-   * to the Docker daemon, potentially exposing sensitive files. A warning is
-   * emitted when this flag is active and the boundary is crossed.
-   * Default: false.
-   */
-  allow_build_context_escape?: boolean;
 }
 
 /** Outputs/reports configuration */
@@ -319,7 +321,7 @@ export interface ComposerRunnerConfig {
    * When absent, the image is resolved from the inferred/configured PHP version
    * (e.g. PHP 8.2 → 'php:8.2-cli').  Falls back to 'composer:2'.
    * Takes precedence over `language_version`.
-   * Mutually exclusive with `image_source='dockerfile'`.
+   * When `build` is also set, this becomes the tag for the built image.
    */
   image?: string;
   /**
@@ -332,18 +334,12 @@ export interface ComposerRunnerConfig {
    */
   language_version?: string;
   /**
-   * Image source axis.
-   * - 'pull' (default): pull a registry image (php:*-cli or composer:2).
-   * - 'dockerfile': build from a project-owned Dockerfile; requires `dockerfile_path`.
-   *   Mutually exclusive with `image`.
+   * Docker Compose-like build configuration.
+   * When present, the image is built from the specified Dockerfile.
+   * When both `image` and `build` are set, the image is built and tagged
+   * with the custom image name.
    */
-  image_source?: ImageSource;
-  /**
-   * Path to the Dockerfile relative to the project root.
-   * Required when image_source='dockerfile'.
-   * Example: 'Dockerfile', '.docker/php.Dockerfile'
-   */
-  dockerfile_path?: string;
+  build?: BuildConfig;
   /**
    * OS-level packages to install via apt-get before running composer commands.
    * Useful when a PHP extension requires system libraries not present in the
@@ -351,29 +347,6 @@ export interface ComposerRunnerConfig {
    * Package names must follow Debian naming conventions.
    */
   native_deps?: readonly string[];
-  /**
-   * Build context path for docker build, relative to projectDir.
-   * Defaults to the project root when absent.
-   * Only used when image_source='dockerfile'.
-   */
-  build_context?: string;
-  /**
-   * Build arguments to pass as --build-arg KEY=VALUE to docker build.
-   * Only used when image_source='dockerfile'.
-   */
-  build_args?: Record<string, string>;
-  /**
-   * When true, allows the Docker build context to resolve outside the project
-   * boundary (git root, or projectDir when not in a git repository).
-   * Only relevant when image_source='dockerfile' and build_context resolves
-   * outside the allowed root.
-   *
-   * ⚠ Security: enabling this sends the full directory tree outside the project
-   * to the Docker daemon, potentially exposing sensitive files. A warning is
-   * emitted when this flag is active and the boundary is crossed.
-   * Default: false.
-   */
-  allow_build_context_escape?: boolean;
 }
 
 /** pip runner configuration */
@@ -383,7 +356,7 @@ export interface PipRunnerConfig {
    * When absent, the image is resolved from the inferred/configured Python version.
    * Falls back to 'python:3-slim'.
    * Takes precedence over `language_version`.
-   * Mutually exclusive with `image_source='dockerfile'`.
+   * When `build` is also set, this becomes the tag for the built image.
    */
   image?: string;
   /**
@@ -395,17 +368,12 @@ export interface PipRunnerConfig {
    */
   language_version?: string;
   /**
-   * Image source axis.
-   * - 'pull' (default): pull a registry image.
-   * - 'dockerfile': build from a project-owned Dockerfile; requires `dockerfile_path`.
-   *   Mutually exclusive with `image`.
+   * Docker Compose-like build configuration.
+   * When present, the image is built from the specified Dockerfile.
+   * When both `image` and `build` are set, the image is built and tagged
+   * with the custom image name.
    */
-  image_source?: ImageSource;
-  /**
-   * Path to the Dockerfile relative to the project root.
-   * Required when image_source='dockerfile'.
-   */
-  dockerfile_path?: string;
+  build?: BuildConfig;
   /**
    * OS-level packages to install via apt-get before running pip commands.
    * Use this for packages with C extensions that require system libraries
@@ -413,29 +381,6 @@ export interface PipRunnerConfig {
    * Package names must follow Debian naming conventions.
    */
   native_deps?: readonly string[];
-  /**
-   * Build context path for docker build, relative to projectDir.
-   * Defaults to the project root when absent.
-   * Only used when image_source='dockerfile'.
-   */
-  build_context?: string;
-  /**
-   * Build arguments to pass as --build-arg KEY=VALUE to docker build.
-   * Only used when image_source='dockerfile'.
-   */
-  build_args?: Record<string, string>;
-  /**
-   * When true, allows the Docker build context to resolve outside the project
-   * boundary (git root, or projectDir when not in a git repository).
-   * Only relevant when image_source='dockerfile' and build_context resolves
-   * outside the allowed root.
-   *
-   * ⚠ Security: enabling this sends the full directory tree outside the project
-   * to the Docker daemon, potentially exposing sensitive files. A warning is
-   * emitted when this flag is active and the boundary is crossed.
-   * Default: false.
-   */
-  allow_build_context_escape?: boolean;
 }
 
 export interface ScannersConfig {

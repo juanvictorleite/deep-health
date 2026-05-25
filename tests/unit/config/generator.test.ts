@@ -295,19 +295,19 @@ describe('normalizeSonarProjectKey', () => {
   });
 });
 
-describe('generateConfigJson — dockerfile image_source options', () => {
-  it('generated config with npm runner image_source="dockerfile" passes schema validation', () => {
+describe('generateConfigJson — build config options', () => {
+  it('generated config with npm runner build: { dockerfile } passes schema validation', () => {
     const json = generateConfigJson({
       ecosystemConfigs: [{
         id: 'npm',
-        runner: { language_version: '20', image_source: 'dockerfile', dockerfile_path: 'Dockerfile' },
+        runner: { language_version: '20', build: { dockerfile: 'Dockerfile' } },
       }],
     });
     const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 
-  it('generated config with npm runner (language_version only, no image_source) passes schema validation', () => {
+  it('generated config with npm runner (language_version only, no build) passes schema validation', () => {
     const json = generateConfigJson({
       ecosystemConfigs: [{ id: 'npm', runner: { language_version: '20' } }],
     });
@@ -315,38 +315,39 @@ describe('generateConfigJson — dockerfile image_source options', () => {
     expect(result.success).toBe(true);
   });
 
-  it('generated config with pip runner image_source="dockerfile" passes schema validation', () => {
+  it('generated config with pip runner build: { dockerfile } passes schema validation', () => {
     const json = generateConfigJson({
       ecosystemConfigs: [{
         id: 'pip',
-        runner: { language_version: '3.11', image_source: 'dockerfile', dockerfile_path: 'Dockerfile' },
+        runner: { language_version: '3.11', build: { dockerfile: 'Dockerfile' } },
       }],
     });
     const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 
-  it('generated config with composer runner image_source="dockerfile" passes schema validation', () => {
+  it('generated config with composer runner build: { dockerfile } passes schema validation', () => {
     const json = generateConfigJson({
       ecosystemConfigs: [{
         id: 'composer',
-        runner: { language_version: '8.2', image_source: 'dockerfile', dockerfile_path: '.docker/php.Dockerfile' },
+        runner: { language_version: '8.2', build: { dockerfile: '.docker/php.Dockerfile' } },
       }],
     });
     const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
   });
 
-  it('generated config with npm runner build_context and build_args passes schema validation', () => {
+  it('generated config with npm runner build: { context, args } passes schema validation', () => {
     const json = generateConfigJson({
       ecosystemConfigs: [{
         id: 'npm',
         runner: {
           language_version: '20',
-          image_source: 'dockerfile',
-          dockerfile_path: 'Dockerfile',
-          build_context: '.',
-          build_args: { NODE_ENV: 'test' },
+          build: {
+            dockerfile: 'Dockerfile',
+            context: '.',
+            args: { NODE_ENV: 'test' },
+          },
         },
       }],
     });
@@ -354,16 +355,17 @@ describe('generateConfigJson — dockerfile image_source options', () => {
     expect(result.success).toBe(true);
   });
 
-  it('generated config with pip runner build_context and build_args passes schema validation', () => {
+  it('generated config with pip runner build: { context, args } passes schema validation', () => {
     const json = generateConfigJson({
       ecosystemConfigs: [{
         id: 'pip',
         runner: {
           language_version: '3.11',
-          image_source: 'dockerfile',
-          dockerfile_path: 'Dockerfile',
-          build_context: '.',
-          build_args: { PYTHON_VERSION: '3.11' },
+          build: {
+            dockerfile: 'Dockerfile',
+            context: '.',
+            args: { PYTHON_VERSION: '3.11' },
+          },
         },
       }],
     });
@@ -371,16 +373,17 @@ describe('generateConfigJson — dockerfile image_source options', () => {
     expect(result.success).toBe(true);
   });
 
-  it('generated config with composer runner build_context and build_args passes schema validation', () => {
+  it('generated config with composer runner build: { context, args } passes schema validation', () => {
     const json = generateConfigJson({
       ecosystemConfigs: [{
         id: 'composer',
         runner: {
           language_version: '8.2',
-          image_source: 'dockerfile',
-          dockerfile_path: '.docker/php.Dockerfile',
-          build_context: '.docker/',
-          build_args: { PHP_VERSION: '8.2' },
+          build: {
+            dockerfile: '.docker/php.Dockerfile',
+            context: '.docker/',
+            args: { PHP_VERSION: '8.2' },
+          },
         },
       }],
     });
@@ -388,17 +391,19 @@ describe('generateConfigJson — dockerfile image_source options', () => {
     expect(result.success).toBe(true);
   });
 
-  it('AC7: full inline runner (all fields) generates valid JSON with runner nested under ecosystem entry, not top-level', () => {
+  it('full build config generates valid JSON with runner nested under ecosystem entry, not top-level', () => {
     const json = generateConfigJson({
       ecosystemConfigs: [{
         id: 'npm',
         runner: {
           language_version: '20',
-          image_source: 'dockerfile',
-          dockerfile_path: 'Dockerfile',
-          build_context: '.',
-          build_args: { NODE_ENV: 'production', APP_VERSION: '1.0' },
-          allow_build_context_escape: true,
+          build: {
+            dockerfile: 'Dockerfile',
+            context: '.',
+            target: 'node-stage',
+            args: { NODE_ENV: 'production', APP_VERSION: '1.0' },
+            allow_context_escape: true,
+          },
         },
       }],
     });
@@ -419,15 +424,45 @@ describe('generateConfigJson — dockerfile image_source options', () => {
     expect(npmEntry).toBeDefined();
     expect(npmEntry?.runner).toBeDefined();
     expect(npmEntry?.runner?.language_version).toBe('20');
-    expect(npmEntry?.runner?.image_source).toBe('dockerfile');
-    expect(npmEntry?.runner?.dockerfile_path).toBe('Dockerfile');
-    expect(npmEntry?.runner?.build_context).toBe('.');
-    expect(npmEntry?.runner?.allow_build_context_escape).toBe(true);
 
-    // build_args must be present (rendered as JSON object)
-    const buildArgs = npmEntry?.runner?.build_args as Record<string, string> | undefined;
+    // build block must be nested under runner
+    const buildBlock = npmEntry?.runner?.build as Record<string, unknown> | undefined;
+    expect(buildBlock).toBeDefined();
+    expect(buildBlock?.dockerfile).toBe('Dockerfile');
+    expect(buildBlock?.context).toBe('.');
+    expect(buildBlock?.target).toBe('node-stage');
+    expect(buildBlock?.allow_context_escape).toBe(true);
+
+    // args must be present (rendered as JSON object)
+    const buildArgs = buildBlock?.args as Record<string, string> | undefined;
     expect(buildArgs?.NODE_ENV).toBe('production');
     expect(buildArgs?.APP_VERSION).toBe('1.0');
+  });
+
+  it('generated config with build: { dockerfile } omits undefined fields', () => {
+    const json = generateConfigJson({
+      ecosystemConfigs: [{
+        id: 'npm',
+        runner: {
+          build: {
+            dockerfile: 'Dockerfile',
+          },
+        },
+      }],
+    });
+
+    const parsed = JSON.parse(json) as {
+      ecosystems: Array<{ id: string; runner?: Record<string, unknown> }>;
+    };
+    const npmEntry = parsed.ecosystems.find((e) => e.id === 'npm');
+    const buildBlock = npmEntry?.runner?.build as Record<string, unknown> | undefined;
+    expect(buildBlock).toBeDefined();
+    expect(buildBlock?.dockerfile).toBe('Dockerfile');
+    // undefined fields must not appear in output
+    expect(buildBlock?.context).toBeUndefined();
+    expect(buildBlock?.target).toBeUndefined();
+    expect(buildBlock?.args).toBeUndefined();
+    expect(buildBlock?.allow_context_escape).toBeUndefined();
   });
 });
 

@@ -1,14 +1,18 @@
 /**
- * Tests for image_source / dockerfile_path superRefine validation in
+ * Tests for BuildConfig / build: {} validation in
  * NpmRunnerConfigSchema, PipRunnerConfigSchema, and ComposerRunnerConfigSchema.
  *
- * Runner config is now per-ecosystem via ecosystems[].runner (not global runners block).
+ * Runner config is per-ecosystem via ecosystems[].runner.
  *
- * Covers the regression cases:
- *  - image_source='dockerfile' + image set simultaneously (must fail)
- *  - image_source='dockerfile' without dockerfile_path (must fail)
- *  - image_source='pull' (default) with no dockerfile_path (must pass)
- *  - image_source='dockerfile' with dockerfile_path set (must pass)
+ * Covers:
+ *  (1) passes with empty runner {}
+ *  (2) passes with build: { dockerfile: 'Dockerfile' }
+ *  (3) passes with image + build together (no longer mutually exclusive)
+ *  (4) fails with build: {} (missing dockerfile)
+ *  (5) fails with build: { dockerfile: './Dockerfile' } (dot-slash)
+ *  (6) fails with build: { dockerfile: '../Dockerfile' } (traversal)
+ *  (7) passes with build: { dockerfile, target, context, args }
+ *  (8) target rejects invalid chars
  */
 import { describe, it, expect } from 'vitest';
 import { ProjectConfigSchema } from '@infra/config/schema';
@@ -28,49 +32,113 @@ function makeConfigWithEcosystemRunner(ecosystemId: string, runner: Record<strin
   };
 }
 
-describe('ProjectConfigSchema — image_source superRefine validation (per-ecosystem runner)', () => {
+describe('ProjectConfigSchema — build config validation (per-ecosystem runner)', () => {
   // ─── npm ───────────────────────────────────────────────────────────────────
 
   describe('ecosystems[npm].runner', () => {
-    it('passes when image_source is omitted (defaults to pull)', () => {
+    // (1) passes with empty runner {}
+    it('(1) passes with empty runner {}', () => {
       const result = ProjectConfigSchema.safeParse(makeConfigWithEcosystemRunner('npm', {}));
       expect(result.success).toBe(true);
     });
 
-    it('passes when image_source="pull" with no dockerfile_path', () => {
+    // (2) passes with build: { dockerfile: 'Dockerfile' }
+    it('(2) passes with build: { dockerfile: "Dockerfile" }', () => {
       const result = ProjectConfigSchema.safeParse(
-        makeConfigWithEcosystemRunner('npm', { image_source: 'pull' }),
+        makeConfigWithEcosystemRunner('npm', { build: { dockerfile: 'Dockerfile' } }),
       );
       expect(result.success).toBe(true);
     });
 
-    it('passes when image_source="dockerfile" with dockerfile_path set', () => {
-      const result = ProjectConfigSchema.safeParse(
-        makeConfigWithEcosystemRunner('npm', { image_source: 'dockerfile', dockerfile_path: 'Dockerfile' }),
-      );
-      expect(result.success).toBe(true);
-    });
-
-    it('fails when image_source="dockerfile" and `image` is also set (mutually exclusive)', () => {
+    // (3) passes with image + build together (no longer mutually exclusive)
+    it('(3) passes with image + build together (coexistence is valid)', () => {
       const result = ProjectConfigSchema.safeParse(
         makeConfigWithEcosystemRunner('npm', {
-          image_source: 'dockerfile',
-          dockerfile_path: 'Dockerfile',
           image: 'node:20',
+          build: { dockerfile: 'Dockerfile' },
+        }),
+      );
+      expect(result.success).toBe(true);
+    });
+
+    // (4) fails with build: {} (missing dockerfile)
+    it('(4) fails with build: {} (dockerfile is required)', () => {
+      const result = ProjectConfigSchema.safeParse(
+        makeConfigWithEcosystemRunner('npm', { build: {} }),
+      );
+      expect(result.success).toBe(false);
+    });
+
+    // (5) fails with build: { dockerfile: './Dockerfile' } (dot-slash)
+    it('(5) fails with build: { dockerfile: "./Dockerfile" } (dot-slash prefix)', () => {
+      const result = ProjectConfigSchema.safeParse(
+        makeConfigWithEcosystemRunner('npm', { build: { dockerfile: './Dockerfile' } }),
+      );
+      expect(result.success).toBe(false);
+      const messages = result.error?.issues.map((i) => i.message) ?? [];
+      expect(messages.some((m) => m.includes('must not start with ./'))).toBe(true);
+    });
+
+    // (6) fails with build: { dockerfile: '../Dockerfile' } (traversal)
+    it('(6) fails with build: { dockerfile: "../Dockerfile" } (parent traversal)', () => {
+      const result = ProjectConfigSchema.safeParse(
+        makeConfigWithEcosystemRunner('npm', { build: { dockerfile: '../Dockerfile' } }),
+      );
+      expect(result.success).toBe(false);
+      const messages = result.error?.issues.map((i) => i.message) ?? [];
+      expect(messages.some((m) => m.includes('must not start with ../'))).toBe(true);
+    });
+
+    // (7) passes with full build object
+    it('(7) passes with build: { dockerfile, target, context, args }', () => {
+      const result = ProjectConfigSchema.safeParse(
+        makeConfigWithEcosystemRunner('npm', {
+          build: {
+            dockerfile: 'Dockerfile',
+            target: 'node-stage',
+            context: '.',
+            args: { NODE_VERSION: '20' },
+          },
+        }),
+      );
+      expect(result.success).toBe(true);
+    });
+
+    // (8) target rejects invalid chars
+    it('(8) fails when build.target contains invalid characters (spaces)', () => {
+      const result = ProjectConfigSchema.safeParse(
+        makeConfigWithEcosystemRunner('npm', {
+          build: {
+            dockerfile: 'Dockerfile',
+            target: 'my stage',
+          },
         }),
       );
       expect(result.success).toBe(false);
-      const messages = result.error?.issues.map((i) => i.message) ?? [];
-      expect(messages.some((m) => m.includes('mutually exclusive'))).toBe(true);
     });
 
-    it('fails when image_source="dockerfile" without dockerfile_path', () => {
+    it('(8) fails when build.target contains invalid characters (dot)', () => {
       const result = ProjectConfigSchema.safeParse(
-        makeConfigWithEcosystemRunner('npm', { image_source: 'dockerfile' }),
+        makeConfigWithEcosystemRunner('npm', {
+          build: {
+            dockerfile: 'Dockerfile',
+            target: 'my.stage',
+          },
+        }),
       );
       expect(result.success).toBe(false);
-      const messages = result.error?.issues.map((i) => i.message) ?? [];
-      expect(messages.some((m) => m.includes('dockerfile_path'))).toBe(true);
+    });
+
+    it('(8) passes when build.target contains only valid chars (alphanumeric, underscore, hyphen)', () => {
+      const result = ProjectConfigSchema.safeParse(
+        makeConfigWithEcosystemRunner('npm', {
+          build: {
+            dockerfile: 'Dockerfile',
+            target: 'my-stage_v2',
+          },
+        }),
+      );
+      expect(result.success).toBe(true);
     });
 
     it('rejects unknown field runners at top-level config (.strict() enforcement)', () => {
@@ -88,53 +156,59 @@ describe('ProjectConfigSchema — image_source superRefine validation (per-ecosy
       });
       expect(result.success).toBe(false);
     });
+
+    it('passes with language_version only (no build)', () => {
+      const result = ProjectConfigSchema.safeParse(
+        makeConfigWithEcosystemRunner('npm', { language_version: '20' }),
+      );
+      expect(result.success).toBe(true);
+    });
   });
 
   // ─── pip ───────────────────────────────────────────────────────────────────
 
   describe('ecosystems[pip].runner', () => {
-    it('passes when image_source="dockerfile" with dockerfile_path set', () => {
+    it('(1) passes with empty runner {}', () => {
+      const result = ProjectConfigSchema.safeParse(makeConfigWithEcosystemRunner('pip', {}));
+      expect(result.success).toBe(true);
+    });
+
+    it('(2) passes with build: { dockerfile: ".docker/pip.Dockerfile" }', () => {
       const result = ProjectConfigSchema.safeParse(
-        makeConfigWithEcosystemRunner('pip', { image_source: 'dockerfile', dockerfile_path: '.docker/pip.Dockerfile' }),
+        makeConfigWithEcosystemRunner('pip', { build: { dockerfile: '.docker/pip.Dockerfile' } }),
       );
       expect(result.success).toBe(true);
     });
 
-    it('fails when image_source="dockerfile" and `image` is also set', () => {
+    it('(3) passes with image + build together (coexistence is valid)', () => {
       const result = ProjectConfigSchema.safeParse(
         makeConfigWithEcosystemRunner('pip', {
-          image_source: 'dockerfile',
-          dockerfile_path: 'Dockerfile',
           image: 'python:3.11-slim',
+          build: { dockerfile: 'Dockerfile' },
         }),
       );
-      expect(result.success).toBe(false);
-      const messages = result.error?.issues.map((i) => i.message) ?? [];
-      expect(messages.some((m) => m.includes('mutually exclusive'))).toBe(true);
+      expect(result.success).toBe(true);
     });
 
-    it('fails when image_source="dockerfile" without dockerfile_path', () => {
+    it('(4) fails with build: {} (dockerfile is required)', () => {
       const result = ProjectConfigSchema.safeParse(
-        makeConfigWithEcosystemRunner('pip', { image_source: 'dockerfile' }),
+        makeConfigWithEcosystemRunner('pip', { build: {} }),
       );
       expect(result.success).toBe(false);
-      const messages = result.error?.issues.map((i) => i.message) ?? [];
-      expect(messages.some((m) => m.includes('dockerfile_path'))).toBe(true);
     });
   });
 
-  // ─── dockerfile_path relative path validation ─────────────────────────────
+  // ─── build.dockerfile relative path validation ────────────────────────────
 
-  describe('ecosystems[npm].runner — dockerfile_path relative path validation', () => {
+  describe('ecosystems[npm].runner — build.dockerfile relative path validation', () => {
     const validPaths = ['Dockerfile', '.docker/node.Dockerfile', 'docker/Dockerfile'];
     const invalidPaths = ['./Dockerfile', '../Dockerfile', 'some/../Dockerfile'];
 
     for (const dockerfilePath of validPaths) {
-      it(`passes when dockerfile_path is '${dockerfilePath}'`, () => {
+      it(`passes when build.dockerfile is '${dockerfilePath}'`, () => {
         const result = ProjectConfigSchema.safeParse(
           makeConfigWithEcosystemRunner('npm', {
-            image_source: 'dockerfile',
-            dockerfile_path: dockerfilePath,
+            build: { dockerfile: dockerfilePath },
           }),
         );
         expect(result.success).toBe(true);
@@ -142,11 +216,10 @@ describe('ProjectConfigSchema — image_source superRefine validation (per-ecosy
     }
 
     for (const dockerfilePath of invalidPaths) {
-      it(`fails when dockerfile_path is '${dockerfilePath}'`, () => {
+      it(`fails when build.dockerfile is '${dockerfilePath}'`, () => {
         const result = ProjectConfigSchema.safeParse(
           makeConfigWithEcosystemRunner('npm', {
-            image_source: 'dockerfile',
-            dockerfile_path: dockerfilePath,
+            build: { dockerfile: dockerfilePath },
           }),
         );
         expect(result.success).toBe(false);
@@ -156,15 +229,13 @@ describe('ProjectConfigSchema — image_source superRefine validation (per-ecosy
     it("rejects '../Dockerfile' with the parent-traversal error message (not the dot-slash message)", () => {
       const result = ProjectConfigSchema.safeParse(
         makeConfigWithEcosystemRunner('npm', {
-          image_source: 'dockerfile',
-          dockerfile_path: '../Dockerfile',
+          build: { dockerfile: '../Dockerfile' },
         }),
       );
       expect(result.success).toBe(false);
       const messages = result.error?.issues.map((i) => i.message) ?? [];
       expect(messages.some((m) => m.includes('must not start with ../'))).toBe(true);
       expect(messages.some((m) => m.includes('parent directory traversal is not allowed'))).toBe(true);
-      // The old (incorrect) message mentioned './' — ensure it is gone
       expect(messages.every((m) => !m.match(/must not start with \.\//))).toBe(true);
     });
   });
@@ -172,33 +243,33 @@ describe('ProjectConfigSchema — image_source superRefine validation (per-ecosy
   // ─── composer ──────────────────────────────────────────────────────────────
 
   describe('ecosystems[composer].runner', () => {
-    it('passes when image_source="dockerfile" with dockerfile_path set', () => {
+    it('(1) passes with empty runner {}', () => {
+      const result = ProjectConfigSchema.safeParse(makeConfigWithEcosystemRunner('composer', {}));
+      expect(result.success).toBe(true);
+    });
+
+    it('(2) passes with build: { dockerfile: ".docker/php.Dockerfile" }', () => {
       const result = ProjectConfigSchema.safeParse(
-        makeConfigWithEcosystemRunner('composer', { image_source: 'dockerfile', dockerfile_path: '.docker/php.Dockerfile' }),
+        makeConfigWithEcosystemRunner('composer', { build: { dockerfile: '.docker/php.Dockerfile' } }),
       );
       expect(result.success).toBe(true);
     });
 
-    it('fails when image_source="dockerfile" and `image` is also set', () => {
+    it('(3) passes with image + build together (coexistence is valid)', () => {
       const result = ProjectConfigSchema.safeParse(
         makeConfigWithEcosystemRunner('composer', {
-          image_source: 'dockerfile',
-          dockerfile_path: 'Dockerfile',
           image: 'php:8.2-cli',
+          build: { dockerfile: 'Dockerfile' },
         }),
       );
-      expect(result.success).toBe(false);
-      const messages = result.error?.issues.map((i) => i.message) ?? [];
-      expect(messages.some((m) => m.includes('mutually exclusive'))).toBe(true);
+      expect(result.success).toBe(true);
     });
 
-    it('fails when image_source="dockerfile" without dockerfile_path', () => {
+    it('(4) fails with build: {} (dockerfile is required)', () => {
       const result = ProjectConfigSchema.safeParse(
-        makeConfigWithEcosystemRunner('composer', { image_source: 'dockerfile' }),
+        makeConfigWithEcosystemRunner('composer', { build: {} }),
       );
       expect(result.success).toBe(false);
-      const messages = result.error?.issues.map((i) => i.message) ?? [];
-      expect(messages.some((m) => m.includes('dockerfile_path'))).toBe(true);
     });
   });
 });

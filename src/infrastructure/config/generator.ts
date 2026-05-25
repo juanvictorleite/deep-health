@@ -18,11 +18,13 @@ import type { OutputFormat } from '@core/types/config';
 
 export interface EcosystemRunnerConfig {
   language_version?: string;
-  image_source?: 'pull' | 'dockerfile';
-  dockerfile_path?: string;
-  build_context?: string;
-  build_args?: Record<string, string>;
-  allow_build_context_escape?: boolean;
+  build?: {
+    dockerfile?: string;
+    context?: string;
+    target?: string;
+    args?: Record<string, string>;
+    allow_context_escape?: boolean;
+  };
 }
 
 export interface EcosystemConfigEntry {
@@ -63,13 +65,7 @@ export interface GenerateConfigOptions {
 function buildRunnerObject(
   runner: EcosystemRunnerConfig,
 ): Record<string, unknown> | undefined {
-  const isDockerfile = runner.image_source === 'dockerfile';
-  const hasRunner = !!(
-    runner.language_version ||
-    isDockerfile ||
-    runner.build_context ||
-    runner.build_args
-  );
+  const hasRunner = !!(runner.language_version || runner.build);
 
   if (!hasRunner) return undefined;
 
@@ -79,21 +75,24 @@ function buildRunnerObject(
     result['language_version'] = runner.language_version;
   }
 
-  // Only emit image_source when it is 'dockerfile'
-  if (isDockerfile) {
-    result['image_source'] = 'dockerfile';
-    if (runner.dockerfile_path !== undefined) {
-      result['dockerfile_path'] = runner.dockerfile_path;
+  if (runner.build !== undefined) {
+    const buildObj: Record<string, unknown> = {};
+    if (runner.build.dockerfile !== undefined) {
+      buildObj['dockerfile'] = runner.build.dockerfile;
     }
-    if (runner.build_context !== undefined) {
-      result['build_context'] = runner.build_context;
+    if (runner.build.context !== undefined) {
+      buildObj['context'] = runner.build.context;
     }
-    if (runner.build_args && Object.keys(runner.build_args).length > 0) {
-      result['build_args'] = runner.build_args;
+    if (runner.build.target !== undefined) {
+      buildObj['target'] = runner.build.target;
     }
-    if (runner.allow_build_context_escape !== undefined) {
-      result['allow_build_context_escape'] = runner.allow_build_context_escape;
+    if (runner.build.args && Object.keys(runner.build.args).length > 0) {
+      buildObj['args'] = runner.build.args;
     }
+    if (runner.build.allow_context_escape !== undefined) {
+      buildObj['allow_context_escape'] = runner.build.allow_context_escape;
+    }
+    result['build'] = buildObj;
   }
 
   return result;

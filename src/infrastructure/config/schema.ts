@@ -79,14 +79,6 @@ const DebianPackageNameSchema = z
 
 const NativeDepsSchema = z.array(DebianPackageNameSchema).optional();
 
-/**
- * Image source axis — shared by npm, pip, and composer runners.
- * - 'pull' (default): pull a pre-built image from a registry (Docker Hub, GHCR, etc.).
- * - 'dockerfile': build a local image from a project-owned Dockerfile.
- *   Requires `dockerfile_path` to be set. Mutually exclusive with `image`.
- */
-const ImageSourceSchema = z.enum(['pull', 'dockerfile']).default('pull');
-
 const BuildArgsSchema = z.record(
   z.string().regex(/^[A-Z_][A-Z0-9_]*$/, 'Build arg key must be uppercase letters, digits, and underscores'),
   z.string().regex(/^[^\n\r]*$/, 'Build arg value must not contain newlines'),
@@ -123,6 +115,20 @@ const DockerfilePathSchema = z.string().superRefine((val, ctx) => {
   }
 });
 
+/**
+ * Docker Compose-like build configuration for runner images.
+ * `dockerfile` is required; all other fields are optional.
+ */
+const BuildConfigSchema = z
+  .object({
+    dockerfile: DockerfilePathSchema,
+    context: z.string().optional(),
+    target: z.string().regex(/^[a-zA-Z0-9_-]+$/, 'build.target must only contain alphanumeric characters, underscores, and hyphens').optional(),
+    args: BuildArgsSchema.optional(),
+    allow_context_escape: z.boolean().optional(),
+  })
+  .strict();
+
 /** npm runner config */
 const NpmRunnerConfigSchema = z
   .object({
@@ -130,7 +136,7 @@ const NpmRunnerConfigSchema = z
      * Docker image to use for the npm container.
      * Defaults to a version-resolved image (e.g. 'node:20'), falling back to 'node:lts'.
      * Takes precedence over language_version.
-     * Mutually exclusive with image_source='dockerfile'.
+     * When `build` is also set, this becomes the tag for the built image.
      */
     image: DockerImageRefSchema.optional(),
     /**
@@ -141,60 +147,20 @@ const NpmRunnerConfigSchema = z
      */
     language_version: z.string().optional(),
     /**
-     * Image source axis.
-     * - 'pull' (default): pull a registry image.
-     * - 'dockerfile': build from a project-owned Dockerfile; requires `dockerfile_path`.
-     *   Mutually exclusive with `image`.
+     * Docker Compose-like build configuration.
+     * When present, the image is built from the specified Dockerfile.
+     * When both `image` and `build` are set, the image is built and tagged
+     * with the custom image name.
      */
-    image_source: ImageSourceSchema,
-    /**
-     * Path to the Dockerfile relative to the project root.
-     * Required when image_source='dockerfile'.
-     * Example: 'Dockerfile', '.docker/node.Dockerfile'
-     */
-    dockerfile_path: DockerfilePathSchema.optional(),
+    build: BuildConfigSchema.optional(),
     /**
      * OS-level packages to install via apt-get before running npm commands.
      * Useful for native addons that require system libraries (e.g. sharp → libvips-dev).
      * Example: [libvips-dev, build-essential, python3]
      */
     native_deps: NativeDepsSchema,
-    /**
-     * Build context directory for docker build, relative to the project root.
-     * Defaults to the project root ('.') when absent.
-     * Only used when image_source='dockerfile'.
-     */
-    build_context: z.string().optional(),
-    /**
-     * Build arguments passed as --build-arg KEY=VALUE to docker build.
-     * Only used when image_source='dockerfile'.
-     */
-    build_args: BuildArgsSchema.optional(),
-    /**
-     * When true, allows build_context to resolve outside the project boundary
-     * (git root or projectDir). Security warning is emitted when active.
-     * Only relevant with image_source='dockerfile'. Default: false.
-     */
-    allow_build_context_escape: z.boolean().optional(),
   })
-  .strict()
-  .superRefine((cfg, ctx) => {
-    if (cfg.image_source === 'dockerfile' && cfg.image) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          'runners.npm: image_source="dockerfile" is mutually exclusive with `image`. ' +
-          'Remove `image` or set image_source="pull".',
-      });
-    }
-    if (cfg.image_source === 'dockerfile' && !cfg.dockerfile_path) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          'runners.npm: image_source="dockerfile" requires `dockerfile_path` to be set.',
-      });
-    }
-  });
+  .strict();
 
 /** Output format — markdown or docx for reports */
 const OutputFormatSchema = z.enum(["markdown", "docx"]);
@@ -301,7 +267,7 @@ const PipRunnerConfigSchema = z
      * Docker image to use for the pip container.
      * Defaults to a version-resolved image (e.g. 'python:3.11-slim'), falling back to 'python:3-slim'.
      * Takes precedence over language_version.
-     * Mutually exclusive with image_source='dockerfile'.
+     * When `build` is also set, this becomes the tag for the built image.
      */
     image: DockerImageRefSchema.optional(),
     /**
@@ -311,58 +277,19 @@ const PipRunnerConfigSchema = z
      */
     language_version: z.string().optional(),
     /**
-     * Image source axis.
-     * - 'pull' (default): pull a registry image.
-     * - 'dockerfile': build from a project-owned Dockerfile; requires `dockerfile_path`.
-     *   Mutually exclusive with `image`.
+     * Docker Compose-like build configuration.
+     * When present, the image is built from the specified Dockerfile.
+     * When both `image` and `build` are set, the image is built and tagged
+     * with the custom image name.
      */
-    image_source: ImageSourceSchema,
-    /**
-     * Path to the Dockerfile relative to the project root.
-     * Required when image_source='dockerfile'.
-     */
-    dockerfile_path: DockerfilePathSchema.optional(),
+    build: BuildConfigSchema.optional(),
     /**
      * OS-level packages to install via apt-get before running pip commands.
      * Useful for packages with C extensions that require system libraries.
      */
     native_deps: NativeDepsSchema,
-    /**
-     * Build context directory for docker build, relative to the project root.
-     * Defaults to the project root ('.') when absent.
-     * Only used when image_source='dockerfile'.
-     */
-    build_context: z.string().optional(),
-    /**
-     * Build arguments passed as --build-arg KEY=VALUE to docker build.
-     * Only used when image_source='dockerfile'.
-     */
-    build_args: BuildArgsSchema.optional(),
-    /**
-     * When true, allows build_context to resolve outside the project boundary
-     * (git root or projectDir). Security warning is emitted when active.
-     * Only relevant with image_source='dockerfile'. Default: false.
-     */
-    allow_build_context_escape: z.boolean().optional(),
   })
-  .strict()
-  .superRefine((cfg, ctx) => {
-    if (cfg.image_source === 'dockerfile' && cfg.image) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          'runners.pip: image_source="dockerfile" is mutually exclusive with `image`. ' +
-          'Remove `image` or set image_source="pull".',
-      });
-    }
-    if (cfg.image_source === 'dockerfile' && !cfg.dockerfile_path) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          'runners.pip: image_source="dockerfile" requires `dockerfile_path` to be set.',
-      });
-    }
-  });
+  .strict();
 
 /** composer runner config */
 const ComposerRunnerConfigSchema = z
@@ -371,7 +298,7 @@ const ComposerRunnerConfigSchema = z
      * Docker image to use for the composer container.
      * Defaults to a version-resolved image (e.g. 'php:8.2-cli'), falling back to 'composer:2'.
      * Takes precedence over language_version.
-     * Mutually exclusive with image_source='dockerfile'.
+     * When `build` is also set, this becomes the tag for the built image.
      */
     image: DockerImageRefSchema.optional(),
     /**
@@ -382,59 +309,19 @@ const ComposerRunnerConfigSchema = z
      */
     language_version: z.string().optional(),
     /**
-     * Image source axis.
-     * - 'pull' (default): pull a registry image (php:*-cli or composer:2).
-     * - 'dockerfile': build from a project-owned Dockerfile; requires `dockerfile_path`.
-     *   Mutually exclusive with `image`.
+     * Docker Compose-like build configuration.
+     * When present, the image is built from the specified Dockerfile.
+     * When both `image` and `build` are set, the image is built and tagged
+     * with the custom image name.
      */
-    image_source: ImageSourceSchema,
-    /**
-     * Path to the Dockerfile relative to the project root.
-     * Required when image_source='dockerfile'.
-     * Example: 'Dockerfile', '.docker/php.Dockerfile'
-     */
-    dockerfile_path: DockerfilePathSchema.optional(),
+    build: BuildConfigSchema.optional(),
     /**
      * OS-level packages to install via apt-get before running composer commands.
      * Useful for PHP extensions that require system libraries.
      */
     native_deps: NativeDepsSchema,
-    /**
-     * Build context directory for docker build, relative to the project root.
-     * Defaults to the project root ('.') when absent.
-     * Only used when image_source='dockerfile'.
-     */
-    build_context: z.string().optional(),
-    /**
-     * Build arguments passed as --build-arg KEY=VALUE to docker build.
-     * Only used when image_source='dockerfile'.
-     */
-    build_args: BuildArgsSchema.optional(),
-    /**
-     * When true, allows build_context to resolve outside the project boundary
-     * (git root or projectDir). Security warning is emitted when active.
-     * Only relevant with image_source='dockerfile'. Default: false.
-     */
-    allow_build_context_escape: z.boolean().optional(),
   })
-  .strict()
-  .superRefine((cfg, ctx) => {
-    if (cfg.image_source === 'dockerfile' && cfg.image) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          'runners.composer: image_source="dockerfile" is mutually exclusive with `image`. ' +
-          'Remove `image` or set image_source="pull".',
-      });
-    }
-    if (cfg.image_source === 'dockerfile' && !cfg.dockerfile_path) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message:
-          'runners.composer: image_source="dockerfile" requires `dockerfile_path` to be set.',
-      });
-    }
-  });
+  .strict();
 
 /**
  * Union of all per-ecosystem runner configs.
