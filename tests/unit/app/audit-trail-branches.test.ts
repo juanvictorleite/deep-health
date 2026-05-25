@@ -4,11 +4,18 @@
  *   line 46: catch branch in writeAuditTrail — mkdir/writeFile throws
  *   line 59: catch branch in resolveCliVersion — import fails
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const mockMkdir = vi.hoisted(() => vi.fn());
 
 vi.mock('@infra/utils/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), debug: vi.fn(), error: vi.fn(), tagged: vi.fn() },
 }));
+
+vi.mock('node:fs/promises', async (importActual) => {
+  const actual = await importActual<typeof import('node:fs/promises')>();
+  return { ...actual, mkdir: mockMkdir };
+});
 
 import { writeAuditTrail, resolveCliVersion } from '@app/audit-trail';
 import type { AuditTrailRecord } from '@app/audit-trail';
@@ -25,20 +32,18 @@ const record: AuditTrailRecord = {
 };
 
 describe('writeAuditTrail()', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default: mkdir succeeds (resolve undefined, like the real implementation)
+    mockMkdir.mockResolvedValue(undefined);
+  });
+
   it('writes without throwing on success path', async () => {
-    // Uses real tmp so it either writes or silently catches — just ensure no throw
     await expect(writeAuditTrail('/tmp', record)).resolves.toBeUndefined();
   });
 
   it('catches and logs when mkdir throws (line 46)', async () => {
-    vi.mock('node:fs/promises', async (importActual) => {
-      const actual = await importActual<typeof import('node:fs/promises')>();
-      return {
-        ...actual,
-        mkdir: vi.fn().mockRejectedValue(new Error('permission denied')),
-        writeFile: actual.writeFile,
-      };
-    });
+    mockMkdir.mockRejectedValue(new Error('permission denied'));
 
     // Should not throw — catch block should log warning
     await expect(writeAuditTrail('/no-permission', record)).resolves.toBeUndefined();
@@ -48,15 +53,7 @@ describe('writeAuditTrail()', () => {
   });
 
   it('logs String(err) when a non-Error is thrown from mkdir (line 46 false branch)', async () => {
-    vi.mock('node:fs/promises', async (importActual) => {
-      const actual = await importActual<typeof import('node:fs/promises')>();
-      return {
-        ...actual,
-        // eslint-disable-next-line @typescript-eslint/only-throw-error
-        mkdir: vi.fn().mockImplementation(() => Promise.reject('EPERM string')),
-        writeFile: actual.writeFile,
-      };
-    });
+    mockMkdir.mockImplementation(() => Promise.reject('EPERM string'));
 
     await expect(writeAuditTrail('/no-permission', record)).resolves.toBeUndefined();
     expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
