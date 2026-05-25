@@ -336,6 +336,7 @@ export async function runOrchestrator(
       dryRun: options.dryRun,
       authorizeBreaking,
       preRunSnapshots,
+      advisorResults: result.advisorResults[plugin.id],
     });
 
     if (outcome.status === "skipped") continue;

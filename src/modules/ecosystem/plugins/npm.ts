@@ -175,6 +175,7 @@ export const npmPlugin: EcosystemPlugin = {
       ctx.preFixBackups,
       ctx.osvFixOutcome,
       ctx.preRunSnapshots,
+      ctx.advisorResults,
     );
   },
 

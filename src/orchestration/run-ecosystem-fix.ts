@@ -20,7 +20,7 @@ import type { ProjectConfig, FixerStrategyId } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 import type { OsvJsonOutput } from '@modules/scanner/osv-engine';
 import type { UpdateResultJson } from '@core/types/update';
-import type { ResidualVerification } from '@core/types/report';
+import type { ResidualVerification, AdvisorResult } from '@core/types/report';
 import type { EcosystemPlugin } from '@modules/ecosystem/types';
 import { GateValidationError } from '@core/errors';
 import { validateEcosystemGate } from '@core/gates/validator';
@@ -43,6 +43,11 @@ export interface RunEcosystemFixParams {
    * Forwarded to the updater for dirty-tree detection after revert.
    */
   preRunSnapshots: Map<string, string> | undefined;
+  /**
+   * Advisor results for the current ecosystem, forwarded from the orchestrator.
+   * Passed into the updater context so fixers can access structured advisor findings.
+   */
+  advisorResults?: AdvisorResult[];
 }
 
 export type RunEcosystemFixOutcome =
@@ -62,6 +67,7 @@ export async function runEcosystemFix(
     dryRun,
     authorizeBreaking,
     preRunSnapshots,
+    advisorResults,
   } = params;
 
   // Resolve per-ecosystem config entry
@@ -177,6 +183,7 @@ export async function runEcosystemFix(
       osvFixOutcome,
       preRunSnapshots:
         preRunSnapshots && preRunSnapshots.size > 0 ? preRunSnapshots : undefined,
+      advisorResults,
     });
   } finally {
     setProgressSink(null);

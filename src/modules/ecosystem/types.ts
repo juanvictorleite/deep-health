@@ -2,6 +2,7 @@ import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig, ProtectedPackage, FixerStrategyId, ValidationCommandConfig, AdvisorConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
+import type { AdvisorResult } from '@core/types/report';
 import type { EcosystemRuntimeSpec } from '@infra/ecosystem-runtime/types';
 import type { OsvFixOutcome } from '@modules/ecosystem/fixers/index';
 
@@ -34,6 +35,12 @@ export interface EcosystemUpdaterContext {
    * from these snapshots, external changes during the run may have been lost.
    */
   preRunSnapshots?: Map<string, string>;
+  /**
+   * Advisor results for this ecosystem, forwarded from the orchestrator's advisor phase.
+   * Present when advisors ran and produced results for this ecosystem.
+   * Fixers can consume structured findings by flat-mapping result.findings.
+   */
+  advisorResults?: AdvisorResult[];
 }
 
 export interface EcosystemPlugin {

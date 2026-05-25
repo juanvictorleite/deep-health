@@ -2,6 +2,7 @@ import type { CommandRunner } from '@core/types/common';
 import type { FixerStrategyId, ValidationCommandConfig } from '@core/types/config';
 import type { UpdateResultJson } from '@core/types/update';
 import type { ScanResultJson } from '@core/types/scan';
+import type { AdvisorResult } from '@core/types/report';
 import { PhaseError } from '@core/errors';
 import { backupFiles } from '@infra/utils/fs-backup';
 import { logger } from '@infra/utils/logger';
@@ -29,9 +30,19 @@ export async function runNpmUpdater(
   preFixBackups?: Map<string, string>,
   osvFixOutcome?: OsvFixOutcome,
   preRunSnapshots?: Map<string, string>,
+  advisorResults?: AdvisorResult[],
 ): Promise<UpdateResultJson> {
   logger.info('Running npm safe updates...');
   const fixerFn = FIXER_MAP[fixerStrategy];
+
+  // Flat-map structured findings from all advisor results that have findings arrays.
+  // When no structured findings exist (or no advisor results), advisorFindings is undefined.
+  const advisorFindings =
+    advisorResults && advisorResults.length > 0
+      ? advisorResults.flatMap((r) => r.findings ?? [])
+      : undefined;
+  const resolvedAdvisorFindings =
+    advisorFindings && advisorFindings.length > 0 ? advisorFindings : undefined;
 
   try {
     // Advisor files backed up after the OSV pre-phase; primary backups from orchestrator when available.
@@ -55,7 +66,7 @@ export async function runNpmUpdater(
 
         async applyFix(ctx) {
           await checkCurrentState(ctx.runner, ctx.cwd);
-          const fixerResult = await fixerFn({ runner: ctx.runner, cwd: ctx.cwd, scanResult: ctx.scanResult, authorizeBreaking: ctx.authorizeBreaking, osvFixOutcome });
+          const fixerResult = await fixerFn({ runner: ctx.runner, cwd: ctx.cwd, scanResult: ctx.scanResult, authorizeBreaking: ctx.authorizeBreaking, osvFixOutcome, advisorFindings: resolvedAdvisorFindings });
           if (fixerResult.breakingInstallError) {
             return { ok: false, error: fixerResult.breakingInstallError, validationStatus: 'fail' };
           }

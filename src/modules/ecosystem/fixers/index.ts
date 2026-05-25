@@ -1,6 +1,7 @@
 import type { CommandRunner } from '@core/types/common';
 import type { ScanResultJson } from '@core/types/scan';
 import type { FixerStrategyId } from '@core/types/config';
+import type { AdvisorFinding } from '@core/types/report';
 import { applyNpmAuditFix } from './npm-audit-fixer';
 import { applyOsvNoOp } from './osv-fixer';
 import { applyOsvThenAuditFix } from './osv-then-audit-fixer';
@@ -27,6 +28,12 @@ export interface FixerCallOptions {
    * - `osv-then-audit-fixer`: merges this with its own audit-verified list (last-writer-wins).
    */
   osvFixOutcome?: OsvFixOutcome;
+  /**
+   * Structured advisor findings for this ecosystem, flat-mapped from all advisor results.
+   * Passed through by the updater so fixers CAN consume advisor data in the future.
+   * Present only when the upstream advisor produced structured JSON findings.
+   */
+  advisorFindings?: AdvisorFinding[];
 }
 
 export interface FixerCallResult {
