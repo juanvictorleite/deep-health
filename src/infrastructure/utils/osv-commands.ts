@@ -1,3 +1,5 @@
+import { __ } from '@core/i18n';
+
 /** Minimal structural type needed by buildScanCommand — avoids coupling to ecosystem/types. */
 interface ScanArgsProvider {
   buildScanArgs(): string[];
@@ -79,14 +81,14 @@ export function buildOsvToolArgs(lockfileArgs: string[]): string[] {
  */
 export function validateScanPath(p: string): void {
   if (p.startsWith('/')) {
-    throw new Error(`scan.paths: "${p}" must be relative (no leading /)`);
+    throw new Error(__('scan.paths: "{{path}}" must be relative (no leading /)', { path: p }));
   }
   if (p.split('/').some((seg) => seg === '..')) {
-    throw new Error(`scan.paths: "${p}" must not contain .. segments`);
+    throw new Error(__('scan.paths: "{{path}}" must not contain .. segments', { path: p }));
   }
   if (/[*?]/.test(p)) {
     throw new Error(
-      `scan.paths: "${p}" — glob patterns not supported, use a directory path ending with / (e.g. "app/")`,
+      __('scan.paths: "{{path}}" — glob patterns not supported, use a directory path ending with / (e.g. "app/")', { path: p }),
     );
   }
 }

@@ -1,4 +1,5 @@
 import { logger } from './logger';
+import { __ } from '@core/i18n';
 
 export interface RetryOptions {
   maxAttempts: number;
@@ -32,7 +33,12 @@ export async function withRetry<T>(
 
       const delay = options.baseDelayMs * Math.pow(2, attempt - 1);
       logger.warn(
-        `[retry] Attempt ${attempt} failed: ${lastErr.message}. Retrying in ${delay}ms (${attempt}/${options.maxAttempts})...`,
+        __('[retry] Attempt {{attempt}} failed: {{message}}. Retrying in {{delay}}ms ({{attempt}}/{{maxAttempts}})...', {
+          attempt,
+          message: lastErr.message,
+          delay,
+          maxAttempts: options.maxAttempts,
+        }),
       );
       await new Promise((resolve) => setTimeout(resolve, delay));
     }

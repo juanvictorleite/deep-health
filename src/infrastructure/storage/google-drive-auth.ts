@@ -47,12 +47,14 @@ export function createOAuth2Client() {
 
   if (!clientId || !clientSecret) {
     throw new Error(
-      'Google OAuth credentials are not configured.\n' +
+      __(
+        'Google OAuth credentials are not configured.\n' +
         'Set the following environment variables before running cloud-setup:\n' +
         '  DEEP_HEALTH_GOOGLE_CLIENT_ID=<your-client-id>\n' +
         '  DEEP_HEALTH_GOOGLE_CLIENT_SECRET=<your-client-secret>\n' +
         'Create OAuth 2.0 credentials (Desktop app) at:\n' +
         '  https://console.cloud.google.com/apis/credentials',
+      ),
     );
   }
 
@@ -86,8 +88,7 @@ export async function runOAuthFlow(): Promise<StoredTokens> {
     googleModule = await import('googleapis');
   } catch {
     throw new Error(
-      'Google Drive OAuth flow requires the "googleapis" package, which is not installed. ' +
-        'Install it with: npm install googleapis',
+      __('Google Drive OAuth flow requires the "googleapis" package, which is not installed. Install it with: npm install googleapis'),
     );
   }
   const { google } = googleModule;
@@ -98,7 +99,7 @@ export async function runOAuthFlow(): Promise<StoredTokens> {
 
   const address = server.address();
   if (!address || typeof address === 'string') {
-    throw new Error('Failed to start local OAuth callback server');
+    throw new Error(__('Failed to start local OAuth callback server'));
   }
   const port = address.port;
   const redirectUri = `http://127.0.0.1:${port}/callback`;
@@ -128,7 +129,7 @@ export async function runOAuthFlow(): Promise<StoredTokens> {
   return new Promise<StoredTokens>((resolve, reject) => {
     const timeout = setTimeout(() => {
       server.close();
-      reject(new Error('OAuth timeout: authorization not completed in 5 minutes'));
+      reject(new Error(__('OAuth timeout: authorization not completed in 5 minutes')));
     }, 5 * 60 * 1000);
 
     server.on('request', (req, res) => {
@@ -147,33 +148,33 @@ export async function runOAuthFlow(): Promise<StoredTokens> {
       if (error) {
         res.writeHead(400, { 'Content-Type': 'text/html' });
         res.end(
-          `<html><body><h2>Authorization failed: ${error}</h2><p>You can close this tab.</p></body></html>`,
+          `<html><body><h2>${__('Authorization failed: {{error}}', { error })}</h2><p>${__('You can close this tab.')}</p></body></html>`,
         );
         clearTimeout(timeout);
         server.close();
-        reject(new Error(`OAuth authorization failed: ${error}`));
+        reject(new Error(__('OAuth authorization failed: {{error}}', { error })));
         return;
       }
 
       if (returnedState !== state) {
         res.writeHead(400, { 'Content-Type': 'text/html' });
         res.end(
-          '<html><body><h2>Invalid state parameter</h2><p>You can close this tab.</p></body></html>',
+          `<html><body><h2>${__('Invalid state parameter')}</h2><p>${__('You can close this tab.')}</p></body></html>`,
         );
         clearTimeout(timeout);
         server.close();
-        reject(new Error('OAuth state mismatch — possible CSRF attack'));
+        reject(new Error(__('OAuth state mismatch — possible CSRF attack')));
         return;
       }
 
       if (!code) {
         res.writeHead(400, { 'Content-Type': 'text/html' });
         res.end(
-          '<html><body><h2>No authorization code received</h2><p>You can close this tab.</p></body></html>',
+          `<html><body><h2>${__('No authorization code received')}</h2><p>${__('You can close this tab.')}</p></body></html>`,
         );
         clearTimeout(timeout);
         server.close();
-        reject(new Error('No authorization code in OAuth callback'));
+        reject(new Error(__('No authorization code in OAuth callback')));
         return;
       }
 

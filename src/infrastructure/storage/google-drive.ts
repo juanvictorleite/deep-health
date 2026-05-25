@@ -3,6 +3,7 @@ import type { StorageProvider, UploadResult } from './provider';
 import type { CloudStorageConfig } from '@core/types/config';
 import { loadStoredTokens, saveTokens } from './google-drive-auth';
 import type { StoredTokens } from './google-drive-auth';
+import { __ } from '@core/i18n';
 
 export class GoogleDriveProvider implements StorageProvider {
   constructor(
@@ -16,8 +17,7 @@ export class GoogleDriveProvider implements StorageProvider {
       googleModule = await import('googleapis');
     } catch {
       throw new Error(
-        'Google Drive upload requires the "googleapis" package, which is not installed. ' +
-          'Install it with: npm install googleapis',
+        __('Google Drive upload requires the "googleapis" package, which is not installed. Install it with: npm install googleapis'),
       );
     }
     const { google } = googleModule;
@@ -81,7 +81,7 @@ export async function createGoogleDriveProvider(
 
   if (!tokens) {
     throw new Error(
-      `Google Drive tokens not found. Run '${CLI_NAME} cloud-setup' first to connect Google Drive.`,
+      __('Google Drive tokens not found. Run \'{{cliName}} cloud-setup\' first to connect Google Drive.', { cliName: CLI_NAME }),
     );
   }
 

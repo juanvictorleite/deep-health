@@ -7,6 +7,7 @@ import { ConfigLoadError } from '@core/errors';
 import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 import { CLI_NAME } from '@infra/brand';
 import { type Result, ok, err } from '@core/types/result';
+import { __ } from '@core/i18n';
 
 export const DEFAULT_CONFIG_PATH = 'security-scan.config.json';
 
@@ -32,9 +33,7 @@ function rejectLegacyModeField(raw: unknown): void {
     for (const ecosystem of ['npm', 'pip', 'composer']) {
       if (ecosystem in scannersObj) {
         throw new Error(
-          `Config field 'scanners.${ecosystem}' is no longer supported. ` +
-          `Move ecosystem runner config to the 'runner' field inside the matching ecosystems[] entry. ` +
-          `See docs/adr/0004-ecosystem-runner-config-and-build-context-hardening.md for the rationale.`,
+          __('Config field \'scanners.{{ecosystem}}\' is no longer supported. Move ecosystem runner config to the \'runner\' field inside the matching ecosystems[] entry. See docs/adr/0004-ecosystem-runner-config-and-build-context-hardening.md for the rationale.', { ecosystem }),
         );
       }
     }
@@ -44,10 +43,7 @@ function rejectLegacyModeField(raw: unknown): void {
   const runners = obj.runners;
   if (typeof runners === 'object' && runners !== null) {
     throw new Error(
-      `The top-level 'runners' block is no longer supported. ` +
-      `Move each runner config (npm, pip, composer) to the 'runner' field inside the ` +
-      `matching ecosystems[] entry. ` +
-      `Example: ecosystems: [{ id: 'npm', runner: { language_version: '20' } }].`,
+      __('The top-level \'runners\' block is no longer supported. Move each runner config (npm, pip, composer) to the \'runner\' field inside the matching ecosystems[] entry. Example: ecosystems: [{ id: \'npm\', runner: { language_version: \'20\' } }].'),
     );
   }
 
@@ -62,10 +58,7 @@ function rejectLegacyModeField(raw: unknown): void {
           const value = (runner as { mode: unknown }).mode;
           const id = typeof ecoEntry.id === 'string' ? ecoEntry.id : '?';
           throw new Error(
-            `Config field 'ecosystems[${id}].runner.mode' (value: '${String(value)}') is no longer supported. ` +
-            `Docker is now the only runtime mode. ` +
-            `Remove the 'mode' field from your config. ` +
-            `See docs/adr/0001-docker-only-runtime.md for the rationale.`,
+            __('Config field \'ecosystems[{{id}}].runner.mode\' (value: \'{{value}}\') is no longer supported. Docker is now the only runtime mode. Remove the \'mode\' field from your config. See docs/adr/0001-docker-only-runtime.md for the rationale.', { id, value: String(value) }),
           );
         }
       }
