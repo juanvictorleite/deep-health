@@ -153,7 +153,7 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
       const syntheticEntry: VulnerabilityEntry = {
         ecosystem: plugin.id,
         package: finding.package,
-        ghsaId: finding.cve ?? finding.advisoryId,
+        ghsaId: finding.cve || '',
         cvss: '—',
         risk: finding.title,
         currentVersion: finding.installedVersion ?? finding.affectedVersions,

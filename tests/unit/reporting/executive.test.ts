@@ -1166,7 +1166,10 @@ describe('generateExecutiveReport() — audit findings pipe escaping and CVE ren
     expect(rowWithCve).toBeDefined();
   });
 
-  it('(AC5-b) audit findings with cve=null fall back to advisoryId in the report', () => {
+  it('(AC5-b) audit findings with cve=null render a dash instead of an advisoryId-based link', () => {
+    // Bug fix: when cve is null, ghsaId becomes '' so ghsaLink('') returns '—'.
+    // Previously, advisoryId (e.g. 'symfony/http-kernel/2024-001.yaml') was used as
+    // ghsaId, producing a broken osv.dev URL.
     const result = generateExecutiveReport({
       ...baseOpts,
       scanBefore: cleanScanWithComposer,
@@ -1185,7 +1188,7 @@ describe('generateExecutiveReport() — audit findings pipe escaping and CVE ren
             {
               ecosystem: 'composer',
               package: 'vendor/nocve-pkg',
-              advisoryId: 'GHSA-nocve-001',
+              advisoryId: 'symfony/http-kernel/2024-001.yaml',
               title: 'XSS',
               cve: null,
               affectedVersions: '>=1.0.0 <1.1.0',
@@ -1196,8 +1199,141 @@ describe('generateExecutiveReport() — audit findings pipe escaping and CVE ren
     });
 
     expect(typeof result).toBe('string');
-    // When cve is null, the advisory ID must appear in the report
-    expect(result).toContain('GHSA-nocve-001');
+
+    // When cve is null, the report must NOT generate a link using the advisoryId
+    expect(result).not.toContain('symfony/http-kernel/2024-001.yaml');
+
+    // The row for vendor/nocve-pkg should render a dash instead of a broken link
+    const rows = result.split('\n').filter((l) => l.startsWith('|') && !l.includes('---') && l.includes('vendor/nocve-pkg'));
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    const rowWithDash = rows.find((r) => r.includes('—'));
+    expect(rowWithDash).toBeDefined();
+  });
+
+  it('(AC2-a) audit finding with cve=null renders "—" in the link column, not a broken link', () => {
+    // Covers AC2 scenario 1: cve is null → ghsaId='', ghsaLink('')='—'
+    const result = generateExecutiveReport({
+      ...baseOpts,
+      scanBefore: cleanScanWithComposer,
+      scanAfter: cleanScanWithComposer,
+      updates: {
+        composer: {
+          $schema: 'osv-update-result/v1',
+          agent: 'composer-safe-update',
+          status: 'success',
+          packages_updated: ['vendor/null-cve-pkg@2.0.0'],
+          packages_skipped: [],
+          packages_pending_breaking: [],
+          validations: [{ name: 'validation', status: 'pass', detail: 'ok' }],
+          error: null,
+          audit_findings: [
+            {
+              ecosystem: 'composer',
+              package: 'vendor/null-cve-pkg',
+              advisoryId: 'vendor/pkg/2024-broken.yaml',
+              title: 'Remote exploit',
+              cve: null,
+              affectedVersions: '>=1.0.0 <2.0.0',
+            },
+          ],
+        },
+      },
+    });
+
+    expect(typeof result).toBe('string');
+
+    // The advisoryId path must NOT appear anywhere (it would form a broken link)
+    expect(result).not.toContain('vendor/pkg/2024-broken.yaml');
+
+    // The row for this package must contain a dash (—), not an osv.dev link
+    const rows = result.split('\n').filter((l) => l.startsWith('|') && !l.includes('---') && l.includes('vendor/null-cve-pkg'));
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    const rowWithDash = rows.find((r) => r.includes('—'));
+    expect(rowWithDash).toBeDefined();
+    // Ensure no broken link pattern appears
+    const rowWithBrokenLink = rows.find((r) => r.includes('osv.dev/vendor'));
+    expect(rowWithBrokenLink).toBeUndefined();
+  });
+
+  it('(AC2-b) audit finding with a valid CVE renders a proper osv.dev link', () => {
+    // Covers AC2 scenario 2: cve='CVE-2024-28858' → ghsaId='CVE-2024-28858' → link rendered
+    const result = generateExecutiveReport({
+      ...baseOpts,
+      scanBefore: cleanScanWithComposer,
+      scanAfter: cleanScanWithComposer,
+      updates: {
+        composer: {
+          $schema: 'osv-update-result/v1',
+          agent: 'composer-safe-update',
+          status: 'success',
+          packages_updated: ['vendor/cve-link-pkg@3.0.0'],
+          packages_skipped: [],
+          packages_pending_breaking: [],
+          validations: [{ name: 'validation', status: 'pass', detail: 'ok' }],
+          error: null,
+          audit_findings: [
+            {
+              ecosystem: 'composer',
+              package: 'vendor/cve-link-pkg',
+              advisoryId: 'vendor/pkg/2024-001.yaml',
+              title: 'SQL injection',
+              cve: 'CVE-2024-28858',
+              affectedVersions: '>=2.0.0 <3.0.0',
+            },
+          ],
+        },
+      },
+    });
+
+    expect(typeof result).toBe('string');
+
+    // The CVE must appear in the report
+    expect(result).toContain('CVE-2024-28858');
+
+    // The row for this package must contain the CVE-based osv.dev link
+    const rows = result.split('\n').filter((l) => l.startsWith('|') && !l.includes('---') && l.includes('vendor/cve-link-pkg'));
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    const rowWithCveLink = rows.find((r) => r.includes('CVE-2024-28858') && r.includes('osv.dev'));
+    expect(rowWithCveLink).toBeDefined();
+  });
+
+  it('(AC2-c) audit finding with cve="" (empty string) renders "—" in the link column', () => {
+    // Covers AC2 scenario 3: cve='' → ghsaId='' → ghsaLink('')='—'
+    const result = generateExecutiveReport({
+      ...baseOpts,
+      scanBefore: cleanScanWithComposer,
+      scanAfter: cleanScanWithComposer,
+      updates: {
+        composer: {
+          $schema: 'osv-update-result/v1',
+          agent: 'composer-safe-update',
+          status: 'success',
+          packages_updated: ['vendor/empty-cve-pkg@5.0.0'],
+          packages_skipped: [],
+          packages_pending_breaking: [],
+          validations: [{ name: 'validation', status: 'pass', detail: 'ok' }],
+          error: null,
+          audit_findings: [
+            {
+              ecosystem: 'composer',
+              package: 'vendor/empty-cve-pkg',
+              advisoryId: 'vendor/pkg/2024-002.yaml',
+              title: 'XSS',
+              cve: '' as unknown as null,
+              affectedVersions: '>=4.0.0 <5.0.0',
+            },
+          ],
+        },
+      },
+    });
+
+    expect(typeof result).toBe('string');
+
+    // The row for this package must contain a dash, not a link
+    const rows = result.split('\n').filter((l) => l.startsWith('|') && !l.includes('---') && l.includes('vendor/empty-cve-pkg'));
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    const rowWithDash = rows.find((r) => r.includes('—'));
+    expect(rowWithDash).toBeDefined();
   });
 });
 
