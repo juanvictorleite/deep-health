@@ -46,7 +46,7 @@ export default defineConfig({
         branches: 88,
       },
     },
-    reporters: ['default', 'vitest-llm-reporter'],
+    reporters: ['vitest-llm-reporter'],
     // Named projects for targeted runs: pnpm test:unit, pnpm test:integration, pnpm test:smoke
     // NOTE: vitest 2.x inline-project mode does NOT support `--project <name>` CLI filtering
     // when projects are defined inline (not in a workspace file).
@@ -58,7 +58,7 @@ export default defineConfig({
           name: 'unit',
           include: ['tests/unit/**/*.test.ts'],
           globals: true,
-          setupFiles: ['tests/helpers/silence-logger.ts'],
+          setupFiles: ['tests/helpers/silence-logger.ts', 'tests/helpers/silence-stdout.ts'],
         },
       },
       {
@@ -67,7 +67,7 @@ export default defineConfig({
           name: 'integration',
           include: ['tests/integration/**/*.test.ts'],
           globals: true,
-          setupFiles: ['tests/helpers/silence-logger.ts'],
+          setupFiles: ['tests/helpers/silence-logger.ts', 'tests/helpers/silence-stdout.ts'],
         },
       },
       {
@@ -76,6 +76,7 @@ export default defineConfig({
           name: 'smoke',
           include: ['tests/smoke/**/*.test.ts'],
           globals: true,
+          setupFiles: ['tests/helpers/silence-logger.ts', 'tests/helpers/silence-stdout.ts'],
           // Smoke tests perform real Docker operations (container pull + start).
           // Per-test timeouts are declared inline with { timeout: N } but we
           // also raise the suite-level hook timeout so beforeAll skip probes

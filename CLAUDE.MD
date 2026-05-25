@@ -26,7 +26,7 @@ npm run build:sea                   # Build SEA (Single Executable Application) 
 npm run typecheck                   # TypeScript type check (tsc --noEmit)
 
 # Tests
-npm test                            # Unit + integration tests (dot reporter, silent)
+npm test                            # Unit + integration tests (vitest-llm-reporter, minimal output)
 npm run test:unit                   # Unit tests only
 npm run test:integration            # Integration tests only
 npm run test:smoke                  # Smoke tests (requires Docker running)
@@ -39,6 +39,13 @@ npx vitest run tests/unit/path/to/file.test.ts
 # Run tests matching a pattern
 npx vitest run -t "pattern" tests/unit
 ```
+
+> **IMPORTANT — agents running tests:** Never run raw `npx vitest run` without
+> `--reporter=vitest-llm-reporter`. Raw vitest produces 700KB+ of CLI stdout
+> that overwhelms context windows and breaks RTK parsing. Always use:
+>
+> - `npm test` / `npm run test:unit` / `npm run test:integration` — use
+>   `--silent --reporter=vitest-llm-reporter` automatically via package.json.
 
 ---
 
