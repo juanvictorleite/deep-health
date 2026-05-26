@@ -1,9 +1,12 @@
 /**
- * Tests verifying that the orchestrator passes advisor results
- * for the current plugin to runEcosystemFix() (AC4).
+ * Tests verifying that the orchestrator reads advisor results from the
+ * runEcosystemFix outcome and stores them in result.advisorResults[entryKey].
  *
- * Strategy: mock runEcosystemFix and capture its params to verify
- * that advisorResults[plugin.id] is forwarded correctly.
+ * Strategy: mock runEcosystemFix to return outcomes with advisorResults and
+ * verify that the orchestrator stores them correctly in the rolling result.
+ *
+ * AC3: RunEcosystemFixOutcome includes advisorResults. Orchestrator reads
+ * advisorResults from outcome and stores in result.advisorResults[entryKey].
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -34,18 +37,16 @@ vi.mock('@infra/ecosystem-runtime', () => ({
   resolveOsvRuntime: vi.fn((_config: unknown, _cwd: unknown, hostRunner: unknown) => hostRunner),
 }));
 
-// Mock runAdvisors to return controlled advisor results
+// runAdvisors is now called inside runEcosystemFix, not in orchestrator
 vi.mock('@modules/advisor/index', () => ({
   runAdvisors: vi.fn().mockResolvedValue([]),
 }));
 
-// Mock runEcosystemFix so we can capture the params it receives
-const capturedRunEcosystemFixParams: Parameters<typeof import('@orchestration/run-ecosystem-fix').runEcosystemFix>[0][] = [];
+// Mock runEcosystemFix — the orchestrator reads advisorResults from the outcome
+import type { RunEcosystemFixOutcome } from '@orchestration/run-ecosystem-fix';
+let mockedOutcome: RunEcosystemFixOutcome = { status: 'skipped', reason: 'no-updates' };
 vi.mock('@orchestration/run-ecosystem-fix', () => ({
-  runEcosystemFix: vi.fn(async (params: Parameters<typeof import('@orchestration/run-ecosystem-fix').runEcosystemFix>[0]) => {
-    capturedRunEcosystemFixParams.push(params);
-    return { status: 'skipped', reason: 'no-updates' };
-  }),
+  runEcosystemFix: vi.fn(async () => mockedOutcome),
 }));
 
 vi.mock('node:fs/promises', () => ({
@@ -53,11 +54,11 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 import { runOrchestrator } from '@orchestration/orchestrator';
-import { runAdvisors } from '@modules/advisor/index';
 import type { CommandRunner, CommandResult, CommandRunnerOptions } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 import type { AdvisorResult, AdvisorFinding } from '@core/types/report';
+import type { UpdateResultJson } from '@core/types/update';
 import { ScannerEngineRegistry } from '@modules/scanner/registry';
 import type { ScannerEngine, ScannerEngineContext } from '@modules/scanner/types';
 
@@ -115,6 +116,19 @@ function makeAdvisorResult(findingsList?: AdvisorFinding[]): AdvisorResult {
   };
 }
 
+function makeUpdateResult(): UpdateResultJson {
+  return {
+    $schema: 'osv-update-result/v1',
+    agent: 'npm-safe-update',
+    status: 'success',
+    packages_updated: [],
+    packages_skipped: [],
+    packages_pending_breaking: [],
+    validations: [],
+    error: null,
+  };
+}
+
 /**
  * Build a minimal ScannerEngineRegistry with a fake OSV engine that returns
  * the given scan result.
@@ -147,52 +161,141 @@ function makeConfig(pluginId = 'npm'): ProjectConfig {
   } as unknown as ProjectConfig;
 }
 
-// ── AC4: orchestrator passes advisor results to runEcosystemFix ───────────────
+async function makeNpmRegistry() {
+  const { EcosystemRegistry } = await import('@modules/ecosystem/index');
+  const registry = new EcosystemRegistry();
+  const fakeNpmPlugin = {
+    id: 'npm',
+    name: 'npm',
+    lockfiles: ['package-lock.json'],
+    osvEcosystems: ['npm'],
+    reportLabel: 'npm',
+    supportedFixers: ['osv'],
+    defaultValidationCommands: [],
+    defaultAdvisors: [{ name: 'audit', command: 'npm audit --json', format: 'json' }],
+    buildScanArgs: () => ['--lockfile', 'package-lock.json'],
+    getProtectedPackages: () => [],
+    runUpdater: vi.fn().mockResolvedValue(makeUpdateResult()),
+    postUpdateOsvVerify: 'never',
+  } as any;
+  registry.register(fakeNpmPlugin);
+  return registry;
+}
 
-describe('runOrchestrator — advisor results threading to runEcosystemFix (AC4)', () => {
+// ── AC3: orchestrator reads advisorResults from runEcosystemFix outcome ────────
+
+describe('runOrchestrator — advisor results from runEcosystemFix outcome (AC3)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    capturedRunEcosystemFixParams.length = 0;
   });
 
-  it('passes advisor results for the current plugin to runEcosystemFix', async () => {
+  it('stores advisorResults in result.advisorResults[entryKey] when outcome contains them', async () => {
     const scanResult = makeScanResult();
     const npmAdvisorResults: AdvisorResult[] = [
       makeAdvisorResult([makeAdvisorFinding('lodash')]),
     ];
 
-    // runAdvisors returns controlled results for npm plugin
-    vi.mocked(runAdvisors).mockResolvedValueOnce(npmAdvisorResults);
+    // runEcosystemFix returns a success outcome with advisorResults
+    mockedOutcome = {
+      status: 'success',
+      updateResult: makeUpdateResult(),
+      advisorResults: npmAdvisorResults,
+    };
 
-    // Use a fake EcosystemRegistry with npm plugin
-    const { EcosystemRegistry } = await import('@modules/ecosystem/index');
-    const registry = new EcosystemRegistry();
-    const fakeNpmPlugin = {
-      id: 'npm',
-      name: 'npm',
-      lockfiles: ['package-lock.json'],
-      osvEcosystems: ['npm'],
-      reportLabel: 'npm',
-      supportedFixers: ['osv'],
-      defaultValidationCommands: [],
-      defaultAdvisors: [{ name: 'audit', command: 'npm audit --json', format: 'json' }],
-      buildScanArgs: () => ['--lockfile', 'package-lock.json'],
-      getProtectedPackages: () => [],
-      runUpdater: vi.fn().mockResolvedValue({
-        $schema: 'osv-update-result/v1',
-        agent: 'npm-safe-update',
-        status: 'success',
-        packages_updated: [],
-        packages_skipped: [],
-        packages_pending_breaking: [],
-        validations: [],
-        error: null,
-      }),
-      postUpdateOsvVerify: 'never',
-    } as any;
+    const registry = await makeNpmRegistry();
+    const result = await runOrchestrator(new MockRunner(), makeConfig('npm'), {
+      configPath: 'security-scan.config.json',
+      cwd: '/project',
+      dryRun: false,
+      verbose: false,
+      registry,
+      scannerRegistry: makeScannerRegistry(scanResult),
+    });
 
-    registry.register(fakeNpmPlugin);
+    // Orchestrator should have stored advisorResults from the outcome under entryKey 'npm'
+    expect(result.advisorResults['npm']).toEqual(npmAdvisorResults);
+  });
 
+  it('stores advisorResults when outcome status is error and contains them', async () => {
+    const scanResult = makeScanResult();
+    const npmAdvisorResults: AdvisorResult[] = [
+      makeAdvisorResult([makeAdvisorFinding('express')]),
+    ];
+
+    // runEcosystemFix returns an error outcome with advisorResults
+    mockedOutcome = {
+      status: 'error',
+      updateResult: { ...makeUpdateResult(), status: 'error', error: 'update failed' },
+      advisorResults: npmAdvisorResults,
+    };
+
+    const registry = await makeNpmRegistry();
+    const result = await runOrchestrator(new MockRunner(), makeConfig('npm'), {
+      configPath: 'security-scan.config.json',
+      cwd: '/project',
+      dryRun: false,
+      verbose: false,
+      registry,
+      scannerRegistry: makeScannerRegistry(scanResult),
+    });
+
+    expect(result.advisorResults['npm']).toEqual(npmAdvisorResults);
+  });
+
+  it('does NOT set result.advisorResults[entryKey] when outcome has no advisorResults', async () => {
+    const scanResult = makeScanResult();
+
+    // runEcosystemFix returns a success outcome without advisorResults
+    mockedOutcome = {
+      status: 'success',
+      updateResult: makeUpdateResult(),
+      // advisorResults intentionally omitted
+    };
+
+    const registry = await makeNpmRegistry();
+    const result = await runOrchestrator(new MockRunner(), makeConfig('npm'), {
+      configPath: 'security-scan.config.json',
+      cwd: '/project',
+      dryRun: false,
+      verbose: false,
+      registry,
+      scannerRegistry: makeScannerRegistry(scanResult),
+    });
+
+    // When outcome has no advisorResults, the key should be absent (not set to undefined)
+    expect(result.advisorResults['npm']).toBeUndefined();
+  });
+
+  it('does NOT set result.advisorResults[entryKey] when outcome is skipped', async () => {
+    const scanResult = makeScanResult();
+
+    // runEcosystemFix returns a skipped outcome (no advisorResults — advisors should not run)
+    mockedOutcome = { status: 'skipped', reason: 'no-updates' };
+
+    const registry = await makeNpmRegistry();
+    const result = await runOrchestrator(new MockRunner(), makeConfig('npm'), {
+      configPath: 'security-scan.config.json',
+      cwd: '/project',
+      dryRun: false,
+      verbose: false,
+      registry,
+      scannerRegistry: makeScannerRegistry(scanResult),
+    });
+
+    // Skipped ecosystem: advisorResults should not be set
+    expect(result.advisorResults['npm']).toBeUndefined();
+  });
+
+  it('orchestrator does NOT call runAdvisors directly (advisors run inside runEcosystemFix)', async () => {
+    const scanResult = makeScanResult();
+    const { runAdvisors } = await import('@modules/advisor/index');
+
+    mockedOutcome = {
+      status: 'success',
+      updateResult: makeUpdateResult(),
+    };
+
+    const registry = await makeNpmRegistry();
     await runOrchestrator(new MockRunner(), makeConfig('npm'), {
       configPath: 'security-scan.config.json',
       cwd: '/project',
@@ -202,53 +305,7 @@ describe('runOrchestrator — advisor results threading to runEcosystemFix (AC4)
       scannerRegistry: makeScannerRegistry(scanResult),
     });
 
-    // runEcosystemFix should have been called with the npm advisor results
-    const fixCall = capturedRunEcosystemFixParams.find((p) => p.plugin.id === 'npm');
-    expect(fixCall).toBeDefined();
-    expect(fixCall!.advisorResults).toEqual(npmAdvisorResults);
-  });
-
-  it('passes undefined advisorResults when no advisors ran for the plugin', async () => {
-    const scanResult = makeScanResult();
-
-    // runAdvisors is not called when advisors array is empty
-    // Config has empty advisors for the plugin
-    const config: ProjectConfig = {
-      ...makeConfig('npm'),
-      ecosystems: [{ id: 'npm', advisors: [] }],
-    } as unknown as ProjectConfig;
-
-    const { EcosystemRegistry } = await import('@modules/ecosystem/index');
-    const registry = new EcosystemRegistry();
-    const fakeNpmPlugin = {
-      id: 'npm',
-      name: 'npm',
-      lockfiles: ['package-lock.json'],
-      osvEcosystems: ['npm'],
-      reportLabel: 'npm',
-      supportedFixers: ['osv'],
-      defaultValidationCommands: [],
-      defaultAdvisors: [], // no default advisors either
-      buildScanArgs: () => ['--lockfile', 'package-lock.json'],
-      getProtectedPackages: () => [],
-      runUpdater: vi.fn(),
-      postUpdateOsvVerify: 'never',
-    } as any;
-
-    registry.register(fakeNpmPlugin);
-
-    await runOrchestrator(new MockRunner(), config, {
-      configPath: 'security-scan.config.json',
-      cwd: '/project',
-      dryRun: false,
-      verbose: false,
-      registry,
-      scannerRegistry: makeScannerRegistry(scanResult),
-    });
-
-    const fixCall = capturedRunEcosystemFixParams.find((p) => p.plugin.id === 'npm');
-    expect(fixCall).toBeDefined();
-    // When no advisors ran, result.advisorResults['npm'] is undefined
-    expect(fixCall!.advisorResults).toBeUndefined();
+    // The orchestrator must not call runAdvisors directly — it delegates to runEcosystemFix
+    expect(runAdvisors).not.toHaveBeenCalled();
   });
 });

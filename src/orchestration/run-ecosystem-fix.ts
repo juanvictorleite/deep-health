@@ -2,12 +2,16 @@
  * runEcosystemFix — per-plugin fix flow extracted from the orchestrator loop.
  *
  * Responsible for:
- *   has-updates gate → effective runner resolution → OSV staging-fix →
- *   updater → breaking-install → OSV residual verification → ecosystem gate.
+ *   has-updates gate → effective runner resolution → advisor execution →
+ *   OSV staging-fix → updater → breaking-install → OSV residual verification →
+ *   ecosystem gate.
+ *
+ * Advisors run inside this function using effectiveRunner (the container runner
+ * when Docker is configured), ensuring they execute with the same Node/Python
+ * version as the fix phase and avoiding result divergence.
  *
  * NOT responsible for:
  *   - phase filtering (`shouldRunPhase`) — caller decides which plugins to run
- *   - advisors (informational; caller schedules them)
  *   - aggregating results into the OrchestratorResult shape
  *
  * Throws `GateValidationError` if the ecosystem gate fails. Otherwise returns
@@ -27,6 +31,7 @@ import { GateValidationError } from '@core/errors';
 import { validateEcosystemGate } from '@core/gates/validator';
 import { logger, setProgressSink, makeProgressSink } from '@infra/utils/logger';
 import { resolveEcosystemRuntime, resolveOsvRuntime } from '@infra/ecosystem-runtime';
+import { runAdvisors } from '@modules/advisor/index';
 import { applyOsvFixViaStaging } from './osv-fix-applier';
 import { logDryRunPreview } from '@modules/ecosystem/utils/dry-run-preview';
 import { join } from 'node:path';
@@ -52,17 +57,12 @@ export interface RunEcosystemFixParams {
    * Forwarded to the updater for dirty-tree detection after revert.
    */
   preRunSnapshots: Map<string, string> | undefined;
-  /**
-   * Advisor results for the current ecosystem, forwarded from the orchestrator.
-   * Passed into the updater context so fixers can access structured advisor findings.
-   */
-  advisorResults?: AdvisorResult[];
 }
 
 export type RunEcosystemFixOutcome =
   | { status: 'skipped'; reason: 'no-updates' }
-  | { status: 'success'; updateResult: UpdateResultJson; residualVerification?: ResidualVerification }
-  | { status: 'error'; updateResult: UpdateResultJson };
+  | { status: 'success'; updateResult: UpdateResultJson; residualVerification?: ResidualVerification; advisorResults?: AdvisorResult[] }
+  | { status: 'error'; updateResult: UpdateResultJson; advisorResults?: AdvisorResult[] };
 
 export async function runEcosystemFix(
   params: RunEcosystemFixParams,
@@ -76,7 +76,6 @@ export async function runEcosystemFix(
     dryRun,
     authorizeBreaking,
     preRunSnapshots,
-    advisorResults,
   } = params;
 
   // Resolve per-ecosystem config entry: use the passed entry directly when
@@ -112,6 +111,16 @@ export async function runEcosystemFix(
   const effectiveRunner: CommandRunner = plugin.runtimeSpec
     ? await resolveEcosystemRuntime(plugin, hostRunner, config, cwd, ecoEntry.runner)
     : hostRunner;
+
+  // Run advisors using effectiveRunner so they execute in the same container
+  // as the fix phase (when Docker is configured). Informational only — never throws,
+  // never blocks the pipeline.
+  let advisorResults: AdvisorResult[] | undefined;
+  const advisors = ecoEntry.advisors ?? plugin.defaultAdvisors;
+  if (advisors.length > 0) {
+    logger.tagged(plugin.id, 'Advisor Step', `Running advisors for ${plugin.name}...`);
+    advisorResults = await runAdvisors(effectiveRunner, cwd, plugin.id, advisors);
+  }
 
   // OSV staging-apply (generic, driven by plugin.osvFixSpec)
   let preFixBackups: Map<string, string> | undefined;
@@ -230,6 +239,7 @@ export async function runEcosystemFix(
           status: 'error',
           error: breakRes.error ?? 'breaking install failed',
         },
+        advisorResults,
       };
     }
   }
@@ -266,14 +276,14 @@ export async function runEcosystemFix(
 
   if (updateResult.status === 'error') {
     logger.error(`${plugin.name} update failed — stopping pipeline`);
-    return { status: 'error', updateResult };
+    return { status: 'error', updateResult, advisorResults };
   }
 
   logger.info(
     `${plugin.name} update complete: ${updateResult.packages_updated.length} packages updated`,
   );
 
-  return { status: 'success', updateResult, residualVerification };
+  return { status: 'success', updateResult, residualVerification, advisorResults };
 }
 
 /**

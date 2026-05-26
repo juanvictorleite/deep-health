@@ -26,7 +26,6 @@ import {
 } from "@modules/scanner/index";
 import { isErr } from "@core/types/result";
 import type { AggregatedScanResult } from "@modules/scanner/index";
-import { runAdvisors } from "@modules/advisor/index";
 import { CLI_NAME, KILL_SWITCH_VAR } from "@infra/brand";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -320,20 +319,6 @@ export async function runOrchestrator(
     // Docker volumes and runtime commands operate in the correct subdirectory.
     const ecosystemCwd = ecoEntry.path ? resolve(options.cwd, ecoEntry.path) : options.cwd;
 
-    // Run advisors (informational only — never throws, never blocks pipeline).
-    // Kept outside runEcosystemFix so they fire even when the plugin would skip
-    // due to no auto-safe vulnerabilities.
-    const advisors = ecoEntry.advisors ?? plugin.defaultAdvisors;
-    if (advisors.length > 0) {
-      logger.tagged(plugin.id, 'Advisor Step', `Running advisors for ${plugin.name}...`);
-      result.advisorResults[entryKey] = await runAdvisors(
-        runner,
-        ecosystemCwd,
-        plugin.id,
-        advisors,
-      );
-    }
-
     // authorizeBreaking: accepts BOTH bare plugin id AND entryKey.
     // { npm: true } authorizes all npm entries; { 'npm:frontend': true } authorizes only that entry.
     const authorizeBreaking =
@@ -350,10 +335,15 @@ export async function runOrchestrator(
       dryRun: options.dryRun,
       authorizeBreaking,
       preRunSnapshots,
-      advisorResults: result.advisorResults[entryKey],
     });
 
     if (outcome.status === "skipped") continue;
+
+    // Read advisorResults from the outcome — advisors now run inside runEcosystemFix
+    // using effectiveRunner (container runner when Docker is configured).
+    if (outcome.advisorResults) {
+      result.advisorResults[entryKey] = outcome.advisorResults;
+    }
 
     result.updates[ecosystemEntryKey(ecoEntry)] = outcome.updateResult;
     if (outcome.status === "success" && outcome.residualVerification) {

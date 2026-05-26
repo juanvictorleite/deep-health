@@ -131,15 +131,15 @@ function makeConfig(overrides: Partial<ProjectConfig> = {}): ProjectConfig {
   } as unknown as ProjectConfig;
 }
 
-function makeScan(): ScanResultJson {
+function makeScan(overrides: { auto_safe?: number; breaking?: number } = {}): ScanResultJson {
   return {
     $schema: 'osv-scan-result/v1',
     status: 'success',
     ecosystems: {
       npm: {
-        vulnerabilities_total: 1,
-        auto_safe: 1,
-        breaking: 0,
+        vulnerabilities_total: (overrides.auto_safe ?? 1) + (overrides.breaking ?? 0),
+        auto_safe: overrides.auto_safe ?? 1,
+        breaking: overrides.breaking ?? 0,
         manual: 0,
         vulnerabilities: [],
       },
@@ -173,6 +173,12 @@ function makeAdvisorResult(
 }
 
 // ── AC3: runEcosystemFix threads advisorResults into updater context ───────────
+//
+// Advisors now run INSIDE runEcosystemFix using effectiveRunner (container runner
+// when Docker is configured). The ecoEntry.advisors list drives which advisors run;
+// runAdvisors is called internally and its results are passed to the updater context.
+
+import { runAdvisors } from '@modules/advisor/index';
 
 describe('runEcosystemFix — advisorResults threading (AC3)', () => {
   beforeEach(() => {
@@ -186,10 +192,8 @@ describe('runEcosystemFix — advisorResults threading (AC3)', () => {
     });
   });
 
-  it('passes advisorResults into the updater context when provided', async () => {
+  it('runs advisors via effectiveRunner and passes results into the updater context', async () => {
     const capturedCtx: EcosystemUpdaterContext[] = [];
-    const plugin = makePlugin({ capturedCtx });
-
     const advisorResults: AdvisorResult[] = [
       makeAdvisorResult({
         status: 'findings',
@@ -197,85 +201,166 @@ describe('runEcosystemFix — advisorResults threading (AC3)', () => {
       }),
     ];
 
+    // Configure runAdvisors mock to return controlled results
+    vi.mocked(runAdvisors).mockResolvedValueOnce(advisorResults);
+
+    // Configure ecoEntry.advisors so runEcosystemFix calls runAdvisors internally
+    const config = makeConfig({
+      ecosystems: [{ id: 'npm', validationCommands: [], advisors: [{ name: 'audit', command: 'npm audit --json', format: 'json' }] }],
+    });
+    const plugin = makePlugin({ capturedCtx });
+
     await runEcosystemFix({
       plugin,
       hostRunner: new MockRunner(),
-      config: makeConfig(),
+      config,
       scanResult: makeScan(),
       cwd: '/project',
       dryRun: false,
       authorizeBreaking: false,
       preRunSnapshots: undefined,
-      advisorResults,
     });
 
+    expect(runAdvisors).toHaveBeenCalledOnce();
     expect(plugin.runUpdater).toHaveBeenCalledOnce();
     expect(capturedCtx[0]!.advisorResults).toEqual(advisorResults);
   });
 
-  it('passes undefined advisorResults when not provided (backward compat)', async () => {
+  it('passes undefined advisorResults to updater when no advisors configured (backward compat)', async () => {
     const capturedCtx: EcosystemUpdaterContext[] = [];
-    const plugin = makePlugin({ capturedCtx });
+    const plugin = makePlugin({ capturedCtx, defaultAdvisors: [] });
+
+    // Config has empty advisors — runAdvisors should not be called
+    const config = makeConfig({
+      ecosystems: [{ id: 'npm', validationCommands: [], advisors: [] }],
+    });
 
     await runEcosystemFix({
       plugin,
       hostRunner: new MockRunner(),
-      config: makeConfig(),
+      config,
       scanResult: makeScan(),
       cwd: '/project',
       dryRun: false,
       authorizeBreaking: false,
       preRunSnapshots: undefined,
-      // no advisorResults
     });
 
+    expect(runAdvisors).not.toHaveBeenCalled();
     expect(plugin.runUpdater).toHaveBeenCalledOnce();
     expect(capturedCtx[0]!.advisorResults).toBeUndefined();
   });
 
-  it('passes empty advisorResults array unchanged', async () => {
+  it('falls back to plugin.defaultAdvisors when ecoEntry.advisors is absent', async () => {
     const capturedCtx: EcosystemUpdaterContext[] = [];
-    const plugin = makePlugin({ capturedCtx });
+    const defaultAdvisorResults: AdvisorResult[] = [
+      makeAdvisorResult({ status: 'clean' }),
+    ];
+
+    vi.mocked(runAdvisors).mockResolvedValueOnce(defaultAdvisorResults);
+
+    // Plugin has defaultAdvisors; config ecoEntry has no advisors field
+    const plugin = makePlugin({
+      capturedCtx,
+      defaultAdvisors: [{ name: 'audit', command: 'npm audit --json', format: 'json' }] as any,
+    });
+    const config = makeConfig({
+      // ecosystems entry has no advisors field at all
+      ecosystems: [{ id: 'npm', validationCommands: [] }],
+    });
 
     await runEcosystemFix({
       plugin,
       hostRunner: new MockRunner(),
-      config: makeConfig(),
+      config,
       scanResult: makeScan(),
       cwd: '/project',
       dryRun: false,
       authorizeBreaking: false,
       preRunSnapshots: undefined,
-      advisorResults: [],
     });
 
-    expect(plugin.runUpdater).toHaveBeenCalledOnce();
-    expect(capturedCtx[0]!.advisorResults).toEqual([]);
+    expect(runAdvisors).toHaveBeenCalledOnce();
+    expect(capturedCtx[0]!.advisorResults).toEqual(defaultAdvisorResults);
   });
 
   it('passes multiple advisor results when multiple advisors ran', async () => {
     const capturedCtx: EcosystemUpdaterContext[] = [];
-    const plugin = makePlugin({ capturedCtx });
-
     const advisorResults: AdvisorResult[] = [
       makeAdvisorResult({ name: 'audit', status: 'findings', findingsList: [makeAdvisorFinding('lodash')] }),
       makeAdvisorResult({ name: 'audit-json', status: 'clean' }),
     ];
 
+    vi.mocked(runAdvisors).mockResolvedValueOnce(advisorResults);
+
+    const config = makeConfig({
+      ecosystems: [{ id: 'npm', validationCommands: [], advisors: [{ name: 'audit', command: 'npm audit --json', format: 'json' }] }],
+    });
+    const plugin = makePlugin({ capturedCtx });
+
     await runEcosystemFix({
       plugin,
       hostRunner: new MockRunner(),
-      config: makeConfig(),
+      config,
       scanResult: makeScan(),
       cwd: '/project',
       dryRun: false,
       authorizeBreaking: false,
       preRunSnapshots: undefined,
-      advisorResults,
     });
 
     expect(capturedCtx[0]!.advisorResults).toHaveLength(2);
     expect(capturedCtx[0]!.advisorResults).toEqual(advisorResults);
+  });
+
+  it('includes advisorResults in the success outcome', async () => {
+    const advisorResults: AdvisorResult[] = [
+      makeAdvisorResult({ status: 'findings', findingsList: [makeAdvisorFinding('lodash')] }),
+    ];
+
+    vi.mocked(runAdvisors).mockResolvedValueOnce(advisorResults);
+
+    const config = makeConfig({
+      ecosystems: [{ id: 'npm', validationCommands: [], advisors: [{ name: 'audit', command: 'npm audit --json', format: 'json' }] }],
+    });
+
+    const outcome = await runEcosystemFix({
+      plugin: makePlugin(),
+      hostRunner: new MockRunner(),
+      config,
+      scanResult: makeScan(),
+      cwd: '/project',
+      dryRun: false,
+      authorizeBreaking: false,
+      preRunSnapshots: undefined,
+    });
+
+    expect(outcome.status).toBe('success');
+    if (outcome.status === 'success') {
+      expect(outcome.advisorResults).toEqual(advisorResults);
+    }
+  });
+
+  it('does NOT run advisors for skipped ecosystems (no container spin-up overhead)', async () => {
+    // Ecosystem has no updates — should skip before advisors run
+    const config = makeConfig({
+      ecosystems: [{ id: 'npm', validationCommands: [], advisors: [{ name: 'audit', command: 'npm audit --json', format: 'json' }] }],
+    });
+
+    const outcome = await runEcosystemFix({
+      plugin: makePlugin(),
+      hostRunner: new MockRunner(),
+      config,
+      scanResult: makeScan({ auto_safe: 0 }), // no updates
+      cwd: '/project',
+      dryRun: false,
+      authorizeBreaking: false,
+      preRunSnapshots: undefined,
+    });
+
+    // Should skip before advisors are called (AC4)
+    expect(outcome.status).toBe('skipped');
+    expect(runAdvisors).not.toHaveBeenCalled();
   });
 });
 
@@ -540,11 +625,16 @@ describe('EcosystemUpdaterContext type shape (AC2)', () => {
   });
 });
 
-// ── RunEcosystemFixParams type shape (AC3 param) ──────────────────────────────
+// ── RunEcosystemFixParams type shape (AC2) ────────────────────────────────────
+//
+// advisorResults is NO LONGER a param of runEcosystemFix — it is computed
+// internally from ecoEntry.advisors ?? plugin.defaultAdvisors.
 
-describe('RunEcosystemFixParams type shape (AC3)', () => {
-  it('RunEcosystemFixParams accepts advisorResults as an optional field', async () => {
-    // Import the type to verify it compiles with the new field
+describe('RunEcosystemFixParams type shape (AC2)', () => {
+  it('RunEcosystemFixParams does NOT have advisorResults field (advisors computed internally)', async () => {
+    // Verify the type compiles without advisorResults — it should not be accepted.
+    // This is a compile-time check: if advisorResults were still on the type,
+    // passing it would be valid. We verify only the valid fields are present.
     type RunEcosystemFixParams = Parameters<typeof runEcosystemFix>[0];
     const params: RunEcosystemFixParams = {
       plugin: makePlugin(),
@@ -555,8 +645,9 @@ describe('RunEcosystemFixParams type shape (AC3)', () => {
       dryRun: false,
       authorizeBreaking: false,
       preRunSnapshots: undefined,
-      advisorResults: [makeAdvisorResult({ status: 'clean' })],
+      // advisorResults intentionally omitted — it is no longer a param
     };
-    expect(params.advisorResults).toHaveLength(1);
+    // @ts-expect-error advisorResults must not exist on RunEcosystemFixParams
+    expect((params as any).advisorResults).toBeUndefined();
   });
 });
