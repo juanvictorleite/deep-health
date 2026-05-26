@@ -31,6 +31,7 @@ import { CLI_NAME, KILL_SWITCH_VAR } from "@infra/brand";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { runEcosystemFix } from "./run-ecosystem-fix";
+import { ecosystemEntryKey } from "@infra/config/ecosystem-entry-key";
 
 export interface OrchestratorOptions {
   configPath: string;
@@ -346,7 +347,7 @@ export async function runOrchestrator(
 
     if (outcome.status === "skipped") continue;
 
-    result.updates[plugin.id] = outcome.updateResult;
+    result.updates[ecosystemEntryKey(ecoEntry)] = outcome.updateResult;
     if (outcome.status === "success" && outcome.residualVerification) {
       result.residualVerification = outcome.residualVerification;
     }
