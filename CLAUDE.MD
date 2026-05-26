@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 **Package name:** `security-scan`
 **CLI binary:** `security-scan` (whitelabel-able via `CLI_NAME` env var)
 **Language:** TypeScript (ESM, Node >= 26), built with `tsup`
-**Test framework:** Vitest
+**Test framework:** Vitest 4 (inline projects: `unit`, `integration`, `smoke`)
 **Domain vocabulary:** see `CONTEXT.md` for canonical terms (Pipeline, Ecosystem, Runtime, Scanner, etc.)
 
 Security-focused CLI that scans PHP (Composer), Node.js (npm), and Python (pip) projects for known CVEs via OSV Scanner, applies safe patch/minor updates automatically inside Docker containers, and generates an executive HTML report.
@@ -33,11 +33,11 @@ npm run test:smoke                  # Smoke tests (requires Docker running)
 npm run test:coverage               # All tests with v8 coverage
 npm run test:watch                  # Watch mode
 
-# Run a single test file
-npx vitest run tests/unit/path/to/file.test.ts
+# Run a single test file (must use --project to pick the right config)
+npx vitest run --project unit tests/unit/path/to/file.test.ts
 
 # Run tests matching a pattern
-npx vitest run -t "pattern" tests/unit
+npx vitest run --project unit -t "pattern"
 ```
 
 > **IMPORTANT — agents running tests:** Never run raw `npx vitest run` without
@@ -130,7 +130,12 @@ All user-visible names derive from `CLI_NAME` in `src/infrastructure/brand.ts`. 
 - Smoke tests run sequentially (single fork) with 120s test timeout and Docker cleanup via `tests/helpers/docker-cleanup.ts`.
 - Coverage thresholds: statements 100%, functions 100%, lines 100%, branches 88%.
 - Vitest globals are enabled — no need to import `describe`, `it`, `expect`.
-- Path-based invocation for targeting: `vitest run tests/<dir>` or `vitest run --project unit` (vitest 4 inline projects support `--project` CLI filtering).
+- **Vitest 4 with inline projects** — the config defines three projects: `unit`, `integration`, `smoke`. Each has its own setup files and concurrency settings. Always use `--project <name>` when running tests:
+  - `npm run test:unit` or `npx vitest run --project unit`
+  - `npm run test:integration` or `npx vitest run --project integration`
+  - `npm run test:smoke` or `npx vitest run --project smoke`
+  - **Never** use raw `npx vitest run tests/unit/...` without `--project unit` — setup files won't load correctly.
+  - Targeting a single file: `npx vitest run --project unit tests/unit/path/to/file.test.ts`
 
 ---
 

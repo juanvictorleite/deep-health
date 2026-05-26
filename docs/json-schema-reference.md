@@ -172,9 +172,13 @@ The object returned by `runOrchestrator()` and written to stdout when `security-
 {
   "scan": { /* ScanResultJson — before-fix snapshot */ },
   "updates": {
-    "npm":      { /* UpdateResultJson */ },
-    "composer": { /* UpdateResultJson */ },
-    "pip":      { /* UpdateResultJson */ }
+    // Keys are ecosystemEntryKey values:
+    // - bare id for single entries: "npm", "composer", "pip"
+    // - composite key for labelled entries: "npm:frontend", "npm:backend"
+    "npm":          { /* UpdateResultJson */ },
+    "npm:frontend": { /* UpdateResultJson — when label is set */ },
+    "composer":     { /* UpdateResultJson */ },
+    "pip":          { /* UpdateResultJson */ }
   },
   "overallStatus": "success",             // "success" | "error" | "skipped"
   "hasPendingVulns": false,               // true when breaking or manual vulns remain after fix
@@ -192,13 +196,15 @@ The object returned by `runOrchestrator()` and written to stdout when `security-
     "warnings": []
   },
   "advisorResults": {
+    // Keyed by ecosystemEntryKey — same key format as updates
     "npm": [
       {
         "command": "npm outdated",
         "output": "...",
         "status": "success"
       }
-    ]
+    ],
+    "npm:frontend": [ /* advisor results for the labelled entry */ ]
   },
   "residualVerification": {
     "status": "verified",                 // "verified" | "unverified" | "skipped"
@@ -257,6 +263,33 @@ File name: `<timestamp-with-colons-replaced-by-hyphens>.json`
 Example: `.security-scan/runs/2026-04-24T10-00-00.000Z.json`
 
 Add `.security-scan/runs/` to `.gitignore` to prevent committing run history.
+
+---
+
+## Config Schema — `outputs`
+
+The `outputs` key in `security-scan.config.json` controls where reports are written and which formats are generated.
+
+```jsonc
+{
+  "outputs": {
+    "dir": "./reports",        // directory where reports are written (default: "./reports")
+    "sub_folders": false,      // when true, engine-specific artifacts go into sub-folders
+    "formats": ["markdown"],   // additional formats: "markdown" | "docx"
+    "split_reports": false     // when true, generates one report per ecosystem entry
+  }
+}
+```
+
+### `outputs.split_reports`
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `split_reports` | `boolean` | `false` | When `true`, generates one HTML executive report per `config.ecosystems` entry instead of a single consolidated report. Each report contains only the scan and update data for that entry. Filename format: `<id>-report.html` for bare-id entries (e.g. `npm-report.html`), `<id>-<label>-report.html` for labelled entries (e.g. `npm-frontend-report.html`). The CLI `--split-reports` flag always takes precedence over this config value. |
+
+**Relationship to `ecosystemEntryKey`:**
+
+The `split_reports` feature maps directly onto the `ecosystemEntryKey` convention. Each entry in `config.ecosystems` produces an `entryKey` (`npm`, `npm:frontend`, `composer`, etc.). When `split_reports` is enabled, each entry key gets its own report file, making the per-entry scan and fix results independently reviewable.
 
 ---
 

@@ -27,11 +27,28 @@ The tool exists because the problem was real, the existing solutions (Dependabot
 
 ## How it works
 
-1. **Scan** — runs OSV Scanner against your `composer.lock`, `package-lock.json`, and `requirements.txt` / `Pipfile.lock`
-2. **Fix** — applies patch/minor updates that don't break declared constraints; skips protected packages
-3. **Report** — generates an HTML executive report with a vulnerability summary
+1. **Scan** — runs one OSV Scanner invocation per ecosystem entry, keyed by entry (e.g. `npm`, `npm:frontend`, `npm:backend`). Each entry scans its lockfile at the configured path — no cross-entry collision even when two entries share the same plugin.
+2. **Fix** — applies patch/minor updates that don't break declared constraints; skips protected packages. Each entry is processed independently with its own Docker container and working directory.
+3. **Report** — generates an HTML executive report with a vulnerability summary. Use `--split-reports` to produce one report per ecosystem entry instead of a consolidated report.
 
 Breaking changes (constraint bumps, major versions) are never applied automatically. They require explicit per-package authorization via `--authorize-breaking`.
+
+### Monorepo support
+
+Projects with multiple lockfiles at different paths are fully supported. Each `ecosystems` entry in the config can specify a `path` (relative subdirectory) and an optional `label` to distinguish entries with the same plugin id:
+
+```bash
+# Authorize breaking changes only for the frontend npm entry
+security-scan fix --authorize-breaking npm:frontend
+
+# Run only the backend npm entry's phase
+security-scan fix --phases scan,npm:backend,report
+
+# Generate separate reports for each entry
+security-scan fix --split-reports
+```
+
+`security-scan init` discovers all lockfiles recursively and pre-fills the config for you, including a discovery summary when entries are found in subdirectories.
 
 ---
 
@@ -130,9 +147,16 @@ Options:
   -c, --config <path>             Path to security-scan.config.json
   --phases <phases>               Comma-separated phases: scan,npm,composer,pip,report
                                   (default: "scan,npm,composer,pip")
+                                  Monorepo: use entry keys to target a single entry,
+                                  e.g. --phases scan,npm:frontend,npm:backend
   --no-report                     Skip executive report generation
   --authorize-breaking <id...>    Authorize breaking-change updates for the given
                                   ecosystem(s). Example: --authorize-breaking composer npm pip
+                                  Monorepo: target a specific entry with --authorize-breaking npm:frontend
+  --split-reports                 Generate one report per ecosystem entry instead of a
+                                  consolidated report. Each report is named after its entry
+                                  (e.g. npm-frontend-report.html). Overrides outputs.split_reports
+                                  in the config file.
   --dry-run                       Show commands without executing
   -v, --verbose                   Verbose output
   --json                          Output results as JSON
@@ -154,6 +178,7 @@ Options:
   --client <name>     Client name (overrides security-scan.config.json)
   --project <name>    Project name (overrides security-scan.config.json)
   -o, --output <path> Write report to file
+  --split-reports     Generate one report per ecosystem entry (overrides outputs.split_reports)
 ```
 
 ### `cloud-setup`
@@ -255,7 +280,8 @@ security-scan cloud-setup
 
   "outputs": {
     "formats": ["markdown"],
-    "dir": "reports"
+    "dir": "reports",
+    "split_reports": false
   },
 
   "cloud_storage": {

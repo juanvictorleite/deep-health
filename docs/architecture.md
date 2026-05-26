@@ -129,10 +129,10 @@ flowchart TD
     KILL_SW -- yes --> RETURN_SCAN([return scan result only])
     KILL_SW -- no --> PLUGINS
 
-    PLUGINS["Iterate config.ecosystems entries\n(each entry has id + optional path + optional label)"]
+    PLUGINS["Iterate config.ecosystems entries\n(each entry has id + optional path + optional label)\nentryKey = id or id:label"]
     PLUGINS --> PHASE_PLUGIN
 
-    PHASE_PLUGIN{"entry phase\nenabled?"}
+    PHASE_PLUGIN{"entry phase enabled?\naccepts bare id OR entryKey\nnpm runs all npm entries\nnpm:frontend runs only that entry"}
     PHASE_PLUGIN -- no --> NEXT_PLUGIN
     PHASE_PLUGIN -- yes --> ADVISORS
 
@@ -353,6 +353,19 @@ flowchart TD
 
     DONE_DIR --> RESULT([return DiscoveryResult\n{ ecosystems[], dockerfiles[] }])
 ```
+
+### Discovery Summary
+
+When `discoverProject()` finds any ecosystem in a subdirectory (i.e. any discovery with `path !== ''`), `init` prints a formatted summary before presenting the checkbox — for example:
+
+```
+Found 3 ecosystem(s):
+  npm         package-lock.json       frontend/
+  npm         package-lock.json       backend/
+  composer    composer.lock           (root)
+```
+
+Root-only discoveries are silent (no summary printed). This gives operators immediate visibility into what was found before they confirm the selection.
 
 ### Monorepo Config Shape
 
@@ -587,6 +600,45 @@ flowchart TD
 
 ---
 
+## N-Scan Architecture (Per-Entry OSV Scanning)
+
+`OsvScannerEngine` runs one `osv-scanner` invocation per `config.ecosystems` entry rather than a single combined scan. This avoids cross-entry collision when multiple entries share the same plugin id (e.g. two `npm` entries in a monorepo).
+
+### How it works
+
+1. **Entry iteration** — the engine loops over `config.ecosystems` in declaration order. For each entry it resolves the plugin and computes the `entryKey` via `ecosystemEntryKey(entry)`.
+2. **Path-aware lockfile args** — the plugin's `buildScanArgs()` produces a list of `--lockfile <file>` pairs relative to the project root. When the entry has a `path` field (monorepo subdirectory), the engine rewrites each `--lockfile` arg by prepending `entry.path` (e.g. `--lockfile frontend/package-lock.json`).
+3. **Single scan helper** — `runSingleScan(rawArgs, useDocker, ...)` encapsulates the Docker or local runner invocation. Both paths share identical output parsing.
+4. **Re-keying** — `parseOsvJsonOutput()` keys results by `plugin.id`. After parsing, the engine re-keys each result to `entryKey` and updates `VulnerabilityEntry.ecosystem` to the composite key. This means downstream consumers (orchestrator, report builder, residual-verification) receive results already keyed by `entryKey` format, not by bare `plugin.id`.
+5. **Merged output** — all per-entry results are merged into a single `ScanResultJson.ecosystems` map keyed by `entryKey` (e.g. `{ npm: ..., 'npm:frontend': ..., composer: ... }`).
+
+### ecosystemEntryKey convention
+
+`ecosystemEntryKey(entry)` in `src/core/types/config.ts` derives a unique string key for each ecosystem config entry:
+
+- `<id>` — when the entry has no label (single-plugin entries): e.g. `npm`, `composer`, `pip`
+- `<id>:<label>` — when the entry has a label (monorepo multi-entry): e.g. `npm:frontend`, `npm:backend`, `pip:api`
+
+The colon separator is chosen because it is invalid in plugin ids and labels, making the key unambiguous and parseable back into its components.
+
+### Entry-keyed pipeline
+
+Once per-entry scan results exist, the entire downstream pipeline uses `entryKey` as the primary key:
+
+| Stage | Keying |
+|---|---|
+| Scan results (`ScanResultJson.ecosystems`) | `entryKey` |
+| Update results (`OrchestratorResult.updates`) | `entryKey` |
+| Advisor results (`OrchestratorResult.advisorResults`) | `entryKey` |
+| Residual verification summary | `entryKey` (re-keyed from `plugin.id` after `runEcosystemFix`) |
+| Report sections | `entryKey` label (e.g. `npm (frontend)` for `npm:frontend`) |
+
+### scan.paths legacy mode
+
+When `config.scan.paths` is explicitly configured, the engine falls back to a single combined scan using those paths — the per-entry loop is skipped. This preserves backward compatibility with configs that pre-date the per-entry architecture.
+
+---
+
 ## Scanner Engine System
 
 ```mermaid
@@ -788,10 +840,14 @@ flowchart LR
     ORCH_RES --> GEN_RPT
     SCAN_AFTER --> GEN_RPT
 
-    GEN_RPT["generateExecutiveReport()\nreporting/executive.ts"]
-    GEN_RPT --> RPT_RENDER["HTML report renderer\n(reporting/templates/)"]
+    GEN_RPT{"split_reports?"}
+    GEN_RPT -- no --> CONSOLIDATED["generateExecutiveReport()\nreporting/executive.ts\nconsolidated report"]
+    GEN_RPT -- yes --> PER_ENTRY["generateEntryReport() per entry\nbuildEntryReportContext() filters\nscan+update results for one entryKey"]
+
+    CONSOLIDATED --> RPT_RENDER["HTML report renderer\n(reporting/templates/)"]
+    PER_ENTRY --> RPT_RENDER
     RPT_RENDER --> I18N["i18n loader\n(en / pt-br)"]
-    I18N --> HTML["Executive HTML report"]
+    I18N --> HTML["Executive HTML report(s)\nnpm-report.html\nnpm-frontend-report.html etc."]
 
     HTML --> SAVE["saveReport()\napp/report-saver.ts"]
     SAVE --> LOCAL["Local file\n(outputs.dir)"]
@@ -801,6 +857,17 @@ flowchart LR
     SONAR_RPT --> SONAR_HTML["SonarQube HTML artifact"]
     SONAR_HTML --> SAVE
 ```
+
+### Split Reports
+
+When `outputs.split_reports: true` (config) or `--split-reports` (CLI flag) is set, the report layer generates one HTML report per ecosystem entry instead of a consolidated report:
+
+- `buildEntryReportContext(entry, orchestratorResult)` filters the full result set down to only the scan data and update result for that single `entryKey`.
+- `splitReportFilename(entry)` derives the output filename from the entry: `npm-report.html` for bare-id entries, `npm-frontend-report.html` for labelled entries (label is derived from `entry.label`).
+- Each split report is self-contained with the same HTML template and i18n locale as the consolidated report.
+- The CLI `--split-reports` flag takes precedence over `outputs.split_reports` in the config file.
+
+**Report label format:** when an entry has a label, the report displays it as `npm (frontend)` — the plugin id followed by the label in parentheses. This mirrors the `ecosystemEntryKey` composite key format but in a human-readable form.
 
 ---
 

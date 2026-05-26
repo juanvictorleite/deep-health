@@ -174,19 +174,27 @@ security-scan init [options]
 1. Verifica se `security-scan.config.json` já existe (falha a menos que `--force` esteja ativo).
 2. Solicita o nome do projeto e do cliente (ou usa as flags da CLI).
 3. Varre recursivamente a árvore do projeto em busca de lockfiles (`package-lock.json`, `composer.lock`, `requirements.txt`, `Pipfile.lock`) e Dockerfiles declarados por cada plugin de ecossistema, usando `discoverProject()`. Cada lockfile encontrado se torna uma entrada candidata de ecossistema, com o caminho do subdiretório registrado.
-4. Apresenta um seletor de ecossistemas com checkbox. Cada entrada é rotulada com o tipo de ecossistema, o nome do lockfile e o caminho do subdiretório (ex.: `npm — package-lock.json (web/)`). Os ecossistemas detectados vêm pré-selecionados.
-5. Quando dois ou mais entries compartilham o mesmo id de ecossistema (ex.: dois entries `npm` em um monorepo), solicita um `label` distinto para cada um (ex.: `frontend`, `backend`). Os labels são usados para distinguir os entries em relatórios e na saída da CLI.
-6. Para cada ecossistema, solicita:
+4. **Resumo da descoberta:** quando qualquer ecossistema é encontrado em um subdiretório (layout de monorepo), exibe um resumo formatado antes do checkbox — por exemplo:
+   ```
+   Found 3 ecosystem(s):
+     npm         package-lock.json       frontend/
+     npm         package-lock.json       backend/
+     composer    composer.lock           (root)
+   ```
+   Descobertas apenas na raiz são silenciosas (sem resumo exibido).
+5. Apresenta um seletor de ecossistemas com checkbox. Cada entrada é rotulada com o tipo de ecossistema, o nome do lockfile e o caminho do subdiretório (ex.: `npm — package-lock.json (web/)`). Os ecossistemas detectados vêm pré-selecionados.
+6. Quando dois ou mais entries compartilham o mesmo id de ecossistema (ex.: dois entries `npm` em um monorepo), solicita um `label` distinto para cada um (ex.: `frontend`, `backend`). Os labels são usados para distinguir os entries em relatórios e na saída da CLI.
+7. Para cada ecossistema, solicita:
    - Estratégia de fix (`osv`, `npm-audit`, `osv-then-audit`)
    - Comandos de validação (ex.: `npm test`, `php artisan test`)
    - Comandos de advisor (ex.: `npm audit --json`)
    - Versão do runtime (inferida a partir do subdiretório do ecossistema ou digitada manualmente)
    - Modo de build (pull ou build a partir do Dockerfile)
-7. Pergunta se deve ativar a integração com SonarQube.
-8. Pergunta o idioma dos relatórios (`en` ou `pt-br`).
-9. Pergunta se deve gerar relatórios Markdown e onde salvá-los.
-10. Grava o `security-scan.config.json` gerado.
-11. Se SonarQube estiver ativo e `sonar-project.properties` não existir, cria um template inicial.
+8. Pergunta se deve ativar a integração com SonarQube.
+9. Pergunta o idioma dos relatórios (`en` ou `pt-br`).
+10. Pergunta se deve gerar relatórios Markdown e onde salvá-los.
+11. Grava o `security-scan.config.json` gerado.
+12. Se SonarQube estiver ativo e `sonar-project.properties` não existir, cria um template inicial.
 
 **Exemplo — modo não interativo (amigável para CI):**
 
@@ -281,9 +289,10 @@ security-scan fix [options]
 |-------|------|--------|-----------|
 | `-c, --config <path>` | string | `./security-scan.config.json` | Caminho para o arquivo de configuração |
 | `--cwd <path>` | string | diretório atual | Diretório de trabalho (raiz do projeto) |
-| `--phases <phases>` | string | todas as fases | Lista de fases separadas por vírgula. Valores aceitos: `scan`, `npm`, `composer`, `pip`, `report` |
+| `--phases <phases>` | string | todas as fases | Lista de fases separadas por vírgula. Aceita `scan`, `npm`, `composer`, `pip`, `report`. Também aceita entry keys para targeting em monorepos: `npm:frontend` executa apenas aquela entrada; `npm` executa todas as entradas npm. |
 | `--no-report` | boolean | `false` | Não gerar o relatório executivo |
-| `--authorize-breaking <id...>` | string[] | nenhum | Autorizar atualizações disruptivas para os ecossistemas especificados. Exemplo: `--authorize-breaking composer npm` |
+| `--authorize-breaking <id...>` | string[] | nenhum | Autorizar atualizações disruptivas para os ecossistemas especificados. Aceita id de plugin simples (`npm`) ou entry key (`npm:frontend`). Um id simples autoriza todas as entradas com aquele plugin. Exemplo: `--authorize-breaking composer npm:frontend` |
+| `--split-reports` | boolean | `false` | Gerar um relatório HTML por entrada de ecossistema em vez de um relatório consolidado. Sobrescreve `outputs.split_reports` no config. |
 | `--dry-run` | boolean | `false` | Registrar as mudanças planejadas sem executar nada |
 | `-v, --verbose` | boolean | `false` | Ativar saída verbosa |
 | `-q, --quiet` | boolean | `false` | Suprimir toda saída exceto erros e o relatório final |
@@ -317,9 +326,36 @@ security-scan fix --authorize-breaking composer
 
 # Permitir atualizações disruptivas em npm e composer
 security-scan fix --authorize-breaking npm composer
+
+# Monorepo: autorizar apenas a entrada npm do frontend (não o backend)
+security-scan fix --authorize-breaking npm:frontend
 ```
 
 A autorização é por execução e nunca é persistida no arquivo de configuração.
+
+**Targeting de entradas específicas em monorepo:**
+
+```bash
+# Executar apenas scan e a entrada npm do frontend
+security-scan fix --phases scan,npm:frontend,report
+
+# Executar scan e todas as entradas npm (qualquer label)
+security-scan fix --phases scan,npm,report
+```
+
+**Gerando split reports (um por entrada):**
+
+```bash
+# Gerar relatórios HTML separados para cada entrada de ecossistema
+security-scan fix --split-reports
+```
+
+Com um config de monorepo contendo `npm (label: frontend)`, `npm (label: backend)` e `composer`, isso produz:
+- `npm-frontend-report.html`
+- `npm-backend-report.html`
+- `composer-report.html`
+
+Como alternativa, defina `outputs.split_reports: true` no config para tornar esse comportamento o padrão. A flag da CLI sempre tem precedência.
 
 **Variável de ambiente kill-switch:**
 
@@ -371,6 +407,7 @@ security-scan executive-report [options]
 | `--client <name>` | string | da configuração | Nome do cliente (sobrescreve `project.client` na configuração) |
 | `--project <name>` | string | da configuração | Nome do projeto (sobrescreve `project.name` na configuração) |
 | `-o, --output <path>` | string | diretório de relatórios | Gravar relatório em arquivo |
+| `--split-reports` | boolean | `false` | Gerar um relatório por entrada de ecossistema. Sobrescreve `outputs.split_reports` no config. |
 | `--dry-run` | boolean | `false` | Exibir comandos sem executar |
 | `-v, --verbose` | boolean | `false` | Ativar saída verbosa |
 | `-q, --quiet` | boolean | `false` | Suprimir toda saída exceto erros e o relatório final |
@@ -673,12 +710,20 @@ Controla o local e os formatos dos relatórios.
   "outputs": {
     "dir": "./reports",
     "sub_folders": false,
-    "formats": ["markdown"]
+    "formats": ["markdown"],
+    "split_reports": false
   }
 }
 ```
 
 O relatório executivo em HTML sempre é gerado. Markdown e DOCX só são gerados quando incluídos em `formats`.
+
+| Campo | Tipo | Padrão | Descrição |
+|-------|------|--------|-----------|
+| `dir` | string | `./reports` | Diretório onde os relatórios são gravados |
+| `sub_folders` | boolean | `false` | Quando true, relatórios específicos de engine (ex.: SonarQube) vão para sub-pastas |
+| `formats` | string[] | `[]` | Formatos adicionais de relatório a gerar (`markdown`, `docx`) |
+| `split_reports` | boolean | `false` | Quando true, gera um relatório HTML por entrada de ecossistema em vez de um consolidado. A flag `--split-reports` da CLI tem precedência sobre este valor. |
 
 ---
 
@@ -1317,7 +1362,32 @@ Sim. Use o campo `path` em cada entry de ecossistema para apontar para o subdire
 }
 ```
 
-O `security-scan init` descobre todos os lockfiles automaticamente com a varredura recursiva, então na maioria dos casos basta executar o `init` e os entries já são preenchidos para você.
+O `security-scan init` descobre todos os lockfiles automaticamente com a varredura recursiva. Quando entries são encontrados em subdiretórios, um resumo de descoberta é exibido antes do checkbox para que você veja exatamente o que foi encontrado:
+
+```
+Found 3 ecosystem(s):
+  npm         package-lock.json       packages/frontend/
+  npm         package-lock.json       packages/backend/
+  composer    composer.lock           api/
+```
+
+**Fluxo de trabalho em monorepo com split reports:**
+
+```bash
+# Passo 1: gerar config (descobre todos os lockfiles automaticamente)
+security-scan init
+
+# Passo 2: corrigir todas as entradas e gerar relatórios por entrada
+security-scan fix --split-reports
+
+# Passo 3: autorizar mudanças disruptivas apenas para o frontend
+security-scan fix --authorize-breaking npm:frontend
+
+# Passo 4: executar apenas a fase npm do backend
+security-scan fix --phases scan,npm:backend,report
+```
+
+Cada entrada (identificada pela sua `ecosystemEntryKey`, ex.: `npm:frontend`) é varrida, corrigida e reportada de forma independente. O OSV Scanner executa uma vez por entrada, com escopo no lockfile daquela entrada.
 
 **P: O security-scan suporta yarn ou pnpm?**
 

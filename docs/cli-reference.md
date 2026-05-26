@@ -29,9 +29,10 @@ Options:
 **What it does:**
 
 1. Recursively scans the project tree for lockfiles and Dockerfiles using `discoverProject()`. Each found lockfile is presented as a candidate ecosystem entry with its subdirectory path. When two or more entries share the same ecosystem id, a distinct label is assigned to each.
-2. Prompts for per-ecosystem config (fixer strategy, validation commands, runner version, Dockerfile).
-3. Generates `security-scan.config.json` programmatically via the config generator (`infrastructure/config/generator.ts`). The generated file includes a `$schema` field for IDE autocomplete.
-4. Writes to the output path. Fails if the file exists and `--force` is not set.
+2. When any ecosystem is discovered in a subdirectory (monorepo layout), prints a formatted discovery summary before the checkbox prompt — showing plugin name, lockfile, and path for each found entry.
+3. Prompts for per-ecosystem config (fixer strategy, validation commands, runner version, Dockerfile).
+4. Generates `security-scan.config.json` programmatically via the config generator (`infrastructure/config/generator.ts`). The generated file includes a `$schema` field for IDE autocomplete.
+5. Writes to the output path. Fails if the file exists and `--force` is not set.
 
 **Exit codes:** `0` success, `3` config/output error.
 
@@ -82,10 +83,20 @@ Options:
   -c, --config <path>             Path to security-scan.config.json
   --phases <phases>               Comma-separated phases to run.
                                   Accepted values: scan, npm, composer, pip, report
+                                  Also accepts entry keys for monorepo targeting:
+                                    npm       = run all npm entries
+                                    npm:frontend = run only the npm entry labelled "frontend"
                                   Default: all phases
   --no-report                     Skip executive report generation
   --authorize-breaking <id...>    Allow breaking-change updates for these ecosystems.
+                                  Accepts bare plugin id OR entry key:
+                                    npm         = authorize all npm entries
+                                    npm:frontend = authorize only the "frontend" npm entry
                                   Repeatable: --authorize-breaking npm --authorize-breaking composer
+  --split-reports                 Generate one report per ecosystem entry instead of a
+                                  consolidated report. Each report is named after its entry
+                                  (e.g. npm-report.html, npm-frontend-report.html).
+                                  Overrides outputs.split_reports in the config file.
   --dry-run                       Log planned changes, execute nothing
   -v, --verbose                   Enable verbose output
   --json                          Output results as JSON
@@ -122,10 +133,32 @@ Skips all automated fixes after the scan phase. Useful in CI pipelines where you
 **Breaking-change authorization:**
 
 ```bash
+# Authorize all composer and npm entries
 security-scan fix --authorize-breaking composer npm
+
+# Monorepo: authorize only the "frontend" npm entry, not "backend"
+security-scan fix --authorize-breaking npm:frontend
 ```
 
-Breaking packages (`classification: 'breaking'`) are skipped unless their ecosystem is explicitly authorized. Authorization is per-run and never persisted.
+Breaking packages (`classification: 'breaking'`) are skipped unless their ecosystem is explicitly authorized. Authorization is per-run and never persisted. The `--authorize-breaking` flag accepts both bare plugin ids (`npm`) and entry keys (`npm:frontend`). A bare id authorizes all entries sharing that plugin id.
+
+**Phase targeting for monorepos:**
+
+```bash
+# Run scan and only the frontend npm entry phase
+security-scan fix --phases scan,npm:frontend,report
+
+# Run scan and all npm entries (any label)
+security-scan fix --phases scan,npm,report
+```
+
+**Split reports:**
+
+```bash
+# Generate separate HTML reports for each ecosystem entry
+security-scan fix --split-reports
+# Produces: npm-report.html, npm-frontend-report.html, composer-report.html, etc.
+```
 
 **Exit codes:**
 
@@ -149,11 +182,15 @@ Options:
   --client <name>     Client name (overrides security-scan.config.json)
   --project <name>    Project name (overrides security-scan.config.json)
   -o, --output <path> Write report to file
+  --split-reports     Generate one report per ecosystem entry instead of a
+                      consolidated report. Overrides outputs.split_reports in config.
 ```
 
 **What it does:**
 
 Reads the most recent scan JSON outputs from the reports directory and renders the executive HTML report. Supports `en` and `pt-br` locales (set via `report_language` in config).
+
+When `--split-reports` is set (or `outputs.split_reports: true` in config), generates one report per ecosystem entry. Report filenames follow the entry key format: `npm-report.html` for a bare-id entry, `npm-frontend-report.html` for an entry with label `frontend`.
 
 ---
 
@@ -269,7 +306,8 @@ Full annotated `security-scan.config.json`:
   "outputs": {
     "dir": "./reports",
     "sub_folders": false,
-    "formats": ["markdown"]
+    "formats": ["markdown"],
+    "split_reports": false
   },
 
   "cloud_storage": {
