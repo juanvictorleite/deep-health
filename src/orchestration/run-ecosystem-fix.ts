@@ -17,6 +17,7 @@
 
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig, FixerStrategyId, EcosystemConfig } from '@core/types/config';
+import { ecosystemEntryKey } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 import type { OsvJsonOutput } from '@modules/scanner/osv-engine';
 import type { UpdateResultJson } from '@core/types/update';
@@ -90,7 +91,10 @@ export async function runEcosystemFix(
     ? await plugin.resolveEffectiveFixer(config, cwd)
     : (ecoEntry.fixer ?? (plugin.supportedFixers[0] ?? 'osv') as FixerStrategyId);
 
-  const ecosystemResult = scanResult.ecosystems[plugin.id];
+  // Use ecosystemEntryKey(ecoEntry) for lookup — in N-scan mode results are keyed by entryKey
+  // (e.g. 'npm', 'npm:frontend', 'npm:api'), not bare plugin.id.
+  const entryKey = ecosystemEntryKey(ecoEntry);
+  const ecosystemResult = scanResult.ecosystems[entryKey] ?? scanResult.ecosystems[plugin.id];
   const hasUpdates =
     ecosystemResult &&
     (ecosystemResult.auto_safe > 0 ||

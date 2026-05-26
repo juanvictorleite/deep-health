@@ -8,7 +8,7 @@
  *   AC4 — edge cases: empty string fields, undefined label
  */
 import { describe, it, expect } from 'vitest';
-import { ecosystemEntryKey } from '@infra/config/ecosystem-entry-key';
+import { ecosystemEntryKey } from '@core/types/config';
 
 // ── AC1: no label → returns entry.id ─────────────────────────────────────────
 

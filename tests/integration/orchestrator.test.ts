@@ -159,8 +159,12 @@ describe('runOrchestrator — full pipeline', () => {
     const config = await loadTestConfig();
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      // npm plugin is registered before composer, so package-lock.json arg comes first
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
+      // Per-entry scan: one invocation per config.ecosystems entry (composer first, then npm)
+      'composer.lock --format json': {
+        stdout: JSON.stringify({ results: [] }),
+        exitCode: 0,
+      },
+      'package-lock.json --format json': {
         stdout: JSON.stringify({ results: [] }),
         exitCode: 0,
       },
@@ -207,8 +211,12 @@ describe('runOrchestrator — full pipeline', () => {
     const config = await loadTestConfig();
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      // npm plugin is registered before composer, so package-lock.json arg comes first
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
+      // Per-entry scan: one invocation per config.ecosystems entry
+      'composer.lock --format json': {
+        stdout: JSON.stringify({ results: [] }),
+        exitCode: 0,
+      },
+      'package-lock.json --format json': {
         stdout: JSON.stringify({ results: [] }),
         exitCode: 0,
       },
@@ -232,15 +240,12 @@ describe('runOrchestrator — full pipeline', () => {
     const config = await loadTestConfig();
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      // npm plugin is registered before composer, so package-lock.json arg comes first
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: JSON.stringify({ results: [] }),
-        exitCode: 0,
-      },
+      // Per-entry scan: one invocation per config.ecosystems entry
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
       'git status': { stdout: '', exitCode: 0 },
       'development-frontend': { stdout: 'built', exitCode: 0 },
       'development-backend': { stdout: 'built', exitCode: 0 },
-      '--lockfile package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
     });
 
     await runOrchestrator(runner, config, {
@@ -291,10 +296,9 @@ describe('runOrchestrator — full pipeline', () => {
 
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: scanOutput,
-        exitCode: 0,
-      },
+      // Per-entry scan: composer first (empty), npm returns scan output
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: scanOutput, exitCode: 0 },
       'npm audit': { stdout: '', exitCode: 0 },
       'npm outdated': { stdout: '', exitCode: 0 },
       'npm audit fix': { stdout: 'npm fixed', exitCode: 0 },
@@ -315,17 +319,26 @@ describe('runOrchestrator — full pipeline', () => {
     const osvFixIdx = runner.calledCommands.findIndex((c) =>
       c.includes('osv-scanner fix --strategy=in-place -L package-lock.json'),
     );
-    const verifyIdx = runner.calledCommands.findIndex((c) =>
+    // Count per-entry scan vs residual verify invocations.
+    // Per-entry scan: 'osv-scanner --lockfile package-lock.json --format json' (1 occurrence for scan)
+    // Residual verify: same command — appears a 2nd time AFTER npm audit fix.
+    // With fixer=npm-audit, only 1 occurrence expected (scan only, no residual verify).
+    const lockfileScanCalls = runner.calledCommands.filter((c) =>
       c.includes('osv-scanner --lockfile package-lock.json --format json'),
     );
+    const residualVerifyAfterFix = runner.calledCommands
+      .slice(npmFixIdx + 1)
+      .some((c) => c.includes('osv-scanner --lockfile package-lock.json --format json'));
 
     expect(result.updates['npm']).toBeDefined();
     // npm-audit strategy: npm audit fix runs
     expect(npmFixIdx).toBeGreaterThan(-1);
     // npm-audit strategy: osv-scanner fix does NOT run
     expect(osvFixIdx).toBe(-1);
-    // npm-audit strategy: residual OSV verification does NOT run
-    expect(verifyIdx).toBe(-1);
+    // npm-audit strategy: residual OSV verification does NOT run after npm audit fix
+    // (lockfileScanCalls = 1 means only the scan, no residual verify)
+    expect(lockfileScanCalls).toHaveLength(1); // only the per-entry scan, no verify
+    expect(residualVerifyAfterFix).toBe(false);
   });
 
   it('runs osv-scanner fix and NO npm audit fix when fixer=osv (exclusive strategies)', async () => {
@@ -366,14 +379,12 @@ describe('runOrchestrator — full pipeline', () => {
 
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: scanOutput,
-        exitCode: 0,
-      },
+      // Per-entry scan: composer first (empty), npm returns scan output
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: scanOutput, exitCode: 0 },
       'npm audit': { stdout: '', exitCode: 0 },
       'npm outdated': { stdout: '', exitCode: 0 },
       'npm run build': { stdout: 'build ok', exitCode: 0 },
-      '--lockfile package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
       // composer advisor in fixture config
       'composer audit': { stdout: '', exitCode: 0 },
     });
@@ -443,14 +454,12 @@ describe('runOrchestrator — full pipeline', () => {
 
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: scanOutput,
-        exitCode: 0,
-      },
+      // Per-entry scan: composer first (empty), npm returns scan output
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: scanOutput, exitCode: 0 },
       'npm audit': { stdout: '', exitCode: 0 },
       'npm outdated': { stdout: '', exitCode: 0 },
       'npm run build': { stdout: 'build ok', exitCode: 0 },
-      '--lockfile package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
       // composer advisor in fixture config
       'composer audit': { stdout: '', exitCode: 0 },
     });
@@ -594,14 +603,12 @@ describe('runOrchestrator — full pipeline', () => {
 
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: scanOutput,
-        exitCode: 0,
-      },
+      // Per-entry scan: composer first (empty), npm returns scan output
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: scanOutput, exitCode: 0 },
       'npm audit': { stdout: '', exitCode: 0 },
       'npm outdated': { stdout: '', exitCode: 0 },
       'npm run build': { stdout: 'build ok', exitCode: 0 },
-      '--lockfile package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
       'composer audit': { stdout: '', exitCode: 0 },
     });
 
@@ -710,10 +717,9 @@ describe('runOrchestrator — SonarQube integration', () => {
     // config has no scanners section — default fixture
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: JSON.stringify({ results: [] }),
-        exitCode: 0,
-      },
+      // Per-entry scan: one invocation per config.ecosystems entry
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
     });
 
     const result = await runOrchestrator(runner, config, {
@@ -739,10 +745,9 @@ describe('runOrchestrator — SonarQube integration', () => {
 
     const runner = new MockCommandRunner({
       'osv-scanner --version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: JSON.stringify({ results: [] }),
-        exitCode: 0,
-      },
+      // Per-entry scan: one invocation per config.ecosystems entry
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
       // sonar-scanner --version fails (not installed)
       'sonar-scanner --version': { exitCode: 127, stderr: 'command not found: sonar-scanner' },
     });
@@ -772,10 +777,9 @@ describe('runOrchestrator — SonarQube integration', () => {
 
     const runner = new MockCommandRunner({
       'osv-scanner --version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: JSON.stringify({ results: [] }),
-        exitCode: 0,
-      },
+      // Per-entry scan: one invocation per config.ecosystems entry
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
       'sonar-scanner --version': { exitCode: 127, stderr: 'command not found: sonar-scanner' },
     });
 
@@ -797,10 +801,9 @@ describe('runOrchestrator — SonarQube integration', () => {
 
     const runner = new MockCommandRunner({
       'osv-scanner --version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: JSON.stringify({ results: [] }),
-        exitCode: 0,
-      },
+      // Per-entry scan: one invocation per config.ecosystems entry
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
       // SonarQube scan succeeds (--version ok, sonar-scanner -D succeeds)
       'sonar-scanner --version': { exitCode: 0, stdout: 'SonarScanner 5.0' },
       'sonar-scanner -D': { exitCode: 0, stdout: 'ANALYSIS SUCCESSFUL' },
@@ -854,10 +857,9 @@ describe('runOrchestrator — SonarQube integration', () => {
 
     const runner = new MockCommandRunner({
       'osv-scanner --version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: JSON.stringify({ results: [] }),
-        exitCode: 0,
-      },
+      // Per-entry scan: one invocation per config.ecosystems entry
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
       // sonar-scanner not available
       'sonar-scanner --version': { exitCode: 127 },
     });
@@ -879,10 +881,9 @@ describe('runOrchestrator — SonarQube integration', () => {
     const config = await loadTestConfig();
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: JSON.stringify({ results: [] }),
-        exitCode: 0,
-      },
+      // Per-entry scan: one invocation per config.ecosystems entry
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
     });
 
     const result = await runOrchestrator(runner, config, {
@@ -943,10 +944,9 @@ describe('runOrchestrator — on_failure policy for status=error (no throw)', ()
 
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: JSON.stringify({ results: [] }),
-        exitCode: 0,
-      },
+      // Per-entry scan: one invocation per config.ecosystems entry
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
     });
 
     const reg = new ScannerEngineRegistry();
@@ -972,10 +972,9 @@ describe('runOrchestrator — on_failure policy for status=error (no throw)', ()
 
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: JSON.stringify({ results: [] }),
-        exitCode: 0,
-      },
+      // Per-entry scan: one invocation per config.ecosystems entry
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
     });
 
     // Use a stub that self-identifies as 'sonarqube' so resolveOnFailure reads the config
@@ -1001,10 +1000,9 @@ describe('runOrchestrator — on_failure policy for status=error (no throw)', ()
 
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: JSON.stringify({ results: [] }),
-        exitCode: 0,
-      },
+      // Per-entry scan: one invocation per config.ecosystems entry
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
     });
 
     const reg = new ScannerEngineRegistry();
@@ -1033,10 +1031,9 @@ describe('runOrchestrator — on_failure policy for status=error (no throw)', ()
 
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: JSON.stringify({ results: [] }),
-        exitCode: 0,
-      },
+      // Per-entry scan: one invocation per config.ecosystems entry
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
     });
 
     // ThrowingEngine: throws instead of returning status=error
@@ -1078,10 +1075,9 @@ describe('runOrchestrator — branch detection', () => {
     const config = await loadTestConfig();
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: JSON.stringify({ results: [] }),
-        exitCode: 0,
-      },
+      // Per-entry scan: one invocation per config.ecosystems entry
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
       'git rev-parse --abbrev-ref HEAD': { stdout: 'main\n', exitCode: 0 },
     });
 
@@ -1100,10 +1096,9 @@ describe('runOrchestrator — branch detection', () => {
     const config = await loadTestConfig();
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: JSON.stringify({ results: [] }),
-        exitCode: 0,
-      },
+      // Per-entry scan: one invocation per config.ecosystems entry
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
       'git rev-parse --abbrev-ref HEAD': { stdout: 'HEAD\n', exitCode: 0 },
     });
 
@@ -1123,10 +1118,9 @@ describe('runOrchestrator — branch detection', () => {
     const config = await loadTestConfig();
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: JSON.stringify({ results: [] }),
-        exitCode: 0,
-      },
+      // Per-entry scan: one invocation per config.ecosystems entry
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
       'git rev-parse --abbrev-ref HEAD': { exitCode: 128, stderr: 'fatal: not a git repository' },
     });
 
@@ -1161,10 +1155,9 @@ describe('runOrchestrator — generic on_failure resolution', () => {
 
     const runner = new MockCommandRunner({
       'osv-scanner --version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: JSON.stringify({ results: [] }),
-        exitCode: 0,
-      },
+      // Per-entry scan: one invocation per config.ecosystems entry
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
       'sonar-scanner --version': { exitCode: 127, stderr: 'command not found' },
     });
 
@@ -1375,10 +1368,9 @@ describe('runOrchestrator — primary-by-engine-id (registry-order independence)
 
     const runner = new MockCommandRunner({
       '--version': { stdout: 'osv-scanner version 1.9.0', exitCode: 0 },
-      '--lockfile package-lock.json --lockfile composer.lock --format json': {
-        stdout: scanOutput,
-        exitCode: 0,
-      },
+      // Per-entry scan: composer first (empty), npm returns scan output
+      'composer.lock --format json': { stdout: JSON.stringify({ results: [] }), exitCode: 0 },
+      'package-lock.json --format json': { stdout: scanOutput, exitCode: 0 },
       // npm-audit fixer
       'npm audit fix': { stdout: 'fixed', exitCode: 0 },
       // git/backup helpers

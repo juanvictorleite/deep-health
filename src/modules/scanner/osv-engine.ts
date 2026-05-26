@@ -2,6 +2,7 @@ import type { ScannerEngine, ScannerEngineContext } from './types';
 import type { ScanResultJson, EcosystemScanResult, VulnerabilityEntry } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import type { ProjectConfig } from '@core/types/config';
+import { ecosystemEntryKey } from '@core/types/config';
 import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 import { PhaseError, EnvironmentError } from '@core/errors';
 import { logger } from '@infra/utils/logger';
@@ -348,11 +349,6 @@ export class OsvScannerEngine implements ScannerEngine {
     try {
       await this.assertAvailable(ctx);
 
-      // Ecosystem resolution uses config.ecosystems[] declaratively
-      const activePlugins = ecosystemRegistry.getAll().filter((p) =>
-        config.ecosystems.some((e) => e.id === p.id),
-      );
-
       const runnerMode = config.scanners?.osv?.runner ?? 'docker';
 
       // Warn when using local runner (non-default)
@@ -365,16 +361,14 @@ export class OsvScannerEngine implements ScannerEngine {
       }
 
       const useDocker = runnerMode === 'docker';
-
-      // ── Resolve scan args (scan.paths takes precedence over plugin defaults) ──
       const scanConfig = config.scan;
-      let rawArgs: string[];
 
+      // ── scan.paths override: single combined scan (legacy / explicit path mode) ──
       if (scanConfig?.paths && scanConfig.paths.length > 0) {
         for (const p of scanConfig.paths) {
           validateScanPath(p);
         }
-        rawArgs = resolveScanPathArgs(scanConfig.paths, scanConfig.exclude ?? []);
+        const rawArgs = resolveScanPathArgs(scanConfig.paths, scanConfig.exclude ?? []);
         if (rawArgs.length === 0) {
           throw new PhaseError(
             'scan.paths is configured but resolved to zero lockfile args — ' +
@@ -382,28 +376,36 @@ export class OsvScannerEngine implements ScannerEngine {
             'scanner',
           );
         }
-      } else {
-        // Derive lockfile args from config.ecosystems[] entries.
-        // Each entry maps to a plugin; its path (if set) is prepended to the
-        // plugin's lockfile filename so monorepo subdirectories are resolved correctly.
-        rawArgs = config.ecosystems.flatMap((entry) => {
-          const plugin = ecosystemRegistry.getAll().find((p) => p.id === entry.id);
-          if (!plugin) return [];
-          const pluginArgs = plugin.buildScanArgs();
-          if (!entry.path) return pluginArgs;
-          // Rewrite every '--lockfile <file>' pair: prepend entry.path to the file.
-          const result: string[] = [];
-          for (let i = 0; i < pluginArgs.length; i++) {
-            if (pluginArgs[i] === '--lockfile' && i + 1 < pluginArgs.length) {
-              result.push('--lockfile', join(entry.path, pluginArgs[i + 1]));
-              i++;
-            } else {
-              result.push(pluginArgs[i]);
-            }
+
+        if (runner.dryRun) {
+          if (useDocker) {
+            logger.tagged('osv', 'DRY-RUN', 'Would execute osv-scanner via Docker container');
+          } else {
+            logger.tagged('osv', 'DRY-RUN', `Would execute: osv-scanner ${rawArgs.join(' ')} --format json`);
           }
-          return result;
-        });
+          return base;
+        }
+
+        const { stdout, exitCode, stderr } = await this.runSingleScan(rawArgs, useDocker, config, cwd, runner);
+        if (exitCode !== 0 && !stdout) {
+          return { ...base, status: 'error', error: `Scan failed (exit ${exitCode}): ${stderr}` };
+        }
+        const parsed = parseOsvJsonOutput(stdout, config, ecosystemRegistry);
+        return { ...base, ...parsed };
       }
+
+      // ── Per-entry scan mode: one invocation per config.ecosystems entry ──────
+      // Each entry is scanned independently so results are keyed by ecosystemEntryKey(entry)
+      // (e.g. 'npm', 'npm:frontend', 'npm:api') with no cross-entry collision.
+      const mergedEcosystems: Record<string, EcosystemScanResult> = {};
+
+      // Ecosystem resolution uses config.ecosystems[] declaratively.
+      // Use getAll().find() so the logic works with both real and test-mocked registries
+      // (some test registries implement getAll() but not get()).
+      const allPlugins = ecosystemRegistry.getAll();
+      const activePlugins = allPlugins.filter((p) =>
+        config.ecosystems.some((e) => e.id === p.id),
+      );
 
       if (runner.dryRun) {
         if (useDocker) {
@@ -414,45 +416,66 @@ export class OsvScannerEngine implements ScannerEngine {
         return base;
       }
 
-      let stdout: string;
-      let exitCode: number;
-      let stderr: string;
+      for (const entry of config.ecosystems) {
+        const plugin = allPlugins.find((p) => p.id === entry.id);
+        if (!plugin) continue;
 
-      if (useDocker) {
-        // ── Docker path ────────────────────────────────────────────────────────
-        // Raw args are passed directly — no path translation needed.
-        // `OsvDockerRunner` sets `--workdir /project` so relative paths from
-        // plugin.buildScanArgs() (or scan.paths entries) resolve correctly inside
-        // the container.
-        const image = config.scanners?.osv?.image ?? OSV_DEFAULT_IMAGE;
+        const entryKey = ecosystemEntryKey(entry);
 
-        logger.debug(`Running OSV scan via Docker (image: ${image})`);
-        const dockerRunner = new OsvDockerRunner({ projectDir: cwd, image });
-        const result = await dockerRunner.run(rawArgs);
-        stdout = result.stdout;
-        exitCode = result.exitCode;
-        stderr = result.stderr;
-      } else {
-        // ── Local path ─────────────────────────────────────────────────────────
-        const args = [...rawArgs, '--format', 'json'];
-        const cmd = `osv-scanner ${args.join(' ')}`;
-        logger.debug(`Running: ${cmd}`);
-        const result = await runner.run(cmd, { cwd });
-        stdout = result.stdout;
-        exitCode = result.exitCode;
-        stderr = result.stderr;
+        // Build lockfile args from plugin defaults, then rewrite them to be path-aware.
+        // When entry.path is set (monorepo), prepend it to each --lockfile arg so
+        // osv-scanner resolves the lockfile relative to the project root.
+        const pluginArgs = plugin.buildScanArgs();
+        let rawArgs: string[];
+        if (!entry.path) {
+          rawArgs = pluginArgs;
+        } else {
+          // Rewrite every '--lockfile <file>' pair: prepend entry.path to the file.
+          rawArgs = [];
+          for (let i = 0; i < pluginArgs.length; i++) {
+            if (pluginArgs[i] === '--lockfile' && i + 1 < pluginArgs.length) {
+              rawArgs.push('--lockfile', join(entry.path, pluginArgs[i + 1]!));
+              i++;
+            } else {
+              rawArgs.push(pluginArgs[i]!);
+            }
+          }
+        }
+
+        logger.debug(`Running OSV scan for entry "${entryKey}" (args: ${rawArgs.join(' ')})`);
+
+        const { stdout, exitCode, stderr } = await this.runSingleScan(rawArgs, useDocker, config, cwd, runner);
+
+        if (exitCode !== 0 && !stdout) {
+          // Scan completely failed for this entry (no output to parse).
+          // Return an error result immediately — this preserves the original behaviour
+          // where a hard scan failure causes the pipeline to abort.
+          return {
+            ...base,
+            status: 'error',
+            error: `Scan failed (exit ${exitCode}): ${stderr}`,
+          };
+        }
+
+        const parsed = parseOsvJsonOutput(stdout, config, ecosystemRegistry);
+
+        // parseOsvJsonOutput keys by plugin.id and sets VulnerabilityEntry.ecosystem = plugin.id.
+        // Re-key the result to entryKey and update the ecosystem field in each vulnerability
+        // so downstream consumers (report builder, dedup logic) use the composite key naturally.
+        const pluginData = parsed.ecosystems[plugin.id];
+        if (pluginData) {
+          const rekeyedData: EcosystemScanResult = {
+            ...pluginData,
+            vulnerabilities: pluginData.vulnerabilities.map((v) => ({
+              ...v,
+              ecosystem: entryKey,
+            })),
+          };
+          mergedEcosystems[entryKey] = rekeyedData;
+        }
       }
 
-      if (exitCode !== 0 && !stdout) {
-        return {
-          ...base,
-          status: 'error',
-          error: `Scan failed (exit ${exitCode}): ${stderr}`,
-        };
-      }
-
-      const parsed = parseOsvJsonOutput(stdout, config, ecosystemRegistry);
-      return { ...base, ...parsed };
+      return { ...base, ecosystems: mergedEcosystems };
     } catch (err) {
       if (err instanceof EnvironmentError) throw err;
       throw new PhaseError(
@@ -460,6 +483,32 @@ export class OsvScannerEngine implements ScannerEngine {
         'scanner',
         err,
       );
+    }
+  }
+
+  // ── Private helpers ──────────────────────────────────────────────────────────
+
+  /**
+   * Execute a single OSV scanner invocation with the given lockfile args.
+   * Delegates to Docker runner or local runner based on the useDocker flag.
+   */
+  private async runSingleScan(
+    rawArgs: string[],
+    useDocker: boolean,
+    config: ProjectConfig,
+    cwd: string,
+    runner: ScannerEngineContext['runner'],
+  ): Promise<{ stdout: string; exitCode: number; stderr: string }> {
+    if (useDocker) {
+      const image = config.scanners?.osv?.image ?? OSV_DEFAULT_IMAGE;
+      logger.debug(`Running OSV scan via Docker (image: ${image})`);
+      const dockerRunner = new OsvDockerRunner({ projectDir: cwd, image });
+      return dockerRunner.run(rawArgs);
+    } else {
+      const args = [...rawArgs, '--format', 'json'];
+      const cmd = `osv-scanner ${args.join(' ')}`;
+      logger.debug(`Running: ${cmd}`);
+      return runner.run(cmd, { cwd });
     }
   }
 }

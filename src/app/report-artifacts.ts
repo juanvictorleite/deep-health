@@ -70,6 +70,7 @@ export async function generateAndSaveReportArtifacts(
     scanBefore,
     scanAfter: await runScanner(runner, config, cwd),
     updates,
+    ecosystems: config.ecosystems,
     engineResults,
     locale: config.report_language,
     advisorResults,

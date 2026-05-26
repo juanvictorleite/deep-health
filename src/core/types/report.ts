@@ -1,6 +1,7 @@
 import type { ScanResultJson } from './scan';
 import type { UpdateResultJson } from './update';
 import type { SupportedLocale } from './locale';
+import type { EcosystemConfig } from './config';
 
 /** A single structured finding from a structured advisor (e.g. npm audit --json) */
 export interface AdvisorFinding {
@@ -57,6 +58,14 @@ export interface ExecutiveReportOptions {
   scanAfter: ScanResultJson;
   /** Update results keyed by plugin id (e.g. 'npm', 'composer') */
   updates: Record<string, UpdateResultJson>;
+  /**
+   * Ecosystem config entries from the project config.
+   * When provided, the report iterates these entries (keyed by ecosystemEntryKey)
+   * instead of defaultRegistry.getAll() — enabling per-entry evidence sections
+   * for configs with multiple entries of the same plugin id (e.g. 'npm:frontend', 'npm:api').
+   * When absent, falls back to defaultRegistry for backward compatibility.
+   */
+  ecosystems?: EcosystemConfig[];
   locale?: SupportedLocale;
   /**
    * Per-engine raw scan results for multi-source reporting.

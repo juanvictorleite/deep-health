@@ -426,6 +426,116 @@ describe('runFixCommand() — branch coverage top-up', () => {
   });
 });
 
+// ─── AC2: authorizeBreaking bridging for entryKey-format values ──────────────
+
+describe('runFixCommand() — authorizeBreaking entryKey bridging (AC2)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('passes entryKey-format authorizeBreaking values directly to orchestrator', async () => {
+    vi.mocked(runScanner).mockResolvedValue(scanResult);
+    vi.mocked(runOrchestrator).mockResolvedValue({
+      scan: null,
+      updates: {},
+      overallStatus: 'success',
+      hasPendingVulns: false,
+      warnings: [],
+      aggregated: undefined,
+      advisorResults: {},
+    });
+
+    const ctx: RunContext = {
+      config: {
+        ...config,
+        ecosystems: [{ id: 'npm', label: 'frontend' }, { id: 'npm', label: 'api' }],
+      },
+      runner: { environment: 'local' as const, run: vi.fn(), runArgs: vi.fn(), dryRun: false },
+    };
+
+    await runFixCommand(ctx, {
+      config: 'security-scan.config.json',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: false,
+      noReport: true,
+      // Pass entryKey-format id via --authorize-breaking
+      authorizeBreaking: ['npm:frontend'],
+    });
+
+    expect(runOrchestrator).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        authorizeBreaking: expect.objectContaining({
+          'npm:frontend': true,
+        }),
+      }),
+    );
+
+    // 'npm:api' was not authorized
+    const callArgs = vi.mocked(runOrchestrator).mock.calls[0][2];
+    expect(callArgs.authorizeBreaking?.['npm:api']).not.toBe(true);
+  });
+
+  it('includes both bare plugin id AND entryKey-format values in the authorizeBreaking record', async () => {
+    vi.mocked(runScanner).mockResolvedValue(scanResult);
+    vi.mocked(runOrchestrator).mockResolvedValue({
+      scan: null,
+      updates: {},
+      overallStatus: 'success',
+      hasPendingVulns: false,
+      warnings: [],
+      aggregated: undefined,
+      advisorResults: {},
+    });
+
+    await runFixCommand(makeCtx(), {
+      config: 'security-scan.config.json',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: false,
+      noReport: true,
+      authorizeBreaking: ['npm'],
+    });
+
+    const callArgs = vi.mocked(runOrchestrator).mock.calls[0][2];
+    // Bare plugin id 'npm' must appear in the record (from the registry loop)
+    expect(callArgs.authorizeBreaking?.['npm']).toBe(true);
+  });
+
+  it('includes entryKey value even when no matching registered plugin id exists', async () => {
+    vi.mocked(runScanner).mockResolvedValue(scanResult);
+    vi.mocked(runOrchestrator).mockResolvedValue({
+      scan: null,
+      updates: {},
+      overallStatus: 'success',
+      hasPendingVulns: false,
+      warnings: [],
+      aggregated: undefined,
+      advisorResults: {},
+    });
+
+    await runFixCommand(makeCtx(), {
+      config: 'security-scan.config.json',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: false,
+      noReport: true,
+      // 'npm:monorepo-sub' is not a plugin id in the registry
+      authorizeBreaking: ['npm:monorepo-sub'],
+    });
+
+    const callArgs = vi.mocked(runOrchestrator).mock.calls[0][2];
+    // The entryKey-format value must be present in the record regardless of registry
+    expect(callArgs.authorizeBreaking?.['npm:monorepo-sub']).toBe(true);
+  });
+});
+
 // ─── Phase 4: createBranchAndCommit / buildBranchName / openPr ───────────────
 
 import { createBranchAndCommit, buildBranchName } from '@infra/utils/git-commit';

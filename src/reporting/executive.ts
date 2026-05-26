@@ -1,5 +1,7 @@
 import type { ExecutiveReportOptions, ResidualVerification } from '@core/types/report';
 import type { VulnerabilityEntry, ScanResultJson } from '@core/types/scan';
+import type { EcosystemConfig } from '@core/types/config';
+import { ecosystemEntryKey } from '@core/types/config';
 import type { Locale } from './i18n/index';
 import { defaultRegistry } from '@modules/ecosystem/index';
 import { getLocale } from './i18n/index';
@@ -125,19 +127,43 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
   const locale = getLocale(opts.locale);
   const now = new Date();
 
+  // Resolve the list of ecosystem entries to iterate.
+  // When opts.ecosystems is provided (new per-entry mode), use it directly.
+  // Otherwise fall back to defaultRegistry.getAll() for backward compatibility.
+  const ecoEntries: Array<{ key: string; entry?: EcosystemConfig; pluginId: string; reportLabel: string; name: string }> =
+    opts.ecosystems
+      ? opts.ecosystems.map((entry) => {
+          const plugin = defaultRegistry.get(entry.id);
+          const entryKey = ecosystemEntryKey(entry);
+          const baseLabel = plugin?.reportLabel ?? entry.id;
+          // When entry has a label, show 'npm (frontend)'; otherwise show plugin's reportLabel.
+          const reportLabel = entry.label ? `${baseLabel} (${entry.label})` : baseLabel;
+          return {
+            key: entryKey,
+            entry,
+            pluginId: entry.id,
+            reportLabel,
+            name: plugin?.name ?? entry.id,
+          };
+        })
+      : defaultRegistry.getAll().map((plugin) => ({
+          key: plugin.id,
+          entry: undefined,
+          pluginId: plugin.id,
+          reportLabel: plugin.reportLabel,
+          name: plugin.name,
+        }));
+
   // Resolve residual verification state — use the explicit union type.
   const residualVerification: ResidualVerification = opts.residualVerification ?? { status: 'skipped' };
 
-  // Build per-ecosystem update name sets (for determining fixed vs pending)
-  const plugins = defaultRegistry.getAll();
-
-  // Clone the top-level scanBefore so we never mutate the original. For each plugin
+  // Clone the top-level scanBefore so we never mutate the original. For each entry
   // that carries audit_findings, deep-clone its ecosystem entry and push synthetic
   // entries so the existing fixedVulns/pendingVulns filters naturally include them.
   let effectiveScanBefore: ScanResultJson = opts.scanBefore;
 
-  for (const plugin of plugins) {
-    const auditFindings = opts.updates[plugin.id]?.audit_findings;
+  for (const eco of ecoEntries) {
+    const auditFindings = opts.updates[eco.key]?.audit_findings;
     if (!auditFindings || auditFindings.length === 0) continue;
 
     // Clone the top-level object (shallow) plus the ecosystems map on first mutation.
@@ -146,14 +172,14 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
     }
 
     // Deep-clone the specific ecosystem entry we need to mutate.
-    const existingEco = effectiveScanBefore.ecosystems[plugin.id];
+    const existingEco = effectiveScanBefore.ecosystems[eco.key];
     const clonedEco = existingEco
       ? structuredClone(existingEco)
       : { vulnerabilities_total: 0, auto_safe: 0, breaking: 0, manual: 0, auto_safe_packages: [], breaking_packages: [], manual_packages: [], vulnerabilities: [] };
 
     for (const finding of auditFindings) {
       const syntheticEntry: VulnerabilityEntry = {
-        ecosystem: plugin.id,
+        ecosystem: eco.key,
         package: finding.package,
         ghsaId: finding.cve || '',
         cvss: '—',
@@ -168,28 +194,28 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
       clonedEco.auto_safe += 1;
     }
 
-    effectiveScanBefore.ecosystems[plugin.id] = clonedEco;
+    effectiveScanBefore.ecosystems[eco.key] = clonedEco;
   }
 
-  // Map: ecosystemId -> Set of updated package names
+  // Map: entryKey -> Set of updated package names
   const updatedNamesByEco = new Map<string, Set<string>>();
-  for (const plugin of plugins) {
-    const update = opts.updates[plugin.id] ?? null;
+  for (const eco of ecoEntries) {
+    const update = opts.updates[eco.key] ?? null;
     const updatedPackages = update?.packages_updated ?? [];
-    updatedNamesByEco.set(plugin.id, new Set(updatedPackages.map(parsePackageName)));
+    updatedNamesByEco.set(eco.key, new Set(updatedPackages.map(parsePackageName)));
   }
 
-  // Map: ecosystemId -> Map<packageName, actualInstalledVersion>
+  // Map: entryKey -> Map<packageName, actualInstalledVersion>
   const installedVersionsByEco = new Map<string, Map<string, string>>();
-  for (const plugin of plugins) {
-    const updatedPackages = opts.updates[plugin.id]?.packages_updated ?? [];
+  for (const eco of ecoEntries) {
+    const updatedPackages = opts.updates[eco.key]?.packages_updated ?? [];
     const versionMap = new Map<string, string>();
     for (const ref of updatedPackages) {
       const name = parsePackageName(ref);
       const version = parsePackageVersion(ref);
       if (version) versionMap.set(name, version);
     }
-    installedVersionsByEco.set(plugin.id, versionMap);
+    installedVersionsByEco.set(eco.key, versionMap);
   }
 
   const allVulnsBefore = [
@@ -203,15 +229,19 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
       return v.classification === 'auto_safe' && names.has(v.package);
     }),
   ).map((v) => {
-    // Look up reportLabel from registry
-    const plugin = defaultRegistry.findByOsvEcosystem(v.ecosystem) ?? defaultRegistry.get(v.ecosystem);
+    // Look up reportLabel — prefer from ecoEntries map, fall back to registry
+    const eco = ecoEntries.find((e) => e.key === v.ecosystem);
+    const reportLabel = eco?.reportLabel
+      ?? defaultRegistry.findByOsvEcosystem(v.ecosystem)?.reportLabel
+      ?? defaultRegistry.get(v.ecosystem)?.reportLabel
+      ?? v.ecosystem;
     // Render residual warning distinctly: only when verification ran and CVEs remain
     const residualCount = residualVerification.status !== 'skipped'
       ? (residualVerification.summary[v.ecosystem] ?? 0)
       : null;
     const residualWarning = residualVerification.status === 'unverified' && residualCount !== null && residualCount > 0;
     return {
-      ecoLabel: plugin?.reportLabel ?? v.ecosystem,
+      ecoLabel: reportLabel,
       ghsaLink: vulnLink(v.ghsaId),
       ghsaId: v.ghsaId,
       cvss: v.cvss,
@@ -230,9 +260,13 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
   });
 
   const pendingVulns = dedupVulns(pendingOriginal).map((v) => {
-    const plugin = defaultRegistry.findByOsvEcosystem(v.ecosystem) ?? defaultRegistry.get(v.ecosystem);
+    const eco = ecoEntries.find((e) => e.key === v.ecosystem);
+    const reportLabel = eco?.reportLabel
+      ?? defaultRegistry.findByOsvEcosystem(v.ecosystem)?.reportLabel
+      ?? defaultRegistry.get(v.ecosystem)?.reportLabel
+      ?? v.ecosystem;
     return {
-      ecoLabel: plugin?.reportLabel ?? v.ecosystem,
+      ecoLabel: reportLabel,
       ghsaLink: vulnLink(v.ghsaId),
       ghsaId: v.ghsaId,
       cvss: v.cvss,
@@ -242,16 +276,16 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
     };
   });
 
-  // Per-plugin evidence sections
-  const evidenceSections = plugins.map((plugin) => {
-    const ecoScan = effectiveScanBefore.ecosystems[plugin.id];
-    const update = opts.updates[plugin.id] ?? null;
-    const updatedNames = updatedNamesByEco.get(plugin.id) ?? new Set();
+  // Per-entry evidence sections
+  const evidenceSections = ecoEntries.map((eco) => {
+    const ecoScan = effectiveScanBefore.ecosystems[eco.key];
+    const update = opts.updates[eco.key] ?? null;
+    const updatedNames = updatedNamesByEco.get(eco.key) ?? new Set();
 
-    const installedVersions = installedVersionsByEco.get(plugin.id) ?? new Map<string, string>();
+    const installedVersions = installedVersionsByEco.get(eco.key) ?? new Map<string, string>();
     // Use the explicit verification state: only show residual warning when 'unverified'
     const residualCount = residualVerification.status !== 'skipped'
-      ? (residualVerification.summary[plugin.id] ?? 0)
+      ? (residualVerification.summary[eco.key] ?? 0)
       : null;
     const isUnverified = residualVerification.status === 'unverified';
     const rawVulnsAfter = (ecoScan?.vulnerabilities ?? []).map((v) => {
@@ -308,10 +342,10 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
     const showValidations = validationEntries.length > 0;
 
     return {
-      id: plugin.id,
-      name: plugin.name,
-      reportLabel: plugin.reportLabel,
-      evidenceTitle: locale.exec.ecosystem_evidence_title(plugin.reportLabel),
+      id: eco.key,
+      name: eco.name,
+      reportLabel: eco.reportLabel,
+      evidenceTitle: locale.exec.ecosystem_evidence_title(eco.reportLabel),
       hasVulns,
       vulnsAfter,
       showValidations,
@@ -319,13 +353,13 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
     };
   });
 
-  // Summary: per-ecosystem before/after labels
-  const ecoBeforeLabels = plugins
-    .map((plugin) => {
-      const eco = effectiveScanBefore.ecosystems[plugin.id];
-      const total = eco?.vulnerabilities_total ?? 0;
-      const pkgCount = uniqueCount(eco?.vulnerabilities ?? []);
-      return locale.pkg_count(total, pkgCount, plugin.reportLabel);
+  // Summary: per-entry before/after labels
+  const ecoBeforeLabels = ecoEntries
+    .map((eco) => {
+      const ecoData = effectiveScanBefore.ecosystems[eco.key];
+      const total = ecoData?.vulnerabilities_total ?? 0;
+      const pkgCount = uniqueCount(ecoData?.vulnerabilities ?? []);
+      return locale.pkg_count(total, pkgCount, eco.reportLabel);
     })
     .join(', ');
 
@@ -336,14 +370,14 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
     pendingByEco.set(v.ecosystem, arr);
   }
 
-  const ecoAfterLabels = plugins
-    .map((plugin) => {
-      const pending = pendingByEco.get(plugin.id) ?? [];
+  const ecoAfterLabels = ecoEntries
+    .map((eco) => {
+      const pending = pendingByEco.get(eco.key) ?? [];
       const pkgCount = uniqueCount(pending);
       const pkgAfterNames = pkgCount === 1
         ? [...new Set(pending.map((v) => v.package))].join(', ')
         : undefined;
-      return locale.pkg_count(pending.length, pkgCount, plugin.reportLabel, pkgAfterNames);
+      return locale.pkg_count(pending.length, pkgCount, eco.reportLabel, pkgAfterNames);
     })
     .join(', ');
 
@@ -393,9 +427,13 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
     fixedVulns,
     pendingVulns,
     allVulnsBefore: dedupVulns(allVulnsBefore).map((v) => {
-      const plugin = defaultRegistry.findByOsvEcosystem(v.ecosystem) ?? defaultRegistry.get(v.ecosystem);
+      const eco = ecoEntries.find((e) => e.key === v.ecosystem);
+      const reportLabel = eco?.reportLabel
+        ?? defaultRegistry.findByOsvEcosystem(v.ecosystem)?.reportLabel
+        ?? defaultRegistry.get(v.ecosystem)?.reportLabel
+        ?? v.ecosystem;
       return {
-        ecoLabel: plugin?.reportLabel ?? v.ecosystem,
+        ecoLabel: reportLabel,
         ghsaId: v.ghsaId,
         cvss: v.cvss,
         package: v.package,

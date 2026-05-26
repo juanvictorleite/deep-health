@@ -221,7 +221,9 @@ describe('AC1 — OSV engine: lockfile args derived from config.ecosystems[].pat
     expect(cmd).toContain('--lockfile web/package-lock.json');
   });
 
-  it('produces two separate --lockfile args for two entries of same plugin at different paths', async () => {
+  it('produces two separate scan invocations for two entries of same plugin at different paths', async () => {
+    // N-scan architecture: one osv-scanner invocation per config.ecosystems entry,
+    // not a single combined invocation. Two npm entries → two separate commands.
     const plugin = makePlugin({ buildScanArgs: () => ['--lockfile', 'package-lock.json'] });
     const config = makeConfig({
       ecosystems: [
@@ -235,9 +237,12 @@ describe('AC1 — OSV engine: lockfile args derived from config.ecosystems[].pat
 
     await engine.scan(ctx);
 
-    const cmd = runner.calledCommands.find((c) => c.includes('--lockfile'));
-    expect(cmd).toContain('--lockfile web/package-lock.json');
-    expect(cmd).toContain('--lockfile admin/package-lock.json');
+    const lockfileCmds = runner.calledCommands.filter((c) => c.includes('--lockfile'));
+    // Exactly two scan invocations — one per entry
+    expect(lockfileCmds).toHaveLength(2);
+    // Each invocation targets its own path-prefixed lockfile
+    expect(lockfileCmds.some((c) => c.includes('--lockfile web/package-lock.json'))).toBe(true);
+    expect(lockfileCmds.some((c) => c.includes('--lockfile admin/package-lock.json'))).toBe(true);
   });
 
   it('handles nested paths correctly using join()', async () => {

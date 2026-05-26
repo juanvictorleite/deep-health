@@ -1,6 +1,7 @@
 import { runOrchestrator } from "@orchestration/orchestrator";
 import { selectRenderer } from "@app/progress-reporter";
 import { defaultRegistry } from "@modules/ecosystem/index";
+import { ecosystemEntryKey } from "@core/types/config";
 import { writeOutput } from "@app/output-writer";
 import {
   resolveReportsDir,
@@ -62,6 +63,11 @@ async function runFixPipeline(
   for (const plugin of defaultRegistry.getAll()) {
     authorizeBreakingRecord[plugin.id] = authorizedIds.has(plugin.id);
   }
+  // Bridge entryKey-format values (e.g. 'npm:frontend') from --authorize-breaking
+  // directly into the record so the orchestrator can match them by entryKey too.
+  for (const id of authorizedIds) {
+    authorizeBreakingRecord[id] = true;
+  }
 
   const result = await runOrchestrator(runner, config, {
     configPath: opts.config,
@@ -75,19 +81,21 @@ async function runFixPipeline(
 
   // Emit non-blocking warnings for ecosystems with breaking vulns and no authorization.
   // Uses result.scan (the canonical before-fix snapshot from the orchestrator's Gate A scan).
+  // Iterates config.ecosystems entries so the lookup key matches the per-entry scan result.
   if (result.scan) {
-    const activePlugins = defaultRegistry.getAll().filter((p) =>
-      config.ecosystems.some((e) => e.id === p.id),
-    );
-    for (const plugin of activePlugins) {
-      const breaking = result.scan.ecosystems[plugin.id]?.breaking ?? 0;
-      if (breaking > 0 && !authorizedIds.has(plugin.id)) {
+    for (const ecoEntry of config.ecosystems) {
+      const plugin = defaultRegistry.get(ecoEntry.id);
+      if (!plugin) continue;
+      const entryKey = ecosystemEntryKey(ecoEntry);
+      const breaking = result.scan.ecosystems[entryKey]?.breaking ?? 0;
+      // Accept both bare plugin id AND entryKey for authorization
+      if (breaking > 0 && !authorizedIds.has(ecoEntry.id) && !authorizedIds.has(entryKey)) {
         const pkgs = (
-          result.scan.ecosystems[plugin.id]?.breaking_packages ?? []
+          result.scan.ecosystems[entryKey]?.breaking_packages ?? []
         ).join(", ");
         process.stderr.write(
-          `[${CLI_NAME}] Breaking-change updates skipped for ${plugin.name} (${breaking} package(s): ${pkgs || "unknown"}).\n` +
-          `  To authorize: ${CLI_NAME} fix --authorize-breaking ${plugin.id}\n`,
+          `[${CLI_NAME}] Breaking-change updates skipped for ${plugin.name} (${entryKey}) (${breaking} package(s): ${pkgs || "unknown"}).\n` +
+          `  To authorize: ${CLI_NAME} fix --authorize-breaking ${ecoEntry.id}\n`,
         );
       }
     }

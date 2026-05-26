@@ -31,7 +31,7 @@ import { CLI_NAME, KILL_SWITCH_VAR } from "@infra/brand";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { runEcosystemFix } from "./run-ecosystem-fix";
-import { ecosystemEntryKey } from "@infra/config/ecosystem-entry-key";
+import { ecosystemEntryKey } from "@core/types/config";
 
 export interface OrchestratorOptions {
   configPath: string;
@@ -306,8 +306,12 @@ export async function runOrchestrator(
     const plugin = ecosystemRegistry.getAll().find((p) => p.id === ecoEntry.id);
     if (!plugin) continue;
 
-    if (!shouldRunPhase(plugin.id, options)) {
-      logger.info(`Phase: Skipping ${plugin.name} — not in phases list`);
+    const entryKey = ecosystemEntryKey(ecoEntry);
+
+    // shouldRunPhase: accepts BOTH bare plugin id AND entryKey.
+    // 'npm' runs all npm entries; 'npm:frontend' runs only that entry.
+    if (options.phases && !shouldRunPhase(ecoEntry.id, options) && !shouldRunPhase(entryKey, options)) {
+      logger.info(`Phase: Skipping ${plugin.name} (${entryKey}) — not in phases list`);
       continue;
     }
 
@@ -322,7 +326,7 @@ export async function runOrchestrator(
     const advisors = ecoEntry.advisors ?? plugin.defaultAdvisors;
     if (advisors.length > 0) {
       logger.tagged(plugin.id, 'Advisor Step', `Running advisors for ${plugin.name}...`);
-      result.advisorResults[plugin.id] = await runAdvisors(
+      result.advisorResults[entryKey] = await runAdvisors(
         runner,
         ecosystemCwd,
         plugin.id,
@@ -330,7 +334,11 @@ export async function runOrchestrator(
       );
     }
 
-    const authorizeBreaking = options.authorizeBreaking?.[plugin.id] ?? false;
+    // authorizeBreaking: accepts BOTH bare plugin id AND entryKey.
+    // { npm: true } authorizes all npm entries; { 'npm:frontend': true } authorizes only that entry.
+    const authorizeBreaking =
+      (options.authorizeBreaking?.[ecoEntry.id] ?? false) ||
+      (options.authorizeBreaking?.[entryKey] ?? false);
 
     const outcome = await runEcosystemFix({
       plugin,
@@ -342,14 +350,23 @@ export async function runOrchestrator(
       dryRun: options.dryRun,
       authorizeBreaking,
       preRunSnapshots,
-      advisorResults: result.advisorResults[plugin.id],
+      advisorResults: result.advisorResults[entryKey],
     });
 
     if (outcome.status === "skipped") continue;
 
     result.updates[ecosystemEntryKey(ecoEntry)] = outcome.updateResult;
     if (outcome.status === "success" && outcome.residualVerification) {
-      result.residualVerification = outcome.residualVerification;
+      // Re-key the residual verification summary from plugin.id (raw OSV ecosystem name)
+      // to entryKey so executive.ts lookup by eco.key (entryKey format) matches correctly.
+      const rv = outcome.residualVerification;
+      if (rv.status !== 'skipped' && rv.summary[plugin.id] !== undefined && entryKey !== plugin.id) {
+        const rekeyed = { ...rv.summary, [entryKey]: rv.summary[plugin.id] };
+        delete rekeyed[plugin.id];
+        result.residualVerification = { ...rv, summary: rekeyed };
+      } else {
+        result.residualVerification = rv;
+      }
     }
 
     if (outcome.status === "error") {
