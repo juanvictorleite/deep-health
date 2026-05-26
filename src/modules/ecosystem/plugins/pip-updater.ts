@@ -1,7 +1,11 @@
-import type { CommandRunner } from '@core/types/common';
-import type { ValidationCommandConfig } from '@core/types/config';
+import { readFile, writeFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import semver from 'semver';
+import type { CommandRunner, VulnerabilityClass } from '@core/types/common';
+import type { FixerStrategyId, ValidationCommandConfig } from '@core/types/config';
 import type { UpdateResultJson } from '@core/types/update';
-import type { ScanResultJson } from '@core/types/scan';
+import type { ScanResultJson, VulnerabilityEntry } from '@core/types/scan';
+import type { AdvisorResult } from '@core/types/report';
 import { emptyEcosystem } from '@core/types/scan';
 import { logger } from '@infra/utils/logger';
 import { mergeOsvFirstWins } from '../fixers/index';
@@ -9,6 +13,11 @@ import type { OsvFixOutcome } from '../fixers/index';
 import { runUpdaterLifecycle } from '../utils/updater-lifecycle';
 
 const PIP_FILES = ['requirements.txt'];
+
+/** Typed result from applyFix — discriminates pip-audit vs pip-install path. */
+export type PipFixerResult =
+  | { mode: 'pip-audit'; stdout: string }
+  | { mode: 'pip-install'; stdout: string };
 
 /**
  * Strip pip version specifiers and extras from a package reference.
@@ -33,6 +42,177 @@ export function stripPipVersion(ref: string): string {
   const match = cleaned.match(/^([^=!<>~@]*)/);
   cleaned = match ? (match[1] ?? cleaned) : cleaned;
   return cleaned.trim();
+}
+
+/**
+ * Convert a scan entry to a pip install spec with a pinned version.
+ *
+ * Handles both '@' and '==' separators used in scan data:
+ *   'pillow==9.5.0'    → 'pillow==9.5.0'
+ *   'pillow@9.5.0'     → 'pillow==9.5.0'
+ *   'pillow'           → 'pillow'  (no version found)
+ *
+ * The '-U' flag is intentionally omitted — we install the exact OSV-recommended version.
+ */
+export function toPipInstallSpec(scanEntry: string): string {
+  const name = stripPipVersion(scanEntry);
+  const match = scanEntry.match(/(?:==|@)([^\s,;@=]+)/);
+  if (!match) return name;
+  const version = match[1]!;
+  return `${name}==${version}`;
+}
+
+/**
+ * Compute the maximum safe version for each package from the vulnerabilities array.
+ *
+ * Algorithm:
+ *   1. Filter entries by the provided classifications set.
+ *   2. Skip entries with null safeVersion.
+ *   3. Group by lowercase package name.
+ *   4. For each group, pick the MAX safeVersion using semver.coerce + semver.gt.
+ *      Falls back to localeCompare when both versions are non-semver-coercible.
+ *
+ * @param vulnerabilities - Array of VulnerabilityEntry from the ecosystem scan.
+ * @param classifications - Set of VulnerabilityClass values to include (e.g. {'auto_safe'} or {'auto_safe','breaking'}).
+ * @returns Map<lowercasePkgName, maxSafeVersion>
+ */
+export function computeMaxSafeVersions(
+  vulnerabilities: VulnerabilityEntry[],
+  classifications: Set<VulnerabilityClass>,
+): Map<string, string> {
+  const result = new Map<string, string>();
+
+  for (const entry of vulnerabilities) {
+    if (!classifications.has(entry.classification)) continue;
+    if (entry.safeVersion === null) continue;
+
+    const pkg = entry.package.toLowerCase();
+    const candidate = entry.safeVersion;
+    const existing = result.get(pkg);
+
+    if (existing === undefined) {
+      result.set(pkg, candidate);
+      continue;
+    }
+
+    // Compare candidate vs existing — pick the larger one
+    const semCandidate = semver.coerce(candidate);
+    const semExisting = semver.coerce(existing);
+
+    if (semCandidate !== null && semExisting !== null) {
+      if (semver.gt(semCandidate, semExisting)) {
+        result.set(pkg, candidate);
+      }
+    } else {
+      // Fallback for non-semver versions: use localeCompare
+      if (candidate.localeCompare(existing) > 0) {
+        result.set(pkg, candidate);
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Compute all unique safe versions for each package from the vulnerabilities array,
+ * sorted descending (highest first).
+ *
+ * Algorithm:
+ *   1. Filter entries by the provided classifications set.
+ *   2. Skip entries with null safeVersion.
+ *   3. Group by lowercase package name — collect all unique safeVersions per package.
+ *   4. Sort each group descending: semver.coerce + semver.gt for semver-parseable versions,
+ *      with localeCompare fallback for non-semver pip versions.
+ *
+ * @param vulnerabilities - Array of VulnerabilityEntry from the ecosystem scan.
+ * @param classifications - Set of VulnerabilityClass values to include.
+ * @returns Map<lowercasePkgName, string[]> where the array is sorted descending.
+ */
+export function computeSortedSafeVersions(
+  vulnerabilities: VulnerabilityEntry[],
+  classifications: Set<VulnerabilityClass>,
+): Map<string, string[]> {
+  const result = new Map<string, Set<string>>();
+
+  for (const entry of vulnerabilities) {
+    if (!classifications.has(entry.classification)) continue;
+    if (entry.safeVersion === null) continue;
+
+    const pkg = entry.package.toLowerCase();
+    const existing = result.get(pkg);
+    if (existing === undefined) {
+      result.set(pkg, new Set([entry.safeVersion]));
+    } else {
+      existing.add(entry.safeVersion);
+    }
+  }
+
+  const sorted = new Map<string, string[]>();
+  for (const [pkg, versions] of result) {
+    sorted.set(pkg, [...versions].sort(compareVersionsDescending));
+  }
+  return sorted;
+}
+
+function compareVersionsDescending(a: string, b: string): number {
+  const semA = semver.coerce(a);
+  const semB = semver.coerce(b);
+  if (semA !== null && semB !== null) {
+    return semver.gt(semA, semB) ? -1 : semver.gt(semB, semA) ? 1 : 0;
+  }
+  return b.localeCompare(a);
+}
+
+/**
+ * Rewrite requirements.txt content with newly installed versions.
+ *
+ * For each package line:
+ *   - Preserve comments (#), blank lines, and options (-r, -e, --)
+ *   - Split on ';' to separate environment markers
+ *   - Extract package name (and optional extras) from the left side
+ *   - Look up lowercase name in installedVersions
+ *   - If found: replace version specifier with ==<installedVersion>
+ *   - If not found: keep line as-is
+ *
+ * @param content - Current requirements.txt content
+ * @param installedVersions - Map of lowercase package name → installed version
+ */
+export function updateRequirementsContent(
+  content: string,
+  installedVersions: Map<string, string>,
+): string {
+  if (installedVersions.size === 0) return content;
+
+  const lines = content.split('\n');
+  const result = lines.map((line) => {
+    const trimmed = line.trim();
+
+    // Preserve blank lines, comments, and options (-r, -e, --)
+    if (trimmed === '' || trimmed.startsWith('#') || trimmed.startsWith('-')) {
+      return line;
+    }
+
+    // Split on ';' to preserve environment markers
+    const semicolonIdx = line.indexOf(';');
+    const packagePart = semicolonIdx === -1 ? line : line.slice(0, semicolonIdx);
+    const markerPart = semicolonIdx === -1 ? '' : line.slice(semicolonIdx);
+
+    // Extract extras (e.g. [security]) from the package part
+    const extrasMatch = packagePart.match(/(\[[^\]]*\])/);
+    const extras = extrasMatch ? extrasMatch[1]! : '';
+
+    // Get lowercase package name for map lookup
+    const pkgName = stripPipVersion(packagePart.trim()).toLowerCase();
+
+    const installedVersion = installedVersions.get(pkgName);
+    if (installedVersion === undefined) return line;
+
+    // Reconstruct: originalName[extras]==newVersion; marker
+    return `${pkgName}${extras}==${installedVersion}${markerPart}`;
+  });
+
+  return result.join('\n');
 }
 
 /**
@@ -105,6 +285,230 @@ export function buildPipPackagesUpdated(
   return updated;
 }
 
+/**
+ * Parse pip-audit --fix JSON output.
+ *
+ * pip-audit JSON structure:
+ *   { fixes?: Array<{ name?: string; version?: string; fix_version?: string; is_skipped?: boolean }> }
+ *
+ * Returns 'name@fix_version' (lowercase name) for each entry where:
+ *   - is_skipped is falsy
+ *   - fix_version is present and non-empty
+ *
+ * Returns empty array on parse failure, missing fixes array, or any unexpected shape.
+ */
+function parseSingleFixEntry(entry: unknown): string | null {
+  if (!entry || typeof entry !== 'object') return null;
+  const fix = entry as Record<string, unknown>;
+  if (fix['is_skipped']) return null;
+  const name = typeof fix['name'] === 'string' ? fix['name'].toLowerCase() : undefined;
+  const fixVersion = typeof fix['fix_version'] === 'string' ? fix['fix_version'] : undefined;
+  if (name && fixVersion) return `${name}@${fixVersion}`;
+  return null;
+}
+
+export function parsePipAuditFixJson(stdout: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(stdout);
+    if (!parsed || typeof parsed !== 'object') return [];
+
+    const obj = parsed as Record<string, unknown>;
+    const fixes = obj['fixes'];
+    if (!Array.isArray(fixes)) return [];
+
+    return fixes.map(parseSingleFixEntry).filter((r): r is string => r !== null);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Rewrite requirements.txt on disk after a successful pip install.
+ * No-op when installedVersions is empty or the file cannot be read.
+ */
+async function rewriteRequirementsTxt(
+  cwd: string,
+  installedVersions: Map<string, string>,
+): Promise<void> {
+  if (installedVersions.size === 0) return;
+
+  const filePath = resolve(cwd, 'requirements.txt');
+  let content: string;
+  try {
+    content = await readFile(filePath, 'utf-8');
+  } catch {
+    logger.debug('requirements.txt not found — skipping rewrite');
+    return;
+  }
+
+  const updated = updateRequirementsContent(content, installedVersions);
+  if (updated !== content) {
+    await writeFile(filePath, updated, 'utf-8');
+    logger.debug('requirements.txt rewritten with installed versions');
+  }
+}
+
+/**
+ * Check if pip-audit is available in the runner environment.
+ * Returns true when pip-audit --version exits 0.
+ */
+async function isPipAuditAvailable(runner: CommandRunner, cwd: string): Promise<boolean> {
+  try {
+    const result = await runner.runArgs('pip-audit', ['--version'], { cwd });
+    return result.exitCode === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Run pip-audit --fix -r requirements.txt --format json.
+ *
+ * pip-audit exits 1 when some vulnerabilities remain unfixed after a partial fix.
+ * This is treated as partial success when stdout contains parseable JSON.
+ */
+async function applyPipAudit(
+  runner: CommandRunner,
+  cwd: string,
+): Promise<{ ok: true; value: PipFixerResult } | { ok: false; error: string }> {
+  const result = await runner.runArgs(
+    'pip-audit',
+    ['--fix', '-r', 'requirements.txt', '--format', 'json'],
+    { cwd, stream: true },
+  );
+
+  const stdout = result.stdout ?? '';
+
+  // Exit 0 = all fixed. Exit 1 with JSON stdout = partial fix (some vulns remain).
+  if (result.exitCode === 0 || (result.exitCode === 1 && stdout.trim().startsWith('{'))) {
+    return { ok: true, value: { mode: 'pip-audit', stdout } };
+  }
+
+  return { ok: false, error: `pip-audit --fix failed: ${result.stderr ?? ''}` };
+}
+
+/**
+ * Fallback path: run pip install with version-pinned specs from auto_safe_packages.
+ * Uses exact versions from OSV scan data (e.g. 'pillow==9.5.0') instead of -U bare names.
+ */
+async function applyPipInstall(
+  runner: CommandRunner,
+  cwd: string,
+  packageSpecs: string[],
+): Promise<{ ok: true; value: PipFixerResult } | { ok: false; error: string }> {
+  const pkgList = packageSpecs.join(' ');
+  logger.info(`Updating packages: ${pkgList}`);
+  // SEC: use runArgs (shell: false) — package specs from scanner are variable data
+  const updateResult = await runner.runArgs(
+    'pip',
+    ['install', ...packageSpecs],
+    { cwd, stream: true },
+  );
+
+  if (updateResult.exitCode !== 0) {
+    logger.error('pip install failed — reverting pip changes...');
+    return { ok: false, error: `pip install failed: ${updateResult.stderr}` };
+  }
+
+  return { ok: true, value: { mode: 'pip-install', stdout: updateResult.stdout ?? '' } };
+}
+
+/**
+ * Run pip install --dry-run --quiet to test whether the given specs are installable.
+ *
+ * Returns:
+ *   'pass'        — exit 0; all specs are installable.
+ *   'unsupported' — pip does not recognise --dry-run (old pip); skip validation.
+ *   'fail'        — specs are not installable in this environment.
+ */
+async function dryRunCheck(
+  runner: CommandRunner,
+  cwd: string,
+  specs: string[],
+): Promise<'pass' | 'fail' | 'unsupported'> {
+  try {
+    const result = await runner.runArgs('pip', ['install', '--dry-run', '--quiet', ...specs], { cwd });
+    if (result.exitCode === 0) return 'pass';
+    const stderr = (result.stderr ?? '').toLowerCase();
+    if (stderr.includes('no such option') || stderr.includes('unrecognized arguments')) {
+      return 'unsupported';
+    }
+    return 'fail';
+  } catch {
+    return 'unsupported';
+  }
+}
+
+/**
+ * Try alternative safe versions for a package whose primary spec failed dry-run.
+ * Returns the first passing spec string, or null when all alternatives fail.
+ */
+async function tryFallbackVersions(
+  runner: CommandRunner,
+  cwd: string,
+  pkg: string,
+  versions: string[],
+  alreadyTried: string,
+): Promise<string | null> {
+  for (const ver of versions) {
+    if (ver === alreadyTried) continue;
+    const spec = `${pkg}==${ver}`;
+    const check = await dryRunCheck(runner, cwd, [spec]);
+    if (check === 'pass') return spec;
+  }
+  return null;
+}
+
+/** Resolve the best installable spec for a single package. Returns null when nothing installs. */
+async function resolveSpec(
+  runner: CommandRunner,
+  cwd: string,
+  spec: string,
+  sortedSafeVersions: Map<string, string[]>,
+): Promise<string | null> {
+  const pkgName = spec.split('==')[0] ?? spec;
+  const primaryVersion = spec.split('==')[1] ?? '';
+  const perResult = await dryRunCheck(runner, cwd, [spec]);
+  if (perResult === 'pass') return spec;
+  const alternatives = sortedSafeVersions.get(pkgName) ?? [];
+  return tryFallbackVersions(runner, cwd, pkgName, alternatives, primaryVersion);
+}
+
+/**
+ * Validate a list of version-pinned pip specs using --dry-run before the actual install.
+ *
+ * Fast path: batch dry-run. If all pass, return them all as validated.
+ * Slow path: per-package dry-run + fallback version tries when batch fails.
+ * Graceful degradation: if pip does not support --dry-run, return all as validated.
+ */
+async function validatePipSpecs(
+  runner: CommandRunner,
+  cwd: string,
+  primarySpecs: string[],
+  sortedSafeVersions: Map<string, string[]>,
+): Promise<{ validated: string[]; skipped: { pkg: string; reason: string }[] }> {
+  const batchResult = await dryRunCheck(runner, cwd, primarySpecs);
+
+  if (batchResult !== 'fail') return { validated: primarySpecs, skipped: [] };
+
+  // Batch failed — validate per-package and try fallback versions
+  const validated: string[] = [];
+  const skipped: { pkg: string; reason: string }[] = [];
+
+  for (const spec of primarySpecs) {
+    const pkgName = spec.split('==')[0] ?? spec;
+    const resolved = await resolveSpec(runner, cwd, spec, sortedSafeVersions);
+    if (resolved !== null) {
+      validated.push(resolved);
+    } else {
+      const alternatives = sortedSafeVersions.get(pkgName) ?? [];
+      skipped.push({ pkg: pkgName, reason: `No installable version found (tried ${spec} and ${alternatives.length} alternative(s))` });
+    }
+  }
+
+  return { validated, skipped };
+}
+
 export async function runPipUpdater(
   runner: CommandRunner,
   _config: unknown,
@@ -112,11 +516,16 @@ export async function runPipUpdater(
   cwd: string,
   authorizeBreaking = false,
   validationCommands: ValidationCommandConfig[] = [],
+  _fixerStrategy: FixerStrategyId = 'osv',
+  preFixBackups?: Map<string, string>,
   osvFixOutcome?: OsvFixOutcome,
+  preRunSnapshots?: Map<string, string>,
+  _advisorResults?: AdvisorResult[],
+  ecosystemKey = 'pip',
 ): Promise<UpdateResultJson> {
   logger.info('Running pip safe updates...');
 
-  const pipEcosystem = scanResult.ecosystems['pip'] ?? emptyEcosystem();
+  const pipEcosystem = scanResult.ecosystems[ecosystemKey] ?? emptyEcosystem();
 
   const autoSafePackageNames = pipEcosystem.auto_safe_packages.map(stripPipVersion);
   const breakingPackageNames = authorizeBreaking
@@ -124,10 +533,42 @@ export async function runPipUpdater(
     : [];
   const packageNamesToUpdate = [...new Set([...autoSafePackageNames, ...breakingPackageNames])];
 
-  return runUpdaterLifecycle(
+  // Compute MAX safe versions per package from the vulnerabilities array
+  const classifications = new Set<VulnerabilityClass>(
+    authorizeBreaking ? ['auto_safe', 'breaking'] : ['auto_safe'],
+  );
+  const maxSafeVersions = computeMaxSafeVersions(pipEcosystem.vulnerabilities, classifications);
+  const sortedSafeVersions = computeSortedSafeVersions(pipEcosystem.vulnerabilities, classifications);
+
+  // Build the list of all package entries (auto_safe + optionally breaking) for fallback
+  const allPackageEntries = [
+    ...pipEcosystem.auto_safe_packages,
+    ...(authorizeBreaking ? pipEcosystem.breaking_packages : []),
+  ];
+
+  // Version-pinned specs for pip install (e.g. 'pillow==9.5.0') — no -U flag.
+  // Primary: use computeMaxSafeVersions result (picks max safeVersion across all vulns).
+  // Fallback: toPipInstallSpec from scan entry string (for backward compat when vulnerabilities[] is empty).
+  const packageSpecsToInstall = [
+    ...new Set(
+      packageNamesToUpdate.map((pkgName) => {
+        const maxSafeVersion = maxSafeVersions.get(pkgName);
+        if (maxSafeVersion !== undefined) {
+          return `${pkgName}==${maxSafeVersion}`;
+        }
+        // Fallback: find the original scan entry and convert it
+        const entry = allPackageEntries.find(
+          (e) => stripPipVersion(e).toLowerCase() === pkgName,
+        );
+        return entry !== undefined ? toPipInstallSpec(entry) : pkgName;
+      }),
+    ),
+  ];
+
+  return runUpdaterLifecycle<PipFixerResult>(
     {
       agentName: 'pip-safe-update',
-      ecosystemKey: 'pip',
+      ecosystemKey,
       backupPaths: PIP_FILES,
       bootstrapSpec: {
         binary: 'pip',
@@ -149,7 +590,7 @@ export async function runPipUpdater(
           };
         }
         if (ctx.runner.dryRun) {
-          logger.tagged('pip', 'DRY-RUN', `Would execute: pip install -U ${packageNamesToUpdate.join(' ')}`);
+          logger.tagged('pip', 'DRY-RUN', `Would execute: pip install ${packageSpecsToInstall.join(' ')}`);
           for (const vc of validationCommands) {
             logger.tagged('pip', 'DRY-RUN', `Would execute: ${vc.command}`);
           }
@@ -158,32 +599,62 @@ export async function runPipUpdater(
       },
 
       async applyFix(ctx) {
-        logger.debug('Running pip list --outdated (informational)...');
-        await ctx.runner.runArgs('pip', ['list', '--outdated'], { cwd: ctx.cwd });
+        const pipAuditAvailable = await isPipAuditAvailable(ctx.runner, ctx.cwd);
 
-        const pkgList = packageNamesToUpdate.join(' ');
-        logger.info(`Updating packages: ${pkgList}`);
-        // SEC: use runArgs (shell: false) — package names from scanner are variable data
-        const updateResult = await ctx.runner.runArgs(
-          'pip',
-          ['install', '-U', ...packageNamesToUpdate],
-          { cwd: ctx.cwd, stream: true },
-        );
-
-        if (updateResult.exitCode !== 0) {
-          logger.error('pip install -U failed — reverting pip changes...');
-          return { ok: false, error: `pip install -U failed: ${updateResult.stderr}` };
+        if (pipAuditAvailable) {
+          logger.info('pip-audit available — using pip-audit --fix for vulnerability remediation');
+          return applyPipAudit(ctx.runner, ctx.cwd);
         }
 
-        return { ok: true, value: updateResult.stdout ?? '' };
+        logger.info('pip-audit not available — falling back to pip install (version-pinned)');
+
+        let specsToInstall = packageSpecsToInstall;
+
+        // Only run dry-run validation when we have vulnerability data with fallback versions.
+        // Without sortedSafeVersions entries, there are no alternatives to try, so validation
+        // adds no value over the install itself.
+        if (sortedSafeVersions.size > 0) {
+          const { validated, skipped } = await validatePipSpecs(
+            ctx.runner,
+            ctx.cwd,
+            packageSpecsToInstall,
+            sortedSafeVersions,
+          );
+
+          for (const s of skipped) {
+            logger.warn(`Skipping ${s.pkg}: ${s.reason}`);
+          }
+
+          if (validated.length === 0) {
+            return { ok: false, error: 'All package specs failed dry-run validation' };
+          }
+
+          specsToInstall = validated;
+        }
+
+        const installResult = await applyPipInstall(ctx.runner, ctx.cwd, specsToInstall);
+
+        if (installResult.ok) {
+          // Rewrite requirements.txt with the installed versions (pip install does not do this)
+          const installedVersions = parsePipInstalledVersions(installResult.value.stdout);
+          await rewriteRequirementsTxt(ctx.cwd, installedVersions);
+        }
+
+        return installResult;
       },
 
-      async derivePackagesUpdated(_ctx, stdout) {
-        const installedVersions = parsePipInstalledVersions(stdout);
-        const pipPackages = buildPipPackagesUpdated(pipEcosystem.auto_safe_packages, installedVersions);
-        return mergeOsvFirstWins(osvFixOutcome, pipPackages);
+      async derivePackagesUpdated(_ctx, fixerResult) {
+        let packages: string[];
+        if (fixerResult.mode === 'pip-audit') {
+          packages = parsePipAuditFixJson(fixerResult.stdout);
+        } else {
+          const installedVersions = parsePipInstalledVersions(fixerResult.stdout);
+          packages = buildPipPackagesUpdated(pipEcosystem.auto_safe_packages, installedVersions);
+        }
+        return mergeOsvFirstWins(osvFixOutcome, packages);
       },
     },
-    { runner, cwd, scanResult, ecosystemId: 'pip', validationCommands, authorizeBreaking },
+    { runner, cwd, scanResult, ecosystemId: ecosystemKey, validationCommands, authorizeBreaking },
+    { preFixBackups, preRunSnapshots },
   );
 }
