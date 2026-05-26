@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('node:fs/promises', () => ({
+  access: vi.fn(),
   readFile: vi.fn(),
 }));
 
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { detectProjectScripts } from '@infra/utils/detect-scripts';
 
+const mockAccess = vi.mocked(access);
 const mockReadFile = vi.mocked(readFile);
 
 // ─── npm ecosystem ────────────────────────────────────────────────────────────
@@ -333,18 +335,82 @@ describe('detectProjectScripts — composer', () => {
   });
 });
 
-// ─── pip and unknown ecosystems ───────────────────────────────────────────────
+// ─── pip ecosystem ────────────────────────────────────────────────────────────
 
-describe('detectProjectScripts — pip and unknown ecosystems', () => {
+describe('detectProjectScripts — pip', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('returns [] for pip ecosystem without reading any file', async () => {
+  it('returns pip check when manage.py does not exist', async () => {
+    mockAccess.mockRejectedValueOnce(
+      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+    );
+
     const result = await detectProjectScripts('/repo', 'pip');
 
-    expect(result).toEqual([]);
+    expect(result).toEqual([{ name: 'check', command: 'pip check', recommended: true }]);
+  });
+
+  it('returns pip check + django-check + django-test when manage.py exists', async () => {
+    mockAccess.mockResolvedValueOnce(undefined);
+
+    const result = await detectProjectScripts('/repo', 'pip');
+
+    expect(result).toHaveLength(3);
+    expect(result.find((s) => s.name === 'check')).toBeDefined();
+    expect(result.find((s) => s.name === 'django-check')).toBeDefined();
+    expect(result.find((s) => s.name === 'django-test')).toBeDefined();
+  });
+
+  it('pip check is recommended, django-check is recommended, django-test is recommended', async () => {
+    mockAccess.mockResolvedValueOnce(undefined);
+
+    const result = await detectProjectScripts('/repo', 'pip');
+
+    expect(result.find((s) => s.name === 'check')?.recommended).toBe(true);
+    expect(result.find((s) => s.name === 'django-check')?.recommended).toBe(true);
+    expect(result.find((s) => s.name === 'django-test')?.recommended).toBe(true);
+  });
+
+  it('uses correct commands for pip check, django-check, and django-test', async () => {
+    mockAccess.mockResolvedValueOnce(undefined);
+
+    const result = await detectProjectScripts('/repo', 'pip');
+
+    expect(result.find((s) => s.name === 'check')?.command).toBe('pip check');
+    expect(result.find((s) => s.name === 'django-check')?.command).toBe('python manage.py check');
+    expect(result.find((s) => s.name === 'django-test')?.command).toBe('python manage.py test');
+  });
+
+  it('checks manage.py at the correct path (relative to cwd)', async () => {
+    mockAccess.mockRejectedValueOnce(
+      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+    );
+
+    await detectProjectScripts('/my/django-project', 'pip');
+
+    expect(mockAccess).toHaveBeenCalledWith(
+      expect.stringContaining('/my/django-project/manage.py'),
+    );
+  });
+
+  it('does not read any file for pip ecosystem', async () => {
+    mockAccess.mockRejectedValueOnce(
+      Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
+    );
+
+    await detectProjectScripts('/repo', 'pip');
+
     expect(mockReadFile).not.toHaveBeenCalled();
+  });
+});
+
+// ─── unknown ecosystems ───────────────────────────────────────────────────────
+
+describe('detectProjectScripts — unknown ecosystems', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
   it('returns [] for unknown ecosystem without reading any file', async () => {

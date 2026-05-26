@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 /**
@@ -63,7 +63,8 @@ function formatComposerCommand(scriptName: string): string {
  * Supports:
  * - npm: reads package.json#scripts
  * - composer: reads composer.json#scripts
- * - pip and unknown ecosystems: returns []
+ * - pip: detects manage.py for Django commands + pip check
+ * - unknown ecosystems: returns []
  *
  * Scripts in EXCLUDED_SCRIPTS are omitted from the result.
  * The `recommended` flag is set for scripts matching common validation patterns.
@@ -82,7 +83,10 @@ export async function detectProjectScripts(
     return detectComposerScripts(cwd);
   }
 
-  // pip and all other ecosystems: no standardised scripts mechanism
+  if (ecosystemId === 'pip') {
+    return detectPipScripts(cwd);
+  }
+
   return [];
 }
 
@@ -149,6 +153,24 @@ async function detectComposerScripts(cwd: string): Promise<DetectedScript[]> {
         command: formatComposerCommand(name),
         recommended: isRecommended(name),
       });
+    }
+
+    return result;
+  } catch {
+    return [];
+  }
+}
+
+async function detectPipScripts(cwd: string): Promise<DetectedScript[]> {
+  try {
+    const result: DetectedScript[] = [{ name: 'check', command: 'pip check', recommended: true }];
+
+    try {
+      await access(resolve(cwd, 'manage.py'));
+      result.push({ name: 'django-check', command: 'python manage.py check', recommended: true });
+      result.push({ name: 'django-test', command: 'python manage.py test', recommended: true });
+    } catch {
+      // manage.py not found — plain pip project, proceed with pip check only
     }
 
     return result;
