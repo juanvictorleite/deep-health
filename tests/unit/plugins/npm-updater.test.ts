@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { CommandRunner, CommandResult } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
+import type { AdvisorResult } from '@core/types/report';
 
 // ── Module-level mocks ───────────────────────────────────────────────────────
 // Hoisted so the factory runs before the module under test is imported.
@@ -2038,5 +2039,569 @@ describe('npm-updater additional branch coverage', () => {
       runNpmUpdater(runner, baseConfig(), baseScan(), '/tmp/project', false,
         [{ name: 'build', command: 'npm run build' }])
     ).rejects.toThrow();
+  });
+});
+
+// ── deriveAuditFindings (audit_findings) ─────────────────────────────────────
+
+/**
+ * Builds a minimal package-lock.json v2 string with the given root-level packages.
+ * Used for pre-fix lockfile simulation in deriveAuditFindings tests.
+ */
+function makeLockfile(packages: Record<string, string>): string {
+  const pkgs: Record<string, { version: string }> = { '': { version: '1.0.0' } as unknown as { version: string } };
+  for (const [name, version] of Object.entries(packages)) {
+    pkgs[`node_modules/${name}`] = { version };
+  }
+  return JSON.stringify({
+    name: 'test',
+    lockfileVersion: 2,
+    packages: pkgs,
+  });
+}
+
+/**
+ * Builds an AdvisorResult with the given findings.
+ */
+function makeAdvisorResult(findings: AdvisorResult['findings']): AdvisorResult {
+  return {
+    name: 'npm-audit',
+    command: 'npm audit --json',
+    exitCode: 1,
+    status: 'findings',
+    output: '',
+    findings,
+  };
+}
+
+describe('runNpmUpdater — deriveAuditFindings (audit_findings)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockReadFile.mockResolvedValue(DEFAULT_LOCKFILE);
+  });
+
+  /**
+   * Build a minimal ScanResultJson where auto_safe_packages includes the given
+   * packages but vulnerabilities does NOT (simulating a package the fixer knows
+   * about via auto_safe_packages but OSV hasn't classified as a vuln entry).
+   * This lets deriveAuditFindings see a package in packagesUpdated but not in
+   * the OSV vulnerabilities exclusion set.
+   */
+  function scanWithAutoSafeOnly(packages: { name: string; version: string }[]): ScanResultJson {
+    return {
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: 0,
+          auto_safe: packages.length,
+          breaking: 0,
+          manual: 0,
+          auto_safe_packages: packages.map((p) => `${p.name}@${p.version}`),
+          breaking_packages: [],
+          manual_packages: [],
+          vulnerabilities: [], // intentionally empty — these are audit-only packages
+        },
+      },
+      error: null,
+    };
+  }
+
+  it('AC2: npm-audit strategy — advisorFindings matching fixed packages produce AuditFinding[]', async () => {
+    const runner = makeRunner();
+    const runArgsMock = runner.runArgs as ReturnType<typeof vi.fn>;
+
+    // npm audit fix goes through runArgs; npm outdated/audit through runArgs; build via run
+    runArgsMock
+      .mockResolvedValueOnce(ok()) // npm outdated
+      .mockResolvedValueOnce(ok()) // npm audit
+      .mockResolvedValueOnce(ok()) // npm audit fix
+      .mockResolvedValueOnce(ok()); // npm ci (pre-validation)
+
+    (runner.run as ReturnType<typeof vi.fn>).mockResolvedValueOnce(ok()); // npm run build
+
+    // Pre-fix lockfile with vulnerable-pkg at 1.0.0
+    const preFixLockfile = makeLockfile({ 'vulnerable-pkg': '1.0.0' });
+    // Post-audit lockfile: vulnerable-pkg upgraded to 2.0.0
+    const postAuditLockfile = makeLockfile({ 'vulnerable-pkg': '2.0.0' });
+
+    // npm-audit-fixer reads pre then post lockfile from disk via readFile
+    mockReadFile
+      .mockResolvedValueOnce(preFixLockfile)    // pre-audit snapshot in npm-audit-fixer
+      .mockResolvedValueOnce(postAuditLockfile); // post-audit snapshot in npm-audit-fixer
+
+    const preFixBackups = new Map([
+      ['package-lock.json', preFixLockfile],
+      ['package.json', '{"name":"test"}'],
+    ]);
+
+    // Scan: vulnerable-pkg is in auto_safe_packages so fixer will verify it,
+    // but NOT in vulnerabilities → AC4 exclusion won't fire.
+    const scan = scanWithAutoSafeOnly([{ name: 'vulnerable-pkg', version: '2.0.0' }]);
+
+    const advisorResults: AdvisorResult[] = [
+      makeAdvisorResult([
+        {
+          package: 'vulnerable-pkg',
+          severity: 'high',
+          title: 'Prototype pollution in vulnerable-pkg',
+          range: '>=1.0.0 <2.0.0',
+          fixAvailable: '2.0.0',
+        },
+      ]),
+    ];
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      scan,
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'npm-audit',
+      preFixBackups,
+      undefined,
+      undefined,
+      advisorResults,
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.audit_findings).toBeDefined();
+    expect(result.audit_findings).toHaveLength(1);
+    const finding = result.audit_findings![0]!;
+    expect(finding.ecosystem).toBe('npm');
+    expect(finding.package).toBe('vulnerable-pkg');
+    expect(finding.title).toBe('Prototype pollution in vulnerable-pkg');
+    expect(finding.affectedVersions).toBe('>=1.0.0 <2.0.0');
+    expect(finding.cve).toBeNull();
+    expect(finding.advisoryId).toBe('');
+    expect(finding.installedVersion).toBe('1.0.0');
+  });
+
+  it('AC3: no advisorResults → audit_findings is undefined', async () => {
+    const runner = makeRunner();
+
+    // dry-run path: packagesUpdated = [] regardless
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan(),
+      '/tmp/project',
+      true,
+    );
+
+    expect(result.audit_findings).toBeUndefined();
+  });
+
+  it('AC3: empty advisorResults array → audit_findings is undefined', async () => {
+    const runner = makeRunner();
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan(),
+      '/tmp/project',
+      true,
+      [],
+      'osv',
+      undefined,
+      undefined,
+      undefined,
+      [], // empty advisorResults
+    );
+
+    expect(result.audit_findings).toBeUndefined();
+  });
+
+  it('AC5: advisorFindings for packages NOT in fixerResult.packagesUpdated are excluded → undefined', async () => {
+    const runner = makeRunner();
+
+    // dry-run: fixer is a no-op, packagesUpdated = [] → no matches possible
+    const advisorResults: AdvisorResult[] = [
+      makeAdvisorResult([
+        {
+          package: 'unfixed-pkg',
+          severity: 'moderate',
+          title: 'Some issue in unfixed-pkg',
+          range: '>=1.0.0 <1.5.0',
+        },
+      ]),
+    ];
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan(),
+      '/tmp/project',
+      true, // dry-run → packagesUpdated = []
+      [],
+      'osv',
+      undefined,
+      undefined,
+      undefined,
+      advisorResults,
+    );
+
+    expect(result.audit_findings).toBeUndefined();
+  });
+
+  it('AC4: OSV-known packages are excluded; only non-OSV advisor findings are included', async () => {
+    const runner = makeRunner();
+    const runArgsMock = runner.runArgs as ReturnType<typeof vi.fn>;
+
+    runArgsMock
+      .mockResolvedValueOnce(ok()) // npm outdated
+      .mockResolvedValueOnce(ok()) // npm audit
+      .mockResolvedValueOnce(ok()) // npm audit fix
+      .mockResolvedValueOnce(ok()); // npm ci (pre-validation)
+
+    (runner.run as ReturnType<typeof vi.fn>).mockResolvedValueOnce(ok()); // npm run build
+
+    // lodash is OSV-known (in vulnerabilities); extra-pkg is audit-only (not in vulnerabilities)
+    const scan: ScanResultJson = {
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: 1,
+          auto_safe: 2,
+          breaking: 0,
+          manual: 0,
+          auto_safe_packages: ['lodash@4.17.21', 'extra-pkg@1.0.0'],
+          breaking_packages: [],
+          manual_packages: [],
+          vulnerabilities: [
+            {
+              // Only lodash is in vulnerabilities → OSV-known, will be excluded by AC4
+              ecosystem: 'npm',
+              package: 'lodash',
+              currentVersion: '4.17.20',
+              safeVersion: '4.17.21',
+              cvss: '7.5',
+              ghsaId: 'GHSA-test',
+              risk: 'high',
+              classification: 'auto_safe',
+              reason: 'patch update',
+            },
+            // extra-pkg intentionally absent from vulnerabilities → not OSV-known
+          ],
+        },
+      },
+      error: null,
+    };
+
+    const preFixLockfile = makeLockfile({ lodash: '4.17.20', 'extra-pkg': '0.9.0' });
+    const postAuditLockfile = makeLockfile({ lodash: '4.17.21', 'extra-pkg': '1.0.0' });
+
+    mockReadFile
+      .mockResolvedValueOnce(preFixLockfile)
+      .mockResolvedValueOnce(postAuditLockfile);
+
+    const preFixBackups = new Map([
+      ['package-lock.json', preFixLockfile],
+      ['package.json', '{"name":"test"}'],
+    ]);
+
+    const advisorResults: AdvisorResult[] = [
+      makeAdvisorResult([
+        {
+          // lodash is OSV-known → must be EXCLUDED
+          package: 'lodash',
+          severity: 'high',
+          title: 'Prototype pollution in lodash',
+          range: '<4.17.21',
+        },
+        {
+          // extra-pkg is NOT OSV-known → must be INCLUDED
+          package: 'extra-pkg',
+          severity: 'moderate',
+          title: 'Path traversal in extra-pkg',
+          range: '<1.0.0',
+        },
+      ]),
+    ];
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      scan,
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'npm-audit',
+      preFixBackups,
+      undefined,
+      undefined,
+      advisorResults,
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.audit_findings).toBeDefined();
+    // lodash excluded (OSV-known); extra-pkg included (audit-only)
+    expect(result.audit_findings!.every((f) => f.package !== 'lodash')).toBe(true);
+    expect(result.audit_findings!.some((f) => f.package === 'extra-pkg')).toBe(true);
+  });
+
+  it('AC7: installedVersion populated from pre-fix lockfile via primaryBackups', async () => {
+    const runner = makeRunner();
+    const runArgsMock = runner.runArgs as ReturnType<typeof vi.fn>;
+
+    runArgsMock
+      .mockResolvedValueOnce(ok()) // npm outdated
+      .mockResolvedValueOnce(ok()) // npm audit
+      .mockResolvedValueOnce(ok()) // npm audit fix
+      .mockResolvedValueOnce(ok()); // npm ci (pre-validation)
+
+    (runner.run as ReturnType<typeof vi.fn>).mockResolvedValueOnce(ok()); // npm run build
+
+    const preFixLockfile = makeLockfile({ 'vuln-pkg': '3.1.4' });
+    const postAuditLockfile = makeLockfile({ 'vuln-pkg': '3.2.0' });
+
+    mockReadFile
+      .mockResolvedValueOnce(preFixLockfile)
+      .mockResolvedValueOnce(postAuditLockfile);
+
+    const preFixBackups = new Map([
+      ['package-lock.json', preFixLockfile],
+      ['package.json', '{"name":"test"}'],
+    ]);
+
+    const advisorResults: AdvisorResult[] = [
+      makeAdvisorResult([
+        {
+          package: 'vuln-pkg',
+          severity: 'critical',
+          title: 'RCE in vuln-pkg',
+          range: '<3.2.0',
+        },
+      ]),
+    ];
+
+    // vuln-pkg in auto_safe but NOT in vulnerabilities → AC4 won't exclude
+    const scan = scanWithAutoSafeOnly([{ name: 'vuln-pkg', version: '3.2.0' }]);
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      scan,
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'npm-audit',
+      preFixBackups,
+      undefined,
+      undefined,
+      advisorResults,
+    );
+
+    expect(result.audit_findings).toBeDefined();
+    const finding = result.audit_findings![0]!;
+    expect(finding.package).toBe('vuln-pkg');
+    // installedVersion comes from the pre-fix lockfile in primaryBackups
+    expect(finding.installedVersion).toBe('3.1.4');
+  });
+
+  it('AC7: installedVersion is null when package-lock.json not in primaryBackups', async () => {
+    const runner = makeRunner();
+    const runArgsMock = runner.runArgs as ReturnType<typeof vi.fn>;
+
+    runArgsMock
+      .mockResolvedValueOnce(ok()) // npm outdated
+      .mockResolvedValueOnce(ok()) // npm audit
+      .mockResolvedValueOnce(ok()) // npm audit fix
+      .mockResolvedValueOnce(ok()); // npm ci (pre-validation)
+
+    (runner.run as ReturnType<typeof vi.fn>).mockResolvedValueOnce(ok()); // npm run build
+
+    const lockfileWithPkg = makeLockfile({ 'mystery-pkg': '0.1.0' });
+    const postAuditLockfile = makeLockfile({ 'mystery-pkg': '0.2.0' });
+
+    // npm-audit-fixer reads pre then post lockfile from disk
+    mockReadFile
+      .mockResolvedValueOnce(lockfileWithPkg)    // pre-audit snapshot in npm-audit-fixer
+      .mockResolvedValueOnce(postAuditLockfile);  // post-audit snapshot
+
+    // primaryBackups WITHOUT package-lock.json → preFixVersions will be empty Map
+    // backupFiles mock returns new Map() by default; we override with a Map missing the lockfile
+    const preFixBackups = new Map([
+      ['package.json', '{"name":"test"}'],
+      // no 'package-lock.json' key → preFixVersions = empty Map → installedVersion = null
+    ]);
+
+    const advisorResults: AdvisorResult[] = [
+      makeAdvisorResult([
+        {
+          package: 'mystery-pkg',
+          severity: 'low',
+          title: 'Issue in mystery-pkg',
+          range: '<0.2.0',
+        },
+      ]),
+    ];
+
+    // mystery-pkg in auto_safe only, not in vulnerabilities
+    const scan = scanWithAutoSafeOnly([{ name: 'mystery-pkg', version: '0.2.0' }]);
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      scan,
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'npm-audit',
+      preFixBackups,
+      undefined,
+      undefined,
+      advisorResults,
+    );
+
+    expect(result.audit_findings).toBeDefined();
+    const finding = result.audit_findings![0]!;
+    expect(finding.package).toBe('mystery-pkg');
+    // package-lock.json not in primaryBackups → preFixVersions is empty → null
+    expect(finding.installedVersion).toBeNull();
+  });
+
+  it('AC6: osv-then-audit strategy also produces audit_findings for audit-only packages', async () => {
+    const runner = makeRunner();
+    const runArgsMock = runner.runArgs as ReturnType<typeof vi.fn>;
+
+    // audit-only-pkg is in auto_safe_packages but NOT in OSV vulnerabilities
+    // axios IS in OSV vulnerabilities (and also in osvFixOutcome)
+    const preFixLockfile = makeLockfile({ 'audit-only-pkg': '1.0.0', axios: '1.6.0' });
+    const postOsvLockfile = makeLockfile({ 'audit-only-pkg': '1.0.0', axios: '1.7.0' });
+    const postAuditLockfile = makeLockfile({ 'audit-only-pkg': '2.0.0', axios: '1.7.0' });
+
+    // osv-then-audit-fixer reads: postOsvLockfile (pre-audit), package.json, then postAuditLockfile
+    mockReadFile
+      .mockResolvedValueOnce(postOsvLockfile)    // pre-audit snapshot in osv-then-audit-fixer
+      .mockResolvedValueOnce('{"name":"test"}')  // package.json for intermediateBackup
+      .mockResolvedValueOnce(postAuditLockfile); // post-audit snapshot
+
+    runArgsMock
+      .mockResolvedValueOnce(ok()) // npm outdated
+      .mockResolvedValueOnce(ok()) // npm audit
+      .mockResolvedValueOnce(ok()) // npm audit fix
+      .mockResolvedValueOnce(ok()); // npm ci (pre-validation)
+
+    (runner.run as ReturnType<typeof vi.fn>).mockResolvedValueOnce(ok()); // npm run build
+
+    const preFixBackups = new Map([
+      ['package-lock.json', preFixLockfile],
+      ['package.json', '{"name":"test"}'],
+    ]);
+
+    // OSV fixed axios; audit will fix audit-only-pkg
+    const osvFixOutcome = {
+      applied: true,
+      packagesUpdated: [{ name: 'axios', versionFrom: '1.6.0', versionTo: '1.7.0' }],
+    };
+
+    // axios is OSV-known (in vulnerabilities); audit-only-pkg is NOT
+    const scan: ScanResultJson = {
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: 1,
+          auto_safe: 2,
+          breaking: 0,
+          manual: 0,
+          auto_safe_packages: ['axios@1.7.0', 'audit-only-pkg@2.0.0'],
+          breaking_packages: [],
+          manual_packages: [],
+          vulnerabilities: [
+            {
+              ecosystem: 'npm',
+              package: 'axios',
+              currentVersion: '1.6.0',
+              safeVersion: '1.7.0',
+              cvss: '7.5',
+              ghsaId: 'GHSA-test-axios',
+              risk: 'high',
+              classification: 'auto_safe',
+              reason: 'patch update',
+            },
+            // audit-only-pkg intentionally absent from vulnerabilities
+          ],
+        },
+      },
+      error: null,
+    };
+
+    const advisorResults: AdvisorResult[] = [
+      makeAdvisorResult([
+        {
+          package: 'audit-only-pkg',
+          severity: 'high',
+          title: 'Vuln in audit-only-pkg',
+          range: '<2.0.0',
+        },
+      ]),
+    ];
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      scan,
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv-then-audit',
+      preFixBackups,
+      osvFixOutcome,
+      undefined,
+      advisorResults,
+    );
+
+    expect(result.status).toBe('success');
+    // audit-only-pkg: in advisorFindings, in packagesUpdated (via audit-fix), NOT in OSV vulns
+    expect(result.audit_findings).toBeDefined();
+    expect(result.audit_findings!.some((f) => f.package === 'audit-only-pkg')).toBe(true);
+    const auditFinding = result.audit_findings!.find((f) => f.package === 'audit-only-pkg')!;
+    expect(auditFinding.ecosystem).toBe('npm');
+    // installedVersion from pre-fix lockfile (preFixBackups has package-lock.json)
+    expect(auditFinding.installedVersion).toBe('1.0.0');
+    // axios is excluded (OSV-known)
+    expect(result.audit_findings!.every((f) => f.package !== 'axios')).toBe(true);
+  });
+
+  it('AC3: advisorResults with findings but no packages matching packagesUpdated → undefined', async () => {
+    const runner = makeRunner();
+
+    // dry-run → packagesUpdated = [] → fixedPackages empty → return undefined
+    const advisorResults: AdvisorResult[] = [
+      makeAdvisorResult([
+        {
+          package: 'some-other-pkg',
+          severity: 'low',
+          title: 'Minor issue',
+          range: '<2.0.0',
+        },
+      ]),
+    ];
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([], []),
+      '/tmp/project',
+      true, // dry-run → packagesUpdated = []
+      [],
+      'osv',
+      undefined,
+      undefined,
+      undefined,
+      advisorResults,
+    );
+
+    expect(result.audit_findings).toBeUndefined();
   });
 });

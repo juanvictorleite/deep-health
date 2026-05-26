@@ -120,3 +120,17 @@ For config simplicity: the strongest pattern is **zero-config defaults with opt-
 5. **Do NOT merge advisor and fixer into one concept.** npm audit's unified approach is the cautionary tale. The separation of "what's wrong" from "how to fix it" is a feature, not a limitation.
 
 6. **For non-expert users: emphasize decision support over automation.** osv-scanner's interactive mode and Snyk's "Fixed in" annotations are good models. Users should understand what will happen before it happens, with clear risk signals (severity, breaking change potential, dev vs. prod context).
+
+---
+
+## Implementation Status (updated 2026-05-25)
+
+The advisor→fixer data bridge described in recommendation 1 is now **implemented for npm** (not just Composer).
+
+**What was built:** `npm-updater.ts` now provides a `deriveAuditFindings` hook in its `UpdaterRecipe`. The hook is invoked by `runUpdaterLifecycle` after `derivePackagesUpdated` and its result flows to `UpdateResultJson.audit_findings`. This gives npm the same `audit_findings` reporting fidelity that Composer already had via `fixerResult.auditAdvisories`.
+
+**The bridge mechanism:** The `advisorFindings` field in `FixerCallOptions` was the planned conduit. Rather than consuming it inside the fixer, the npm updater consumes it in `deriveAuditFindings` — a cleaner separation because the fixer handles mechanics (what was actually patched on disk) and the hook handles reporting enrichment (what additional context the advisor provides). The hook cross-references `advisorFindings` with `fixerResult.packagesUpdated`, excluding packages already known to the OSV scan (`scanResult.ecosystems.npm.vulnerabilities`) so only truly additional findings are surfaced.
+
+**Analogy to Renovate's PackageRule normalization:** vulnerability data from the npm advisor (a secondary scan) is normalized into `AuditFinding[]` — the same format Composer uses — so the executive report's injection logic is ecosystem-agnostic. This is architecturally equivalent to Renovate converting alerts into `PackageRule` objects for processing by the existing update machinery.
+
+**Scope:** the change is contained entirely in `src/modules/ecosystem/plugins/npm-updater.ts`. No changes to `updater-lifecycle.ts`, `updater-transaction.ts`, the fixer implementations, or any other file.

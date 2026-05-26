@@ -394,11 +394,14 @@ interface UpdaterRecipe<TFixerResult = void> {
   applyFix(ctx): Promise<FixResult<TFixerResult>>;
   preValidation?(ctx, fixerResult): Promise<void>;
   derivePackagesUpdated?(ctx, fixerResult): Promise<string[]>;
+  deriveAuditFindings?(ctx, fixerResult): Promise<AuditFinding[] | undefined>;
   partialRevert?(ctx, fixerResult): Promise<{ packagesUpdated: string[] } | null>;
 }
 ```
 
 `FixResult<T>` is `{ ok: true; value: T } | { ok: false; error: string; validationStatus?: 'fail' | 'skipped' }`.
+
+`deriveAuditFindings` is called after `derivePackagesUpdated` when present. Its result is forwarded to `UpdateResultJson.audit_findings` so the executive report can inject audit-discovered packages as synthetic `VulnerabilityEntry` objects.
 
 ### Recipe-to-Ecosystem Mapping
 
@@ -409,6 +412,9 @@ interface UpdaterRecipe<TFixerResult = void> {
 | `preValidation` | `npm ci` (stream: true) | — | — |
 | `partialRevert` | `fixerResult.partialRevert` → osv-only packages | — | — |
 | `derivePackagesUpdated` | `fixerResult.packagesUpdated` | `parsePipInstalledVersions` | diff `composer.lock` before/after |
+| `deriveAuditFindings` | cross-ref `advisorFindings` × `packagesUpdated` (excludes OSV-known) | — | `fixerResult.auditAdvisories` mapped to `AuditFinding[]` |
+
+**npm `deriveAuditFindings` data bridge:** the npm updater captures the pre-fix `package-lock.json` from `primaryBackups` before calling `runUpdaterLifecycle`. Inside `deriveAuditFindings` it cross-references the flat-mapped `advisorFindings` (from `npm audit --json` via the advisor phase) with `fixerResult.packagesUpdated`. Packages that are also present in `scanResult.ecosystems.npm.vulnerabilities` are excluded — only findings the OSV scan did not already classify are surfaced as `AuditFinding[]`. The `installedVersion` field is populated from the pre-fix lockfile. This gives npm the same reporting fidelity as Composer: audit-discovered packages appear in the executive report as synthetic vulnerability entries.
 
 ---
 

@@ -1,6 +1,6 @@
 import type { CommandRunner } from '@core/types/common';
 import type { FixerStrategyId, ValidationCommandConfig } from '@core/types/config';
-import type { UpdateResultJson } from '@core/types/update';
+import type { AuditFinding, UpdateResultJson } from '@core/types/update';
 import type { ScanResultJson } from '@core/types/scan';
 import type { AdvisorResult } from '@core/types/report';
 import { PhaseError } from '@core/errors';
@@ -9,6 +9,7 @@ import { logger } from '@infra/utils/logger';
 import { FIXER_MAP } from '../fixers/index';
 import type { OsvFixOutcome } from '../fixers/index';
 import { runUpdaterLifecycle } from '../utils/updater-lifecycle';
+import { collectRootNpmLockfileVersions } from '../utils/lockfile-inspect';
 
 const NPM_FILES = ['package.json', 'package-lock.json'];
 const NPM_ADVISOR_FILES = ['yarn.lock'];
@@ -49,6 +50,13 @@ export async function runNpmUpdater(
     const advisorBackups = await backupFiles(NPM_ADVISOR_FILES, cwd);
     const primaryBackups = preFixBackups ?? (await backupFiles(NPM_FILES, cwd));
     const mergedBackups = new Map([...primaryBackups, ...advisorBackups]);
+
+    // Capture pre-fix lockfile versions for installedVersion in audit findings.
+    // Follows the same closure-capture pattern as Composer's beforeLockText.
+    const preFixLockfileContent = primaryBackups.get('package-lock.json');
+    const preFixVersions: Map<string, string> = preFixLockfileContent
+      ? collectRootNpmLockfileVersions(preFixLockfileContent)
+      : new Map();
 
     if (runner.dryRun) {
       logger.tagged('npm', 'DRY-RUN', `Would execute fixer strategy: ${fixerStrategy}`);
@@ -99,6 +107,44 @@ export async function runNpmUpdater(
 
         async derivePackagesUpdated(_ctx, fixerResult) {
           return fixerResult.packagesUpdated;
+        },
+
+        async deriveAuditFindings(ctx, fixerResult): Promise<AuditFinding[] | undefined> {
+          if (!resolvedAdvisorFindings || resolvedAdvisorFindings.length === 0) return undefined;
+
+          const fixedPackages = new Set(
+            fixerResult.packagesUpdated.map((p) => {
+              // Handle scoped packages: "@scope/pkg@1.0.0" → "@scope/pkg"
+              // Non-scoped: "lodash@4.17.21" → "lodash"
+              const atIdx = p.startsWith('@') ? p.indexOf('@', 1) : p.indexOf('@');
+              return atIdx > 0 ? p.slice(0, atIdx) : p;
+            }).filter(Boolean),
+          );
+          if (fixedPackages.size === 0) return undefined;
+
+          // Build a set of OSV-known package names so we can exclude them.
+          // Only truly additional findings (not already tracked by OSV) are included.
+          const npmEcosystem = ctx.scanResult.ecosystems['npm'];
+          const osvKnownPackages = new Set(
+            (npmEcosystem?.vulnerabilities ?? []).map((v) => v.package),
+          );
+
+          const findings: AuditFinding[] = [];
+          for (const finding of resolvedAdvisorFindings) {
+            if (!fixedPackages.has(finding.package)) continue;
+            if (osvKnownPackages.has(finding.package)) continue;
+            findings.push({
+              ecosystem: 'npm',
+              package: finding.package,
+              advisoryId: '',
+              title: finding.title,
+              cve: null,
+              affectedVersions: finding.range ?? '',
+              installedVersion: preFixVersions.get(finding.package) ?? null,
+            });
+          }
+
+          return findings.length > 0 ? findings : undefined;
         },
       },
       { runner, cwd, scanResult, ecosystemId: 'npm', validationCommands, authorizeBreaking },
