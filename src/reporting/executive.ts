@@ -1,5 +1,6 @@
 import type { ExecutiveReportOptions, ResidualVerification } from '@core/types/report';
 import type { VulnerabilityEntry, ScanResultJson } from '@core/types/scan';
+import type { UpdateResultJson } from '@core/types/update';
 import type { EcosystemConfig } from '@core/types/config';
 import { ecosystemEntryKey } from '@core/types/config';
 import type { Locale } from './i18n/index';
@@ -462,4 +463,84 @@ export function executiveReportFilename(client: string, project: string): string
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   return `[${client} ${project}] Security Report - ${year}-${month} - ${monthName(now)}.md`;
+}
+
+/**
+ * Generate an executive report scoped to a single ecosystem entry.
+ * Convenience wrapper around buildEntryReportContext + render.
+ */
+export function generateEntryReport(opts: ExecutiveReportOptions, entryKey: string): string {
+  const context = buildEntryReportContext(opts, entryKey);
+  return render(executiveTemplate, context);
+}
+
+/**
+ * Build an executive report context scoped to a single ecosystem entry.
+ *
+ * Filters scanBefore.ecosystems to only the target entry's key and filters
+ * the updates map to only that entry, then delegates to buildExecutiveReportContext
+ * with a single-entry ecosystems array.
+ */
+export function buildEntryReportContext(
+  opts: ExecutiveReportOptions,
+  entryKey: string,
+): Record<string, unknown> {
+  const entryEcosystems = (opts.ecosystems ?? []).filter(
+    (e) => ecosystemEntryKey(e) === entryKey,
+  );
+
+  const filteredEcosystems: ScanResultJson['ecosystems'] = {};
+  if (opts.scanBefore.ecosystems[entryKey] !== undefined) {
+    filteredEcosystems[entryKey] = opts.scanBefore.ecosystems[entryKey]!;
+  }
+  const filteredScanBefore: ScanResultJson = {
+    ...opts.scanBefore,
+    ecosystems: filteredEcosystems,
+  };
+
+  const filteredScanAfter: ScanResultJson = {
+    ...opts.scanAfter,
+    ecosystems: opts.scanAfter.ecosystems[entryKey] !== undefined
+      ? { [entryKey]: opts.scanAfter.ecosystems[entryKey]! }
+      : {},
+  };
+
+  const filteredUpdates: Record<string, UpdateResultJson> = {};
+  if (opts.updates[entryKey] !== undefined) {
+    filteredUpdates[entryKey] = opts.updates[entryKey]!;
+  }
+
+  return buildExecutiveReportContext({
+    ...opts,
+    scanBefore: filteredScanBefore,
+    scanAfter: filteredScanAfter,
+    updates: filteredUpdates,
+    ecosystems: entryEcosystems.length > 0 ? entryEcosystems : opts.ecosystems,
+  });
+}
+
+/**
+ * Derive a split report filename by inserting the entry identifier
+ * (with colons replaced by hyphens) before the final extension.
+ *
+ * Example:
+ *   base:    '[Client Project] Security Report - 2026-05 - May.md'
+ *   entry:   'npm:frontend'
+ *   result:  '[Client Project] Security Report - npm-frontend - 2026-05 - May.md'
+ */
+export function splitReportFilename(baseFilename: string, entryKey: string): string {
+  const slug = entryKey.replace(/:/g, '-');
+  const dotIndex = baseFilename.lastIndexOf('.');
+  if (dotIndex === -1) return `${baseFilename}-${slug}`;
+  const name = baseFilename.slice(0, dotIndex);
+  const ext = baseFilename.slice(dotIndex);
+  // Insert the slug after the first segment that ends with '] Security Report'
+  // Format: '[Client Project] Security Report - <slug> - YYYY-MM - Month.md'
+  const markerIndex = name.indexOf('] Security Report - ');
+  if (markerIndex !== -1) {
+    const afterMarker = name.slice(markerIndex + '] Security Report - '.length);
+    const beforeMarker = name.slice(0, markerIndex + '] Security Report - '.length);
+    return `${beforeMarker}${slug} - ${afterMarker}${ext}`;
+  }
+  return `${name} - ${slug}${ext}`;
 }

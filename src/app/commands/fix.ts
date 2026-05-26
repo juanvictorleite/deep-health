@@ -38,6 +38,11 @@ export interface FixCommandOptions {
   openPr?: boolean;
   /** Pull request title (default: auto-generated) */
   prTitle?: string;
+  /**
+   * When true, generates one report per ecosystem entry instead of a consolidated report.
+   * Overrides outputs.split_reports from config when provided.
+   */
+  splitReports?: boolean;
 }
 
 /**
@@ -123,6 +128,7 @@ async function runFixPipeline(
         ? result.advisorResults
         : undefined,
       residualVerification: result.residualVerification,
+      splitReports: opts.splitReports,
     });
     if (artifactCode !== 0) return artifactCode;
   }

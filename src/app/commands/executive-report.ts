@@ -13,6 +13,11 @@ export interface ExecutiveReportCommandOptions {
   output?: string;
   client?: string;
   project?: string;
+  /**
+   * When true, generates one report per ecosystem entry instead of a consolidated report.
+   * Overrides outputs.split_reports from config when provided.
+   */
+  splitReports?: boolean;
 }
 
 /**
@@ -49,6 +54,7 @@ export async function runExecutiveReportCommand(
     advisorResults: Object.keys(orchestratorResult.advisorResults).length > 0
       ? orchestratorResult.advisorResults
       : undefined,
+    splitReports: opts.splitReports,
   });
   if (artifactCode !== 0) return artifactCode;
 

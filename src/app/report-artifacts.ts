@@ -1,13 +1,20 @@
 import { CLI_NAME } from '@infra/brand';
 import { runScanner } from '@modules/scanner/index';
-import { generateExecutiveReport, executiveReportFilename } from '@reporting/executive';
+import {
+  generateExecutiveReport,
+  generateEntryReport,
+  executiveReportFilename,
+  splitReportFilename,
+} from '@reporting/executive';
 import { generateExecutiveReportDocx, executiveReportDocxFilename } from '@reporting/docx-executive';
 import { generateSonarQubeHtmlReport, sonarqubeHtmlReportFilename } from '@reporting/sonarqube-report';
 import { saveReport, resolveReportsDir, resolveEngineReportsDir } from '@app/report-saver';
-import type { ProjectConfig } from '@core/types/config';
+import type { ProjectConfig, EcosystemConfig } from '@core/types/config';
+import { ecosystemEntryKey } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
-import type { AdvisorResult, ResidualVerification } from '@core/types/report';
+import type { AdvisorResult, ResidualVerification, ExecutiveReportOptions } from '@core/types/report';
+import type { SupportedLocale } from '@core/types/locale';
 import type { CommandRunner } from '@core/types/common';
 
 export interface ReportArtifactsInput {
@@ -23,6 +30,12 @@ export interface ReportArtifactsInput {
   engineResults?: Record<string, ScanResultJson>;
   advisorResults?: Record<string, AdvisorResult[]>;
   residualVerification?: ResidualVerification;
+  /**
+   * When true, generates one report per ecosystem entry.
+   * Overrides config.outputs.split_reports when provided.
+   * Defaults to config.outputs.split_reports ?? false.
+   */
+  splitReports?: boolean;
 }
 
 /**
@@ -64,6 +77,9 @@ export async function generateAndSaveReportArtifacts(
     subFoldersEnabled ? 'sonarqube' : undefined,
   );
 
+  // CLI flag (input.splitReports) takes precedence over config value
+  const splitReportsEnabled = input.splitReports ?? outputsConfig?.split_reports ?? false;
+
   const reportOpts = {
     client,
     project,
@@ -77,27 +93,63 @@ export async function generateAndSaveReportArtifacts(
     residualVerification,
   };
 
-  if (markdownEnabled) {
-    const execReport = generateExecutiveReport(reportOpts);
-    const filename = executiveReportFilename(client, project);
-    const outcome = await saveReport(filename, execReport, reportsDir, config.cloud_storage, cwd);
-    if (outcome.cloudError && config.cloud_storage?.require_upload) {
-      process.stderr.write(
-        `[${CLI_NAME}] Cloud upload required but failed: ${outcome.cloudError}\n`,
-      );
-      return 1;
-    }
-  }
+  if (splitReportsEnabled && config.ecosystems.length > 0) {
+    // Split mode: one report per ecosystem entry
+    for (const ecoEntry of config.ecosystems) {
+      const entryKey = ecosystemEntryKey(ecoEntry);
 
-  if (docxEnabled) {
-    const docxBuffer = await generateExecutiveReportDocx(reportOpts);
-    const docxFilename = executiveReportDocxFilename(client, project);
-    const docxOutcome = await saveReport(docxFilename, docxBuffer, reportsDir, config.cloud_storage, cwd);
-    if (docxOutcome.cloudError && config.cloud_storage?.require_upload) {
-      process.stderr.write(
-        `[${CLI_NAME}] Cloud upload required but failed (DOCX): ${docxOutcome.cloudError}\n`,
-      );
-      return 1;
+      if (markdownEnabled) {
+        const entryReport = generateEntryReport(reportOpts, entryKey);
+        const baseFilename = executiveReportFilename(client, project);
+        const filename = splitReportFilename(baseFilename, entryKey);
+        const outcome = await saveReport(filename, entryReport, reportsDir, config.cloud_storage, cwd);
+        if (outcome.cloudError && config.cloud_storage?.require_upload) {
+          process.stderr.write(
+            `[${CLI_NAME}] Cloud upload required but failed: ${outcome.cloudError}\n`,
+          );
+          return 1;
+        }
+      }
+
+      if (docxEnabled) {
+        const baseDocxFilename = executiveReportDocxFilename(client, project);
+        const docxFilename = splitReportFilename(baseDocxFilename, entryKey);
+        // Build entry-scoped opts for DOCX generation
+        const entryOpts = buildEntryReportOptsForSplit(reportOpts, entryKey);
+        const docxBuffer = await generateExecutiveReportDocx(entryOpts);
+        const docxOutcome = await saveReport(docxFilename, docxBuffer, reportsDir, config.cloud_storage, cwd);
+        if (docxOutcome.cloudError && config.cloud_storage?.require_upload) {
+          process.stderr.write(
+            `[${CLI_NAME}] Cloud upload required but failed (DOCX): ${docxOutcome.cloudError}\n`,
+          );
+          return 1;
+        }
+      }
+    }
+  } else {
+    // Consolidated mode (default)
+    if (markdownEnabled) {
+      const execReport = generateExecutiveReport(reportOpts);
+      const filename = executiveReportFilename(client, project);
+      const outcome = await saveReport(filename, execReport, reportsDir, config.cloud_storage, cwd);
+      if (outcome.cloudError && config.cloud_storage?.require_upload) {
+        process.stderr.write(
+          `[${CLI_NAME}] Cloud upload required but failed: ${outcome.cloudError}\n`,
+        );
+        return 1;
+      }
+    }
+
+    if (docxEnabled) {
+      const docxBuffer = await generateExecutiveReportDocx(reportOpts);
+      const docxFilename = executiveReportDocxFilename(client, project);
+      const docxOutcome = await saveReport(docxFilename, docxBuffer, reportsDir, config.cloud_storage, cwd);
+      if (docxOutcome.cloudError && config.cloud_storage?.require_upload) {
+        process.stderr.write(
+          `[${CLI_NAME}] Cloud upload required but failed (DOCX): ${docxOutcome.cloudError}\n`,
+        );
+        return 1;
+      }
     }
   }
 
@@ -121,4 +173,61 @@ export async function generateAndSaveReportArtifacts(
   }
 
   return 0;
+}
+
+/**
+ * Build entry-scoped ExecutiveReportOptions for split DOCX generation.
+ * Filters scanBefore/scanAfter/updates to only the given entryKey and
+ * narrows ecosystems to the single entry.
+ */
+function buildEntryReportOptsForSplit(
+  opts: {
+    client: string;
+    project: string;
+    scanBefore: ScanResultJson;
+    scanAfter: ScanResultJson;
+    updates: Record<string, UpdateResultJson>;
+    ecosystems: EcosystemConfig[];
+    engineResults?: Record<string, ScanResultJson>;
+    advisorResults?: Record<string, AdvisorResult[]>;
+    residualVerification?: ResidualVerification;
+    locale?: SupportedLocale;
+  },
+  entryKey: string,
+): ExecutiveReportOptions {
+  const entryEcosystems = opts.ecosystems.filter(
+    (e) => ecosystemEntryKey(e) === entryKey,
+  );
+
+  const filteredScanBefore: ScanResultJson = {
+    ...opts.scanBefore,
+    ecosystems: opts.scanBefore.ecosystems[entryKey] !== undefined
+      ? { [entryKey]: opts.scanBefore.ecosystems[entryKey]! }
+      : {},
+  };
+
+  const filteredScanAfter: ScanResultJson = {
+    ...opts.scanAfter,
+    ecosystems: opts.scanAfter.ecosystems[entryKey] !== undefined
+      ? { [entryKey]: opts.scanAfter.ecosystems[entryKey]! }
+      : {},
+  };
+
+  const filteredUpdates: Record<string, UpdateResultJson> = {};
+  if (opts.updates[entryKey] !== undefined) {
+    filteredUpdates[entryKey] = opts.updates[entryKey]!;
+  }
+
+  return {
+    client: opts.client,
+    project: opts.project,
+    scanBefore: filteredScanBefore,
+    scanAfter: filteredScanAfter,
+    updates: filteredUpdates,
+    ecosystems: entryEcosystems.length > 0 ? entryEcosystems : opts.ecosystems,
+    locale: opts.locale,
+    engineResults: opts.engineResults,
+    advisorResults: opts.advisorResults,
+    residualVerification: opts.residualVerification,
+  };
 }

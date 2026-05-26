@@ -159,6 +159,14 @@ export interface OutputsConfig {
    * Defaults to false (flat layout — all files at the root level).
    */
   sub_folders?: boolean;
+  /**
+   * When true, generates one report per ecosystem entry instead of a consolidated report.
+   * Each split report contains only the vulnerabilities for its ecosystem entry.
+   * Equivalent to passing --split-reports on the CLI.
+   * CLI flag takes precedence over this config value.
+   * Defaults to false.
+   */
+  split_reports?: boolean;
 }
 
 /** Declarative ecosystem configuration entry */

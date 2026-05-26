@@ -178,6 +178,12 @@ const OutputsConfigSchema = z
      * Defaults to false.
      */
     sub_folders: z.boolean().optional(),
+    /**
+     * When true, generates one report per ecosystem entry instead of a consolidated report.
+     * Equivalent to --split-reports CLI flag. CLI flag takes precedence.
+     * Defaults to false.
+     */
+    split_reports: z.boolean().optional(),
   })
   .strict();
 
