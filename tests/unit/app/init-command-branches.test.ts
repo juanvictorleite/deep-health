@@ -56,7 +56,7 @@ function setupInteractiveMocks({
   markdown = true,
   ecosystems = ['npm', 'composer', 'pip'],
 }: { sonar?: boolean; markdown?: boolean; ecosystems?: string[] } = {}) {
-  mockCheckbox.mockResolvedValue(ecosystems as ReturnType<typeof mockCheckbox.mock.results[0]['value']> extends Promise<infer U> ? U : never);
+  mockCheckbox.mockResolvedValueOnce(ecosystems as any).mockResolvedValue([] as any);
   mockSelect.mockImplementation((msg: string, choices: Array<{ name: string; value: string }>) => {
     // Language / Idioma is always the first prompt — return 'en' so subsequent EN strings work
     if (msg.includes('Language') || msg.includes('Idioma')) return Promise.resolve('en');
