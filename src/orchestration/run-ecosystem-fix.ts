@@ -57,6 +57,13 @@ export interface RunEcosystemFixParams {
    * Forwarded to the updater for dirty-tree detection after revert.
    */
   preRunSnapshots: Map<string, string> | undefined;
+  /**
+   * Optional project root directory. When provided, Docker image builds resolve
+   * Dockerfile and build context paths relative to projectRoot instead of cwd.
+   * cwd (ecosystemCwd) is still used for container mounts so package-manager
+   * commands run in the correct subdirectory. Defaults to cwd when absent.
+   */
+  projectRoot?: string;
 }
 
 export type RunEcosystemFixOutcome =
@@ -108,8 +115,10 @@ export async function runEcosystemFix(
 
   // Resolve effective runner via the ecosystem runtime module
   // Pass the per-ecosystem inline runner config from ecosystems[].runner (if any).
+  // projectRoot is passed so buildProjectImage resolves Dockerfile/context paths
+  // from the project root, while cwd (ecosystemCwd) is kept for container mounts.
   const effectiveRunner: CommandRunner = plugin.runtimeSpec
-    ? await resolveEcosystemRuntime(plugin, hostRunner, config, cwd, ecoEntry.runner)
+    ? await resolveEcosystemRuntime({ plugin, hostRunner, config, cwd, runnerConfig: ecoEntry.runner, projectRoot: params.projectRoot })
     : hostRunner;
 
   // Run advisors using effectiveRunner so they execute in the same container

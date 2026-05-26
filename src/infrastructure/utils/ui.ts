@@ -56,6 +56,20 @@ export function tag(id: string, label: string): string {
   return `${badge(id)} [${label}]`;
 }
 
+// ─── Section header ───────────────────────────────────────────────────────────
+
+const SECTION_HEADER_WIDTH = 54;
+const SECTION_HEADER_CHAR = '─';
+
+export function sectionHeader(title: string): string {
+  const prefix = `${SECTION_HEADER_CHAR}${SECTION_HEADER_CHAR} `;
+  const suffix = ' ';
+  const inner = prefix + title + suffix;
+  const remaining = Math.max(0, SECTION_HEADER_WIDTH - inner.length);
+  const line = chalk.gray(inner + SECTION_HEADER_CHAR.repeat(remaining));
+  return `\n${line}\n\n`;
+}
+
 // ─── Semantic chalk shortcuts ─────────────────────────────────────────────────
 
 export const dim = chalk.dim;

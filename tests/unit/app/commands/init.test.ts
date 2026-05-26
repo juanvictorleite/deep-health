@@ -474,7 +474,7 @@ describe('init command — AC4: Dockerfile association from discovery', () => {
     expect(selectMessages.some((m) => m.includes('Select Dockerfile') || m.includes('Selecione o Dockerfile'))).toBe(false);
   });
 
-  it('AC2/AC4: stores Dockerfile path relative to ecosystem path, not root-relative', async () => {
+  it('AC2/AC4: stores Dockerfile path root-relative (not relative to ecosystem path)', async () => {
     // eco at 'web', Dockerfile discovered at 'web/Dockerfile' (root-relative value = 'web/Dockerfile')
     mockDiscoverProject.mockResolvedValue({
       ecosystems: [npmWebDiscovery],
@@ -503,11 +503,11 @@ describe('init command — AC4: Dockerfile association from discovery', () => {
 
     const call = mockGenerateConfigJson.mock.calls[0]![0];
     const npmEntry = call.ecosystemConfigs?.find((e) => e.id === 'npm');
-    // Should be 'Dockerfile' (relative to 'web/'), not 'web/Dockerfile' (root-relative)
-    expect(npmEntry?.runner?.build?.dockerfile).toBe('Dockerfile');
+    // Should be 'web/Dockerfile' (root-relative), not 'Dockerfile' (ecosystem-path-relative)
+    expect(npmEntry?.runner?.build?.dockerfile).toBe('web/Dockerfile');
   });
 
-  it('AC2: stores Dockerfile path as "../Dockerfile" when Dockerfile is in parent dir of ecosystem', async () => {
+  it('AC2/AC4: stores root-relative Dockerfile path even when Dockerfile is in parent dir of ecosystem', async () => {
     // eco at 'api/app', Dockerfile discovered at 'api/Dockerfile' (df.path='api', df.filename='Dockerfile')
     const apiAppDiscovery = { pluginId: 'pip', path: 'api/app', lockfile: 'requirements.txt', suggestedLabel: 'app' };
     const apiDockerfile = { path: 'api', filename: 'Dockerfile' };
@@ -539,8 +539,8 @@ describe('init command — AC4: Dockerfile association from discovery', () => {
 
     const call = mockGenerateConfigJson.mock.calls[0]![0];
     const pipEntry = call.ecosystemConfigs?.find((e) => e.id === 'pip');
-    // relative('api/app', 'api/Dockerfile') = '../Dockerfile'
-    expect(pipEntry?.runner?.build?.dockerfile).toBe('../Dockerfile');
+    // Should remain 'api/Dockerfile' (root-relative), not '../Dockerfile' (ecosystem-path-relative)
+    expect(pipEntry?.runner?.build?.dockerfile).toBe('api/Dockerfile');
   });
 
   it('uses collectRunnerConfig (manual prompt) when no nearby Dockerfiles exist', async () => {

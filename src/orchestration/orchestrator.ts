@@ -335,6 +335,7 @@ export async function runOrchestrator(
       dryRun: options.dryRun,
       authorizeBreaking,
       preRunSnapshots,
+      projectRoot: options.cwd,
     });
 
     if (outcome.status === "skipped") continue;

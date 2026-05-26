@@ -6,7 +6,6 @@
  *  - Cache hit (docker image inspect succeeds → build skipped)
  *  - Cache miss (docker image inspect fails → docker build is run)
  *  - Cache invalidation (Dockerfile content changes → new tag → docker build runs again)
- *  - Binary presence probing (success + missing binary error path)
  *  - Dockerfile not found error
  *  - docker build failure error
  *  - Multi-input hash: (dockerfile + context + target + args) — no logPrefix in tag
@@ -243,90 +242,7 @@ describe('buildProjectImage', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // 6. Binary presence probe — all binaries found
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  it('returns successfully when all required binaries are present in the built image', async () => {
-    const dockerfileContents = 'FROM node:20\n';
-    await fs.writeFile(path.join(tmpDir, 'Dockerfile'), dockerfileContents);
-
-    const expectedImage = await stableTag(dockerfileContents);
-
-    mockExecFile
-      .mockRejectedValueOnce(new Error('No such image'))  // inspect miss
-      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any)  // du
-      // docker build handled by spawnStreaming (default mock succeeds)
-      .mockResolvedValueOnce({ stdout: '/usr/local/bin/npm\n', stderr: '' } as any);  // which npm
-
-    const result = await buildProjectImage({
-      projectDir: tmpDir,
-      dockerfilePath: 'Dockerfile',
-      logPrefix: 'npm',
-      requiredBinaries: ['npm'],
-    });
-
-    expect(result.image).toBe(expectedImage);
-
-    // Verify that `which npm` was probed inside the image via execFile (docker run)
-    const probeCalls = mockExecFile.mock.calls.filter(
-      (c) => c[0] === 'docker' && Array.isArray(c[1]) && c[1].includes('--entrypoint') && c[1].includes('which npm'),
-    );
-    expect(probeCalls.length).toBeGreaterThanOrEqual(1);
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // 7. Binary presence probe — binary missing → throws before returning tag
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  it('throws an error listing missing binaries when a required binary is absent in the image', async () => {
-    const dockerfileContents = 'FROM ubuntu:24.04\n';
-    await fs.writeFile(path.join(tmpDir, 'Dockerfile'), dockerfileContents);
-
-    mockExecFile
-      .mockRejectedValueOnce(new Error('No such image'))  // inspect miss
-      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any)  // du
-      // docker build handled by spawnStreaming (default mock succeeds)
-      .mockRejectedValueOnce(new Error('which: npm: not found'))  // which npm probe fails
-      .mockResolvedValueOnce({ stdout: '/usr/bin/npx\n', stderr: '' } as any);  // which npx ok
-
-    await expect(
-      buildProjectImage({
-        projectDir: tmpDir,
-        dockerfilePath: 'Dockerfile',
-        logPrefix: 'npm',
-        requiredBinaries: ['npm', 'npx'],
-      }),
-    ).rejects.toThrow(/missing required.*binary.*npm/);
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // 8. No requiredBinaries — probe step is skipped entirely
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  it('skips binary probing when requiredBinaries is not provided', async () => {
-    const dockerfileContents = 'FROM node:20\n';
-    await fs.writeFile(path.join(tmpDir, 'Dockerfile'), dockerfileContents);
-
-    mockExecFile
-      .mockRejectedValueOnce(new Error('No such image'))  // inspect miss
-      .mockResolvedValueOnce({ stdout: '100\t/tmp', stderr: '' } as any);  // du
-    // docker build handled by spawnStreaming (default mock succeeds)
-
-    const result = await buildProjectImage({
-      projectDir: tmpDir,
-      dockerfilePath: 'Dockerfile',
-      logPrefix: 'npm',
-      // requiredBinaries deliberately omitted
-    });
-
-    expect(result.image).toBeDefined();
-    // Exactly 2 execFile calls: inspect, du; build goes through spawnStreaming; no probe calls
-    expect(mockExecFile).toHaveBeenCalledTimes(2);
-    expect(spawnStreamingMock).toHaveBeenCalledTimes(1);
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // 9. buildContext — Dockerfile resolved relative to context dir, not projectDir
+  // 6. buildContext — Dockerfile resolved relative to context dir, not projectDir
   // ─────────────────────────────────────────────────────────────────────────────
 
   it('resolves Dockerfile relative to buildContext when buildContext is set', async () => {
@@ -414,63 +330,7 @@ describe('buildProjectImage', () => {
   });
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // 12. Binary probe on cache hit — binaries present → success
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  it('probes binaries on cache hit and succeeds when all binaries are present', async () => {
-    const dockerfileContents = 'FROM node:20\n';
-    await fs.writeFile(path.join(tmpDir, 'Dockerfile'), dockerfileContents);
-    const expectedImage = await stableTag(dockerfileContents);
-
-    // Simulate: docker image inspect exits 0 (cache hit)
-    mockExecFile.mockResolvedValueOnce({ stdout: '[]', stderr: '' } as any);
-    // which npm succeeds
-    mockExecFile.mockResolvedValueOnce({ stdout: '/usr/local/bin/npm\n', stderr: '' } as any);
-
-    const result = await buildProjectImage({
-      projectDir: tmpDir,
-      dockerfilePath: 'Dockerfile',
-      logPrefix: 'npm',
-      requiredBinaries: ['npm'],
-    });
-
-    expect(result.image).toBe(expectedImage);
-    // 2 calls: docker image inspect (cache hit) + docker run which npm
-    expect(mockExecFile).toHaveBeenCalledTimes(2);
-    const probeCalls = mockExecFile.mock.calls.filter(
-      (c) => c[0] === 'docker' && Array.isArray(c[1]) && c[1].includes('--entrypoint'),
-    );
-    expect(probeCalls.length).toBe(1);
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // 13. Binary probe on cache hit — binary missing → diagnostic error
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  it('throws a diagnostic error when a required binary is missing in a cached image', async () => {
-    const dockerfileContents = 'FROM ubuntu:24.04\n';
-    await fs.writeFile(path.join(tmpDir, 'Dockerfile'), dockerfileContents);
-
-    // Simulate: docker image inspect exits 0 (cache hit)
-    mockExecFile.mockResolvedValueOnce({ stdout: '[]', stderr: '' } as any);
-    // which composer fails (not installed in cached image)
-    mockExecFile.mockRejectedValueOnce(new Error('which: composer: not found'));
-
-    await expect(
-      buildProjectImage({
-        projectDir: tmpDir,
-        dockerfilePath: 'Dockerfile',
-        logPrefix: 'composer',
-        requiredBinaries: ['composer'],
-      }),
-    ).rejects.toThrow(/missing required.*binary.*composer/);
-
-    // Must have called: docker image inspect (cache hit) + docker run which composer
-    expect(mockExecFile).toHaveBeenCalledTimes(2);
-  });
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // 14. Security: absolute dockerfilePath is rejected
+  // 12. Security: absolute dockerfilePath is rejected
   // ─────────────────────────────────────────────────────────────────────────────
 
   it('throws when dockerfilePath is an absolute path', async () => {

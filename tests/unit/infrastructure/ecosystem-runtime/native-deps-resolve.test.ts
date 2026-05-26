@@ -82,7 +82,7 @@ describe('resolveEcosystemRuntime — native_deps preamble', () => {
     const plugin = makePlugin();
     const runnerConfig: RunnerConfig = { native_deps: ['libvips-dev', 'build-essential'] };
 
-    await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/project', runnerConfig);
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/project', runnerConfig });
 
     expect(MockContainer).toHaveBeenCalledOnce();
     const { runMode } = (MockContainer as Mock).mock.calls[0][0] as { runMode: any };
@@ -98,7 +98,7 @@ describe('resolveEcosystemRuntime — native_deps preamble', () => {
     const plugin = makePlugin();
     const runnerConfig: RunnerConfig = { language_version: '20' };
 
-    await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/project', runnerConfig);
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/project', runnerConfig });
 
     const { runMode } = (MockContainer as Mock).mock.calls[0][0] as { runMode: any };
     expect(runMode.preamble).toBeUndefined();
@@ -108,7 +108,7 @@ describe('resolveEcosystemRuntime — native_deps preamble', () => {
     const plugin = makePlugin();
     const runnerConfig: RunnerConfig = { native_deps: [] };
 
-    await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/project', runnerConfig);
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/project', runnerConfig });
 
     const { runMode } = (MockContainer as Mock).mock.calls[0][0] as { runMode: any };
     expect(runMode.preamble).toBeUndefined();
@@ -127,7 +127,7 @@ describe('resolveEcosystemRuntime — native_deps preamble', () => {
     });
     const runnerConfig = { native_deps: ['imagemagick'] } as unknown as RunnerConfig;
 
-    await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/project', runnerConfig);
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/project', runnerConfig });
 
     const { runMode } = (MockContainer as Mock).mock.calls[0][0] as { runMode: any };
     const preamble = runMode.preamble('php:8.2-cli');
@@ -154,7 +154,7 @@ describe('resolveEcosystemRuntime — native_deps preamble', () => {
     });
     const runnerConfig: RunnerConfig = { native_deps: ['python3'] };
 
-    await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/project', runnerConfig);
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/project', runnerConfig });
 
     const { runMode } = (MockContainer as Mock).mock.calls[0][0] as { runMode: any };
     const preamble = runMode.preamble('node:lts');

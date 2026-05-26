@@ -83,19 +83,19 @@ export function extractPackageNames(packageRefs: string[]): string[] {
  *                             bootstrap app state that depends on runtime services (db, cache, queue)
  *                             — not available inside a dependency-upgrade flow.
  * --ignore-platform-req=ext-*
- * --ignore-platform-req=lib-*: (Docker + pull mode only) skip extension and library checks.
+ * --ignore-platform-req=lib-*: (Docker + no build config present) skip extension and library checks.
  *                             Applied only when running inside a stock pulled Docker image
- *                             (image_source='pull', which is the default). The stock container
+ *                             (no build config (pull mode), which is the default). The stock container
  *                             is a CI runner, not the production environment — production has
  *                             ext-intl, ext-gd, ext-exif, etc.; the container does not.
- *                             NOT applied when using a custom Dockerfile (image_source='dockerfile'),
- *                             because that image is owned by the project and should match production.
+ *                             NOT applied when build config present, because that image is owned by
+ *                             the project and should match production.
  *                             NOT applied in local mode, because local PHP IS the production PHP.
  */
 function buildComposerAutomationArgs(runner: CommandRunner, config: ProjectConfig): string[] {
   const composerEcoEntry = config.ecosystems.find((e) => e.id === 'composer');
-  const imageSource = (composerEcoEntry?.runner as { image_source?: string } | undefined)?.image_source ?? 'pull';
-  const useGranularIgnores = runner.environment === 'docker' && imageSource === 'pull';
+  const hasBuildConfig = !!(composerEcoEntry?.runner as { build?: unknown } | undefined)?.build;
+  const useGranularIgnores = runner.environment === 'docker' && !hasBuildConfig;
 
   return [
     '--no-interaction',

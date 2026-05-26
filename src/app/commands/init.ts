@@ -1,5 +1,5 @@
 import { writeFile, access, mkdir } from 'node:fs/promises';
-import { resolve, dirname, relative } from 'node:path';
+import { resolve, dirname } from 'node:path';
 import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
 import { generateConfigJson, type GenerateConfigOptions, type EcosystemRunnerConfig } from '@infra/config/generator';
 import { generateJsonSchema } from '@infra/config/schema-export';
@@ -14,6 +14,7 @@ import { resolveDefaultLocale } from '@core/locale-detect';
 import { CLI_NAME, DEFAULT_AUDIT_SUBDIR, DEFAULT_REPORTS_SUBDIR } from '@infra/brand';
 import { __, setLocale } from '@core/i18n';
 import { logger } from '@infra/utils/logger';
+import { sectionHeader, dim } from '@infra/utils/ui';
 
 export interface InitCommandOptions {
   projectName?: string;
@@ -272,6 +273,10 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     }
   }
 
+  if (!opts.nonInteractive) {
+    process.stdout.write('\n');
+  }
+
   // ─── Per-ecosystem config ────────────────────────────────────────────────────
 
   const ecosystemConfigs: GenerateConfigOptions['ecosystemConfigs'] = [];
@@ -289,6 +294,12 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     // Resolved absolute path for this ecosystem (used for inferVersion and detectProjectScripts)
     const ecoAbsPath = ecoPath ? resolve(opts.cwd, ecoPath) : opts.cwd;
     const plugin = defaultRegistry.get(id)!;
+
+    if (!opts.nonInteractive) {
+      const ecoLabel = discoveryLabels.get(discovery_eco);
+      const sectionTitle = ecoLabel ? `${plugin.name} (${ecoLabel})` : plugin.name;
+      process.stdout.write(sectionHeader(sectionTitle));
+    }
 
     let fixerStrategy: string | undefined;
     if (plugin.supportedFixers.length > 0 && !opts.nonInteractive) {
@@ -310,6 +321,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
 
     const NONE_SENTINEL = '__none__';
     if (!opts.nonInteractive) {
+      process.stdout.write(dim(`  ${__('Validation')}`) + '\n');
       if (detectedScripts.length > 0) {
         // Merge detected scripts with any plugin defaults not already covered
         const detectedNames = new Set(detectedScripts.map((s) => s.name));
@@ -396,6 +408,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     // Advisors
     const advisors: Array<{ name: string; command: string }> = [];
     if (!opts.nonInteractive) {
+      process.stdout.write(dim(`  ${__('Advisors')}`) + '\n');
       for (const defaultAdvisor of plugin.defaultAdvisors) {
         const include = await confirmPrompt(
           __('  [{{plugin}}] Include "{{advisorName}}" advisor?', { plugin: plugin.name, advisorName: defaultAdvisor.name }),
@@ -457,6 +470,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     const versionPrompts = ecosystemVersionPrompts[id];
     if (versionPrompts) {
       if (!opts.nonInteractive && nearbyDockerfiles.length > 0) {
+        process.stdout.write(dim(`  ${__('Docker')}`) + '\n');
         // Override the Dockerfile prompt in collectRunnerConfig with our discovered ones
         const dfChoices: Array<{ name: string; value: string; description?: string }> = [
           ...nearbyDockerfiles.map((df) => ({
@@ -494,8 +508,9 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
             dfPath = await prompt(__('  [{{plugin}}] Dockerfile path', { plugin: plugin.name }), 'Dockerfile');
             dfPath = dfPath.trim() || 'Dockerfile';
           } else {
-            // selectedDf is root-relative (e.g. 'web/Dockerfile'); store relative to ecosystem path
-            dfPath = ecoPath ? relative(ecoPath, selectedDf) : selectedDf;
+            // selectedDf is root-relative (e.g. 'web/Dockerfile'); store as-is so
+            // the runtime resolves it from the project root, not the ecosystem subdirectory.
+            dfPath = selectedDf;
           }
           const ctxAnswer = await prompt(__("  [{{plugin}}] Build context (blank for '.')", { plugin: plugin.name }), '');
           const targetAnswer = await prompt(__('  [{{plugin}}] Build target stage (blank to skip)', { plugin: plugin.name }), '');
@@ -513,6 +528,9 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
           runnerData.build = buildConfig;
         }
       } else {
+        if (!opts.nonInteractive) {
+          process.stdout.write(dim(`  ${__('Docker')}`) + '\n');
+        }
         runnerData = await collectRunnerConfig({
           pluginName: plugin.name,
           nonInteractive: opts.nonInteractive,
@@ -544,6 +562,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   let enableSonarQube = false;
   let sonarQubeMode: 'managed' | 'external' = 'managed';
   if (!opts.nonInteractive) {
+    process.stdout.write(sectionHeader(__('Scanners')));
     enableSonarQube = await confirmPrompt(__('Enable SonarQube scanner?'), false);
     if (enableSonarQube) {
       sonarQubeMode = await selectPrompt<'managed' | 'external'>(
@@ -571,6 +590,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   let enableMarkdown = true;
 
   if (!opts.nonInteractive) {
+    process.stdout.write(sectionHeader(__('Output')));
     enableMarkdown = await confirmPrompt(__('Generate markdown reports?'), true);
 
     if (enableMarkdown) {
@@ -635,5 +655,5 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   } else {
     process.stdout.write(__('  3. Run: {{cliName}} scan --cwd <your-project-dir>\n', { cliName: CLI_NAME }));
   }
-  process.stdout.write(__('     (config will be loaded from project-config.yml at project root by default)\n'));
+  process.stdout.write(__('     (config will be loaded from security-scan.config.json at project root by default)\n'));
 }

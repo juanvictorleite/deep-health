@@ -13,6 +13,9 @@
  *  - Does NOT write config files or mutate state; pure side-effect: `docker build`.
  *  - Emits a warning when the build context is large (>50 MB after .dockerignore).
  *  - Throws with a descriptive message on build failure.
+ *  - Does NOT probe for required ecosystem binaries — if a binary is missing,
+ *    the actual ecosystem commands (npm audit, pip check, etc.) will fail naturally
+ *    with clear errors. This avoids false positives with multi-stage Dockerfiles.
  *
  * @module
  */
@@ -53,13 +56,6 @@ export interface BuildProjectImageOptions {
   dockerfilePath: string;
   /** Log prefix for build output lines, e.g. 'npm' / 'pip' / 'composer'. */
   logPrefix: string;
-  /**
-   * List of ecosystem binaries that must be present in the built image.
-   * Comes from `EcosystemRuntimeSpec.containerBinaries`.
-   * When provided, each binary is probed via `which <binary>` inside the container.
-   * If a binary is missing, an error is thrown before returning the image tag.
-   */
-  requiredBinaries?: readonly string[];
   /**
    * Docker build context path, relative to `projectDir`.
    * When absent, defaults to `projectDir`.
@@ -210,11 +206,6 @@ export async function buildProjectImage(
   const alreadyBuilt = await probeImageExists(image);
   if (alreadyBuilt) {
     logger.tagged(logPrefix, `ecosystem-runtime/${logPrefix}`, `Reusing cached project image: ${image}`);
-    // Binary probe must run even on cache hits — the cached image may lack required
-    // ecosystem tools (e.g. image was built without the right base or was manually tagged).
-    if (options.requiredBinaries && options.requiredBinaries.length > 0) {
-      await probeBinariesInImage(image, options.requiredBinaries, logPrefix);
-    }
     return { image, entrypointOverride: '' };
   }
 
@@ -261,12 +252,6 @@ export async function buildProjectImage(
     throw new Error(
       __('[ecosystem-runtime/{{logPrefix}}] docker build failed for "{{dockerfilePath}}":\n{{detail}}', { logPrefix, dockerfilePath, detail }),
     );
-  }
-
-  // ── 5. Verify required ecosystem binaries are present in the built image ──
-
-  if (options.requiredBinaries && options.requiredBinaries.length > 0) {
-    await probeBinariesInImage(image, options.requiredBinaries, logPrefix);
   }
 
   logger.tagged(logPrefix, `ecosystem-runtime/${logPrefix}`, `Project image built: ${image}`);
@@ -321,50 +306,3 @@ async function warnIfLargeContext(
   }
 }
 
-/**
- * Probes that each required binary is reachable inside the built image by
- * running `which <binary>` via `docker run --rm <image> sh -c "which <binary>"`.
- *
- * Throws a descriptive error listing all missing binaries — the image is
- * considered invalid and the caller should not proceed.
- *
- * This uses `execFileSync` (synchronous) intentionally — we want to block
- * until all probes complete before returning the image tag to the caller.
- * In practice the probes are fast (no container startup overhead beyond the
- * `which` lookup) and are called once per image build, not per command.
- */
-async function probeBinariesInImage(
-  image: string,
-  binaries: readonly string[],
-  logPrefix: string,
-): Promise<void> {
-  const missing: string[] = [];
-
-  for (const binary of binaries) {
-    logger.tagged(logPrefix, `ecosystem-runtime/${logPrefix}`, `Probing binary "${binary}" in image ${image}`, 'debug');
-    try {
-      await execFileAsync('docker', [
-        'run',
-        '--rm',
-        '--entrypoint',
-        '',
-        image,
-        'sh',
-        '-c',
-        `which ${binary}`,
-      ]);
-      logger.tagged(logPrefix, `ecosystem-runtime/${logPrefix}`, `Binary "${binary}" found in image ${image}`, 'debug');
-    } catch {
-      logger.tagged(logPrefix, `ecosystem-runtime/${logPrefix}`, `Binary "${binary}" NOT found in image ${image}`, 'debug');
-      missing.push(binary);
-    }
-  }
-
-  if (missing.length > 0) {
-    const binaryWord = missing.length === 1 ? 'binary' : 'binaries';
-    const missingList = missing.join(', ');
-    throw new Error(
-      __('[ecosystem-runtime/{{logPrefix}}] Project image "{{image}}" is missing required ecosystem {{binaryWord}}: {{missingList}}. Ensure your Dockerfile installs the required tools (e.g. npm, pip, composer).', { logPrefix, image, binaryWord, missingList }),
-    );
-  }
-}

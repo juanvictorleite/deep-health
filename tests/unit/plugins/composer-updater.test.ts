@@ -1442,19 +1442,17 @@ describe('runComposerUpdater — audit_findings in result (AC6)', () => {
   });
 });
 
-// ── Platform ignore flags (AC1, AC4) ─────────────────────────────────────────
+// ── Platform ignore flags (AC1, AC4, AC5) ────────────────────────────────────
 
 /**
- * Build a ProjectConfig that includes a runners.composer block with the given image_source.
- * Used to test platform-ignore flag logic.
+ * Build a ProjectConfig with build:{} in the composer runner (build mode).
+ * Used to test build-mode detection (runner.build present → no platform ignore flags).
  */
-function baseConfigWithImageSource(imageSource?: 'pull' | 'dockerfile'): ProjectConfig {
+function baseConfigWithBuild(dockerfile = 'Dockerfile'): ProjectConfig {
   return {
     project: { name: 'test-project', client: 'test-client' },
     ecosystems: [
-      imageSource !== undefined
-        ? { id: 'composer', runner: { image_source: imageSource } }
-        : { id: 'composer' },
+      { id: 'composer', runner: { build: { dockerfile } } },
     ],
     protected_packages: { composer: [], npm: [] },
     safe_update_policy: {
@@ -1465,10 +1463,27 @@ function baseConfigWithImageSource(imageSource?: 'pull' | 'dockerfile'): Project
   };
 }
 
-describe('buildComposerAutomationArgs — platform ignore flags (AC1, AC4)', () => {
+/**
+ * Build a ProjectConfig with no runner config (pull mode — build absent).
+ * Kept for backwards-compatible pull-mode tests.
+ */
+function baseConfigPullMode(): ProjectConfig {
+  return {
+    project: { name: 'test-project', client: 'test-client' },
+    ecosystems: [{ id: 'composer' }],
+    protected_packages: { composer: [], npm: [] },
+    safe_update_policy: {
+      allow_patch_and_minor_within_constraints: true,
+      require_authorization_for_constraint_change: false,
+    },
+    conflict_resolution: 'fail',
+  };
+}
+
+describe('buildComposerAutomationArgs — platform ignore flags (AC1, AC4, AC5)', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('(AC4-a) Docker + image_source=pull emits --ignore-platform-req=ext-* and --ignore-platform-req=lib-*', async () => {
+  it('(AC5) Docker + runner.build:{dockerfile} emits NO platform ignore flags (build mode)', async () => {
     const { backupFiles } = await import('@infra/utils/fs-backup.js');
     const { readFile } = await import('node:fs/promises');
 
@@ -1488,70 +1503,7 @@ describe('buildComposerAutomationArgs — platform ignore flags (AC1, AC4)', () 
       .mockResolvedValueOnce(ok()); // composer update
 
     const runner = makeRunner({ runArgs: runArgsMock, environment: 'docker' });
-    const config = baseConfigWithImageSource('pull');
-
-    await runComposerUpdater(runner, config, baseScan(['vendor/pkg@1.0.0']), '/tmp/project');
-
-    // Verify that --ignore-platform-req=ext-* and --ignore-platform-req=lib-* appear in runArgs calls
-    const allArgs = runArgsMock.mock.calls.flatMap((c: unknown[]) => c[1] as string[]);
-    expect(allArgs).toContain('--ignore-platform-req=ext-*');
-    expect(allArgs).toContain('--ignore-platform-req=lib-*');
-    // NEVER emit the nuclear flag
-    expect(allArgs).not.toContain('--ignore-platform-reqs');
-  });
-
-  it('(AC4-a) Docker + no image_source (defaults to pull) emits granular flags', async () => {
-    const { backupFiles } = await import('@infra/utils/fs-backup.js');
-    const { readFile } = await import('node:fs/promises');
-
-    const preLock = makeLockJson([{ name: 'vendor/pkg', version: '1.0.0' }]);
-    const postLock = makeLockJson([{ name: 'vendor/pkg', version: '1.1.0' }]);
-
-    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-      new Map([['composer.lock', preLock]]),
-    );
-    (readFile as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(preLock)
-      .mockResolvedValueOnce(postLock);
-
-    const runArgsMock = vi.fn()
-      .mockResolvedValueOnce(ok())  // composer install (env-check)
-      .mockResolvedValueOnce(ok())  // composer outdated --direct
-      .mockResolvedValueOnce(ok()); // composer update
-
-    // No image_source in config → defaults to 'pull'
-    const runner = makeRunner({ runArgs: runArgsMock, environment: 'docker' });
-    const config = baseConfig(); // no runners config → image_source defaults to 'pull'
-
-    await runComposerUpdater(runner, config, baseScan(['vendor/pkg@1.0.0']), '/tmp/project');
-
-    const allArgs = runArgsMock.mock.calls.flatMap((c: unknown[]) => c[1] as string[]);
-    expect(allArgs).toContain('--ignore-platform-req=ext-*');
-    expect(allArgs).toContain('--ignore-platform-req=lib-*');
-    expect(allArgs).not.toContain('--ignore-platform-reqs');
-  });
-
-  it('(AC4-b) Docker + image_source=dockerfile emits NO platform ignore flags', async () => {
-    const { backupFiles } = await import('@infra/utils/fs-backup.js');
-    const { readFile } = await import('node:fs/promises');
-
-    const preLock = makeLockJson([{ name: 'vendor/pkg', version: '1.0.0' }]);
-    const postLock = makeLockJson([{ name: 'vendor/pkg', version: '1.1.0' }]);
-
-    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
-      new Map([['composer.lock', preLock]]),
-    );
-    (readFile as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce(preLock)
-      .mockResolvedValueOnce(postLock);
-
-    const runArgsMock = vi.fn()
-      .mockResolvedValueOnce(ok())  // composer install (env-check)
-      .mockResolvedValueOnce(ok())  // composer outdated --direct
-      .mockResolvedValueOnce(ok()); // composer update
-
-    const runner = makeRunner({ runArgs: runArgsMock, environment: 'docker' });
-    const config = baseConfigWithImageSource('dockerfile');
+    const config = baseConfigWithBuild('Dockerfile');
 
     await runComposerUpdater(runner, config, baseScan(['vendor/pkg@1.0.0']), '/tmp/project');
 
@@ -1561,7 +1513,7 @@ describe('buildComposerAutomationArgs — platform ignore flags (AC1, AC4)', () 
     expect(allArgs).not.toContain('--ignore-platform-reqs');
   });
 
-  it('(AC4-c) local runner emits NO platform ignore flags regardless of image_source', async () => {
+  it('(AC5) Docker + no runner.build (pull mode) emits granular platform ignore flags', async () => {
     const { backupFiles } = await import('@infra/utils/fs-backup.js');
     const { readFile } = await import('node:fs/promises');
 
@@ -1580,10 +1532,99 @@ describe('buildComposerAutomationArgs — platform ignore flags (AC1, AC4)', () 
       .mockResolvedValueOnce(ok())  // composer outdated --direct
       .mockResolvedValueOnce(ok()); // composer update
 
-    // environment='local' (default makeRunner)
+    const runner = makeRunner({ runArgs: runArgsMock, environment: 'docker' });
+    const config = baseConfigPullMode(); // no runner.build → pull mode
+
+    await runComposerUpdater(runner, config, baseScan(['vendor/pkg@1.0.0']), '/tmp/project');
+
+    const allArgs = runArgsMock.mock.calls.flatMap((c: unknown[]) => c[1] as string[]);
+    expect(allArgs).toContain('--ignore-platform-req=ext-*');
+    expect(allArgs).toContain('--ignore-platform-req=lib-*');
+    expect(allArgs).not.toContain('--ignore-platform-reqs');
+  });
+
+  it('(AC4-a) Docker + no build config (defaults to pull mode) emits granular flags', async () => {
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
+    const { readFile } = await import('node:fs/promises');
+
+    const preLock = makeLockJson([{ name: 'vendor/pkg', version: '1.0.0' }]);
+    const postLock = makeLockJson([{ name: 'vendor/pkg', version: '1.1.0' }]);
+
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)
+      .mockResolvedValueOnce(postLock);
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // composer install (env-check)
+      .mockResolvedValueOnce(ok())  // composer outdated --direct
+      .mockResolvedValueOnce(ok()); // composer update
+
+    const runner = makeRunner({ runArgs: runArgsMock, environment: 'docker' });
+    const config = baseConfig(); // no runner → build absent → pull mode
+
+    await runComposerUpdater(runner, config, baseScan(['vendor/pkg@1.0.0']), '/tmp/project');
+
+    const allArgs = runArgsMock.mock.calls.flatMap((c: unknown[]) => c[1] as string[]);
+    expect(allArgs).toContain('--ignore-platform-req=ext-*');
+    expect(allArgs).toContain('--ignore-platform-req=lib-*');
+    expect(allArgs).not.toContain('--ignore-platform-reqs');
+  });
+
+  it('(AC4-b) Docker + build config present emits NO platform ignore flags', async () => {
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
+    const { readFile } = await import('node:fs/promises');
+
+    const preLock = makeLockJson([{ name: 'vendor/pkg', version: '1.0.0' }]);
+    const postLock = makeLockJson([{ name: 'vendor/pkg', version: '1.1.0' }]);
+
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)
+      .mockResolvedValueOnce(postLock);
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // composer install (env-check)
+      .mockResolvedValueOnce(ok())  // composer outdated --direct
+      .mockResolvedValueOnce(ok()); // composer update
+
+    const runner = makeRunner({ runArgs: runArgsMock, environment: 'docker' });
+    const config = baseConfigWithBuild('Dockerfile');
+
+    await runComposerUpdater(runner, config, baseScan(['vendor/pkg@1.0.0']), '/tmp/project');
+
+    const allArgs = runArgsMock.mock.calls.flatMap((c: unknown[]) => c[1] as string[]);
+    expect(allArgs).not.toContain('--ignore-platform-req=ext-*');
+    expect(allArgs).not.toContain('--ignore-platform-req=lib-*');
+    expect(allArgs).not.toContain('--ignore-platform-reqs');
+  });
+
+  it('(AC4-c) local runner emits NO platform ignore flags regardless of build config', async () => {
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
+    const { readFile } = await import('node:fs/promises');
+
+    const preLock = makeLockJson([{ name: 'vendor/pkg', version: '1.0.0' }]);
+    const postLock = makeLockJson([{ name: 'vendor/pkg', version: '1.1.0' }]);
+
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)
+      .mockResolvedValueOnce(postLock);
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // composer install (env-check)
+      .mockResolvedValueOnce(ok())  // composer outdated --direct
+      .mockResolvedValueOnce(ok()); // composer update
+
+    // environment='local' (default makeRunner) — no platform flags regardless of build config
     const runner = makeRunner({ runArgs: runArgsMock });
-    // Even with image_source='pull', local runner must not emit platform flags
-    const config = baseConfigWithImageSource('pull');
+    const config = baseConfigPullMode(); // pull mode but local → still no flags
 
     await runComposerUpdater(runner, config, baseScan(['vendor/pkg@1.0.0']), '/tmp/project');
 

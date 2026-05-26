@@ -9,6 +9,15 @@ import { EphemeralEcosystemContainer } from './ephemeral-container';
 import { buildProjectImage } from './build-project-image';
 import { CLI_NAME } from '@infra/brand';
 
+export interface ResolveEcosystemRuntimeOptions {
+  plugin: EcosystemPlugin;
+  hostRunner: CommandRunner;
+  config: ProjectConfig;
+  cwd: string;
+  runnerConfig?: RunnerConfig;
+  projectRoot?: string;
+}
+
 /**
  * Resolve a containerized CommandRunner for the given ecosystem plugin.
  *
@@ -26,18 +35,15 @@ import { CLI_NAME } from '@infra/brand';
  *     3. `plugin.inferVersion(cwd)` — project-file version inference → `spec.resolveImage(version)`
  *     4. `spec.resolveImage(undefined)` → `spec.defaultImage` (fallback)
  *
- * @param runnerConfig  Optional per-ecosystem runner config from `ecosystems[].runner`.
- *                      When absent, all image resolution falls through to plugin defaults.
+ * @param options.runnerConfig  Optional per-ecosystem runner config from `ecosystems[].runner`.
+ *                              When absent, all image resolution falls through to plugin defaults.
  *
  * @throws {Error} when `plugin.runtimeSpec` is undefined (plugin has no runtime spec)
  */
 export async function resolveEcosystemRuntime(
-  plugin: EcosystemPlugin,
-  hostRunner: CommandRunner,
-  config: ProjectConfig,
-  cwd: string,
-  runnerConfig?: RunnerConfig,
+  options: ResolveEcosystemRuntimeOptions,
 ): Promise<CommandRunner> {
+  const { plugin, hostRunner, config, cwd, runnerConfig, projectRoot } = options;
   if (plugin.runtimeSpec === undefined) {
     throw new Error(
       __("Plugin '{{pluginId}}' has no runtimeSpec; cannot resolve a runtime container.", { pluginId: plugin.id }),
@@ -76,10 +82,9 @@ export async function resolveEcosystemRuntime(
     );
 
     const buildResult = await buildProjectImage({
-      projectDir: cwd,
+      projectDir: projectRoot ?? cwd,
       dockerfilePath: build.dockerfile,
       logPrefix: plugin.id,
-      requiredBinaries: spec.containerBinaries,
       buildContext: build.context,
       buildArgs: build.args,
       allowBuildContextEscape: build.allow_context_escape,

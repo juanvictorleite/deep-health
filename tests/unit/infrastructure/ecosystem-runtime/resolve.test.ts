@@ -4,14 +4,13 @@
  * Covers:
  *  - build config calls buildProjectImage with correct args
  *  - entrypointOverride from buildProjectImage is forwarded to EphemeralEcosystemContainer
- *  - requiredBinaries (from spec.containerBinaries) are passed to buildProjectImage
  *  - build config without dockerfile throws (type-safe; build.dockerfile is required)
  *  - no build config (pull-based) does NOT call buildProjectImage
  *  - build.context and build.args forwarded correctly
  *  - build.target forwarded to buildProjectImage
  *  - image + build coexistence: imageTag is passed to buildProjectImage
  *
- * Runner config is passed as the 5th parameter to resolveEcosystemRuntime
+ * Runner config is passed via the options object as runnerConfig
  * (per-ecosystem inline config from ecosystems[].runner).
  */
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
@@ -96,7 +95,7 @@ describe('resolveEcosystemRuntime — build-based image resolution', () => {
   // 1. Basic build config → calls buildProjectImage with correct args
   // ─────────────────────────────────────────────────────────────────────────────
 
-  it('calls buildProjectImage with projectDir, dockerfilePath, logPrefix, and containerBinaries', async () => {
+  it('calls buildProjectImage with projectDir, dockerfilePath, logPrefix, and build options', async () => {
     mockBuildProjectImage.mockResolvedValue({
       image: `${CLI_NAME}-project/build:abc123`,
       entrypointOverride: '',
@@ -107,14 +106,13 @@ describe('resolveEcosystemRuntime — build-based image resolution', () => {
       build: { dockerfile: '.docker/node.Dockerfile' },
     };
 
-    await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/my/project', runnerConfig);
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/my/project', runnerConfig });
 
     expect(mockBuildProjectImage).toHaveBeenCalledOnce();
     expect(mockBuildProjectImage).toHaveBeenCalledWith({
       projectDir: '/my/project',
       dockerfilePath: '.docker/node.Dockerfile',
       logPrefix: 'npm',
-      requiredBinaries: ['npm', 'npx'],
       buildContext: undefined,
       buildArgs: undefined,
       allowBuildContextEscape: undefined,
@@ -138,7 +136,7 @@ describe('resolveEcosystemRuntime — build-based image resolution', () => {
       build: { dockerfile: 'Dockerfile' },
     };
 
-    await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/project', runnerConfig);
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/project', runnerConfig });
 
     const containerOptions = (MockContainer as Mock).mock.calls[0][0] as Record<string, unknown>;
     expect(containerOptions.entrypointOverride).toBe('');
@@ -153,7 +151,7 @@ describe('resolveEcosystemRuntime — build-based image resolution', () => {
     const plugin = makePlugin();
     const runnerConfig: RunnerConfig = { language_version: '20' };
 
-    await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/project', runnerConfig);
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/project', runnerConfig });
 
     expect(mockBuildProjectImage).not.toHaveBeenCalled();
   });
@@ -161,7 +159,7 @@ describe('resolveEcosystemRuntime — build-based image resolution', () => {
   it('does NOT call buildProjectImage when runnerConfig is absent (defaults to pull)', async () => {
     const plugin = makePlugin();
 
-    await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/project');
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/project' });
 
     expect(mockBuildProjectImage).not.toHaveBeenCalled();
   });
@@ -180,7 +178,7 @@ describe('resolveEcosystemRuntime — build-based image resolution', () => {
     const plugin = makePlugin();
     const runnerConfig: RunnerConfig = { build: { dockerfile: 'Dockerfile' } };
 
-    await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/project', runnerConfig);
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/project', runnerConfig });
 
     const containerOptions = (MockContainer as Mock).mock.calls[0][0] as Record<string, unknown>;
     expect(containerOptions.image).toBe(projectBuiltImage);
@@ -207,7 +205,7 @@ describe('resolveEcosystemRuntime — build-based image resolution', () => {
       },
     };
 
-    await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/my/project', runnerConfig);
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/my/project', runnerConfig });
 
     expect(mockBuildProjectImage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -235,7 +233,7 @@ describe('resolveEcosystemRuntime — build-based image resolution', () => {
       },
     };
 
-    await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/my/project', runnerConfig);
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/my/project', runnerConfig });
 
     expect(mockBuildProjectImage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -261,7 +259,7 @@ describe('resolveEcosystemRuntime — build-based image resolution', () => {
       build: { dockerfile: 'Dockerfile' },
     };
 
-    await resolveEcosystemRuntime(plugin, makeHostRunner(), makeConfig(), '/my/project', runnerConfig);
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/my/project', runnerConfig });
 
     expect(mockBuildProjectImage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -270,33 +268,5 @@ describe('resolveEcosystemRuntime — build-based image resolution', () => {
     );
   });
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // 8. requiredBinaries from plugin spec (composer plugin)
-  // ─────────────────────────────────────────────────────────────────────────────
-
-  it('passes requiredBinaries derived from spec.containerBinaries (composer plugin)', async () => {
-    mockBuildProjectImage.mockResolvedValue({
-      image: `${CLI_NAME}-project/build:abc`,
-      entrypointOverride: '',
-    });
-
-    const composerPlugin = makePlugin({
-      id: 'composer',
-      runtimeSpec: {
-        defaultImage: 'composer:2',
-        resolveImage: () => 'php:8.2-cli',
-        containerBinaries: ['composer', 'php'],
-        runMode: { kind: 'shell-wrap' },
-      },
-    });
-    const runnerConfig: RunnerConfig = {
-      build: { dockerfile: '.docker/php.Dockerfile' },
-    } as unknown as RunnerConfig;
-
-    await resolveEcosystemRuntime(composerPlugin, makeHostRunner(), makeConfig(), '/project', runnerConfig);
-
-    expect(mockBuildProjectImage).toHaveBeenCalledWith(
-      expect.objectContaining({ requiredBinaries: ['composer', 'php'] }),
-    );
-  });
 });
+

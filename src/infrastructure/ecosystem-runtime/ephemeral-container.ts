@@ -48,9 +48,9 @@ export interface EphemeralEcosystemContainerOptions {
    * Pass `""` (empty string) to clear the image's ENTRYPOINT so the ecosystem
    * binary is invoked directly without being shadowed.
    *
-   * This MUST be set when the image was built from a project-owned Dockerfile
-   * (image_source='dockerfile') to prevent the image ENTRYPOINT from hijacking
-   * the ecosystem CLI command.  Produced by `buildProjectImage()`.
+   * This MUST be set when using a project-built image via build config to prevent
+   * the image ENTRYPOINT from hijacking the ecosystem CLI command.
+   * Produced by `buildProjectImage()`.
    */
   entrypointOverride?: string;
   /**
@@ -315,7 +315,7 @@ export class EphemeralEcosystemContainer implements EphemeralContainerRunner<str
     // Defense in depth (ADR-0002):
     //   --cap-drop=ALL drops every Linux capability — package managers don't
     //   need any. A hostile validation command from a compromised
-    //   project-config.yml loses the ability to use raw sockets, ptrace, mount
+    //   security-scan.config.json loses the ability to use raw sockets, ptrace, mount
     //   filesystems, change ownership, etc.
     //   --security-opt=no-new-privileges blocks setuid binaries inside the
     //   container from escalating, even if the image ships one.
