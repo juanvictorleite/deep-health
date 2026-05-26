@@ -1,22 +1,11 @@
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
+import type { VersionSource } from '@infra/utils/infer-version';
 import type { ProjectConfig, ProtectedPackage } from '@core/types/config';
 import type { UpdateResultJson } from '@core/types/update';
 import { runPipUpdater } from './pip-updater';
 import { resolvePipDockerImage, PIP_DEFAULT_IMAGE } from '@infra/provisioner/pip-runner';
 
 // ─── Version inference helpers ────────────────────────────────────────────────
-
-/** Read a UTF-8 text file and return its trimmed contents, or undefined on any error. */
-async function readTextFile(filePath: string): Promise<string | undefined> {
-  try {
-    const content = await readFile(filePath, 'utf-8');
-    return (content as string).trim();
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * Extract a major.minor version from a raw Python version string.
@@ -83,14 +72,14 @@ export const pipPlugin: EcosystemPlugin = {
 
   postUpdateOsvVerify: 'always',
 
-  supportedFixers: [],
+  supportedFixers: ['osv'],
 
   defaultValidationCommands: [
     { name: 'check', command: 'pip check' },
   ],
 
   defaultAdvisors: [
-    { name: 'audit', command: 'pip-audit' },
+    { name: 'audit', command: 'pip-audit --format json', format: 'json' as const },
   ],
 
   buildScanArgs(): string[] {
@@ -109,12 +98,17 @@ export const pipPlugin: EcosystemPlugin = {
       ctx.cwd,
       ctx.authorizeBreaking,
       ctx.validationCommands ?? [],
+      ctx.fixerStrategy ?? 'osv',
+      ctx.preFixBackups,
       ctx.osvFixOutcome,
+      ctx.preRunSnapshots,
+      ctx.advisorResults,
+      ctx.ecosystemKey,
     );
   },
 
   /**
-   * Infer Python version for the pip ecosystem.
+   * Declarative version sources for the pip ecosystem.
    *
    * Precedence:
    * 1. `.python-version`
@@ -122,65 +116,76 @@ export const pipPlugin: EcosystemPlugin = {
    * 3. `pyproject.toml` (requires-python field)
    * 4. `setup.cfg` (python_requires field)
    * 5. `runtime.txt` (Heroku format: `python-X.Y.Z`)
+   * 6. `Dockerfile` (FROM python:X.Y[.Z][-variant])
+   * 7. `Pipfile` (python_version = 'X.Y')
    *
    * Returns at most major.minor (e.g. "3.11.2" → "3.11").
-   * Returns undefined on missing/malformed/unparseable values. Never throws.
    */
-  async inferVersion(cwd: string): Promise<string | undefined> {
-    // 1. .python-version
-    const pythonVersion = await readTextFile(resolve(cwd, '.python-version'));
-    if (pythonVersion !== undefined) {
-      const version = extractPythonMajorMinor(pythonVersion);
-      if (version !== undefined) return version;
-    }
-
-    // 2. .tool-versions (asdf/mise format)
-    const toolVersions = await readTextFile(resolve(cwd, '.tool-versions'));
-    if (toolVersions !== undefined) {
-      for (const line of toolVersions.split('\n')) {
-        const trimmedLine = line.trim();
-        const match = trimmedLine.match(/^python\s+(\S+)/i);
-        if (match) {
-          const version = extractPythonMajorMinor(match[1]!);
-          if (version !== undefined) return version;
+  versionSources: [
+    {
+      file: '.python-version',
+      label: '.python-version',
+      extract: (content: string): string | undefined =>
+        extractPythonMajorMinor(content),
+    },
+    {
+      file: '.tool-versions',
+      label: '.tool-versions (asdf/mise)',
+      extract: (content: string): string | undefined => {
+        for (const line of content.split('\n')) {
+          const match = line.trim().match(/^python\s+(\S+)/i);
+          if (match) {
+            const version = extractPythonMajorMinor(match[1]!);
+            if (version !== undefined) return version;
+          }
         }
-      }
-    }
-
-    // 3. pyproject.toml (requires-python)
-    try {
-      const raw = await readFile(resolve(cwd, 'pyproject.toml'), 'utf-8');
-      const match = (raw as string).match(/requires-python\s*=\s*["']([^"']+)["']/);
-      if (match) {
-        const version = parsePythonConstraint(match[1]!);
-        if (version !== undefined) return version;
-      }
-    } catch {
-      // file missing or malformed — fall through
-    }
-
-    // 4. setup.cfg (python_requires)
-    try {
-      const raw = await readFile(resolve(cwd, 'setup.cfg'), 'utf-8');
-      const match = (raw as string).match(/python_requires\s*=\s*(.+)/);
-      if (match) {
-        const version = parsePythonConstraint(match[1]!.trim());
-        if (version !== undefined) return version;
-      }
-    } catch {
-      // file missing or malformed — fall through
-    }
-
-    // 5. runtime.txt (Heroku format: "python-3.11.4")
-    const runtimeTxt = await readTextFile(resolve(cwd, 'runtime.txt'));
-    if (runtimeTxt !== undefined) {
-      const match = runtimeTxt.match(/^python-(\d[\d.]*)/i);
-      if (match) {
-        const version = extractPythonMajorMinor(match[1]!);
-        if (version !== undefined) return version;
-      }
-    }
-
-    return undefined;
-  },
+        return undefined;
+      },
+    },
+    {
+      file: 'pyproject.toml',
+      label: 'pyproject.toml (requires-python)',
+      extract: (content: string): string | undefined => {
+        const match = content.match(/requires-python\s*=\s*["']([^"']+)["']/);
+        if (!match) return undefined;
+        return parsePythonConstraint(match[1]!);
+      },
+    },
+    {
+      file: 'setup.cfg',
+      label: 'setup.cfg (python_requires)',
+      extract: (content: string): string | undefined => {
+        const match = content.match(/python_requires\s*=\s*(.+)/);
+        if (!match) return undefined;
+        return parsePythonConstraint(match[1]!.trim());
+      },
+    },
+    {
+      file: 'runtime.txt',
+      label: 'runtime.txt (Heroku)',
+      extract: (content: string): string | undefined => {
+        const match = content.match(/^python-(\d[\d.]*)/i);
+        if (!match) return undefined;
+        return extractPythonMajorMinor(match[1]!);
+      },
+    },
+    {
+      file: 'Dockerfile',
+      label: 'Dockerfile (FROM python:X.Y)',
+      extract: (content: string): string | undefined => {
+        const match = content.match(/^FROM\s+python:(\d[\d.]*)/im);
+        if (!match) return undefined;
+        return extractPythonMajorMinor(match[1]!);
+      },
+    },
+    {
+      file: 'Pipfile',
+      label: 'Pipfile (python_version)',
+      extract: (content: string): string | undefined => {
+        const match = content.match(/python_version\s*=\s*["'](\S+)["']/);
+        if (!match) return undefined;
+        return extractPythonMajorMinor(match[1]!);
+      },
+    },
+  ] satisfies VersionSource[],
 };

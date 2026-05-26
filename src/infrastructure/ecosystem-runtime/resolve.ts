@@ -8,6 +8,7 @@ import { EcosystemContainerCommandRunner } from './command-runner';
 import { EphemeralEcosystemContainer } from './ephemeral-container';
 import { buildProjectImage } from './build-project-image';
 import { CLI_NAME } from '@infra/brand';
+import { inferVersionFromSources } from '@infra/utils/infer-version';
 
 export interface ResolveEcosystemRuntimeOptions {
   plugin: EcosystemPlugin;
@@ -32,7 +33,7 @@ export interface ResolveEcosystemRuntimeOptions {
  *   When `build` is absent (pull-based resolution):
  *     1. `ecosystems[].runner.image` — explicit image config (highest priority)
  *     2. `ecosystems[].runner.language_version` — explicit version → `spec.resolveImage(version)`
- *     3. `plugin.inferVersion(cwd)` — project-file version inference → `spec.resolveImage(version)`
+ *     3. `inferVersionFromSources(cwd, plugin.versionSources)` — project-file version inference → `spec.resolveImage(version)`
  *     4. `spec.resolveImage(undefined)` → `spec.defaultImage` (fallback)
  *
  * @param options.runnerConfig  Optional per-ecosystem runner config from `ecosystems[].runner`.
@@ -104,9 +105,9 @@ export async function resolveEcosystemRuntime(
       // 2–4. Version-based resolution
       let version: string | undefined = runnerCfg?.language_version;
 
-      if (!version && plugin.inferVersion) {
-        // inferVersion never throws per its contract
-        version = await plugin.inferVersion(cwd);
+      if (!version) {
+        // inferVersionFromSources never throws per its contract
+        version = await inferVersionFromSources(cwd, plugin.versionSources ?? []);
       }
 
       if (!version) {

@@ -69,8 +69,13 @@ describe('pipPlugin.runUpdater — validationCommands ?? [] branch (line 104)', 
       ctx.scanResult,
       ctx.cwd,
       ctx.authorizeBreaking,
-      [],
-      undefined, // osvFixOutcome
+      [],         // validationCommands ?? []
+      'osv',      // fixerStrategy ?? 'osv'
+      undefined,  // preFixBackups
+      undefined,  // osvFixOutcome
+      undefined,  // preRunSnapshots
+      undefined,  // advisorResults
+      undefined,  // ecosystemKey
     );
   });
 
@@ -83,8 +88,13 @@ describe('pipPlugin.runUpdater — validationCommands ?? [] branch (line 104)', 
       ctx.scanResult,
       ctx.cwd,
       ctx.authorizeBreaking,
-      ['pytest'],
-      undefined, // osvFixOutcome
+      ['pytest'],  // validationCommands
+      'osv',       // fixerStrategy ?? 'osv'
+      undefined,   // preFixBackups
+      undefined,   // osvFixOutcome
+      undefined,   // preRunSnapshots
+      undefined,   // advisorResults
+      undefined,   // ecosystemKey
     );
   });
 });

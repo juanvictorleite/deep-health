@@ -70,9 +70,13 @@ describe('composerPlugin.runUpdater — validationCommands ?? [] branch', () => 
       ctx.scanResult,
       ctx.cwd,
       ctx.authorizeBreaking,
-      [], // ?? [] result
-      undefined, // fixerStrategy
-      undefined, // osvFixOutcome
+      [],          // validationCommands ?? []
+      undefined,   // fixerStrategy
+      undefined,   // preFixBackups
+      undefined,   // osvFixOutcome
+      undefined,   // preRunSnapshots
+      undefined,   // advisorResults
+      undefined,   // ecosystemKey
     );
   });
 
@@ -85,9 +89,13 @@ describe('composerPlugin.runUpdater — validationCommands ?? [] branch', () => 
       ctx.scanResult,
       ctx.cwd,
       ctx.authorizeBreaking,
-      ['php artisan'],
-      undefined, // fixerStrategy
-      undefined, // osvFixOutcome
+      ['php artisan'], // validationCommands
+      undefined,       // fixerStrategy
+      undefined,       // preFixBackups
+      undefined,       // osvFixOutcome
+      undefined,       // preRunSnapshots
+      undefined,       // advisorResults
+      undefined,       // ecosystemKey
     );
   });
 
@@ -100,9 +108,13 @@ describe('composerPlugin.runUpdater — validationCommands ?? [] branch', () => 
       ctx.scanResult,
       ctx.cwd,
       ctx.authorizeBreaking,
-      [],
-      'osv-then-audit',
-      undefined, // osvFixOutcome
+      [],              // validationCommands ?? []
+      'osv-then-audit', // fixerStrategy
+      undefined,       // preFixBackups
+      undefined,       // osvFixOutcome
+      undefined,       // preRunSnapshots
+      undefined,       // advisorResults
+      undefined,       // ecosystemKey
     );
   });
 });

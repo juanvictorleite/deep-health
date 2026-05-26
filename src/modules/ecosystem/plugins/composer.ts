@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
 import type { ProjectConfig, ProtectedPackage } from '@core/types/config';
 import type { UpdateResultJson } from '@core/types/update';
@@ -7,18 +5,9 @@ import { runComposerUpdater } from './composer-updater';
 import { resolveComposerDockerImage } from '@infra/provisioner/php-image-resolver';
 import { COMPOSER_BOOTSTRAP, isPhpCliImage } from '@infra/provisioner/composer-runner';
 import { COMPOSER_DEFAULT_IMAGE } from '@infra/provisioner/php-profiles';
+import type { VersionSource } from '@infra/utils/infer-version';
 
 // ─── Version inference helpers ────────────────────────────────────────────────
-
-/** Read a UTF-8 text file and return its trimmed contents, or undefined on any error. */
-async function readTextFile(filePath: string): Promise<string | undefined> {
-  try {
-    const content = await readFile(filePath, 'utf-8');
-    return (content as string).trim();
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * Parse a `composer.json#require.php` constraint into a best-effort version string.
@@ -109,50 +98,57 @@ export const composerPlugin: EcosystemPlugin = {
       ctx.authorizeBreaking,
       ctx.validationCommands ?? [],
       ctx.fixerStrategy,
+      ctx.preFixBackups,
       ctx.osvFixOutcome,
+      ctx.preRunSnapshots,
+      ctx.advisorResults,
+      ctx.ecosystemKey,
     );
   },
 
   /**
-   * Infer PHP version for the composer ecosystem.
+   * Declarative version sources for PHP version inference.
    *
    * Precedence:
    * 1. `.php-version`
    * 2. `composer.json#require.php`
-   *
-   * Returns undefined on missing/malformed/unparseable values. Never throws.
    */
-  async inferVersion(cwd: string): Promise<string | undefined> {
-    // 1. .php-version
-    const phpVersionFile = await readTextFile(resolve(cwd, '.php-version'));
-    if (phpVersionFile !== undefined) {
-      const stripped = phpVersionFile.replace(/^v/i, '').trim();
-      if (stripped && /^\d[\d.]*$/.test(stripped)) {
-        return stripped;
-      }
-    }
-
-    // 2. composer.json#require.php
-    try {
-      const raw = await readFile(resolve(cwd, 'composer.json'), 'utf-8');
-      const composer: unknown = JSON.parse(raw as string);
-      if (
-        composer !== null &&
-        typeof composer === 'object' &&
-        'require' in (composer as Record<string, unknown>)
-      ) {
-        const req = (composer as Record<string, unknown>)['require'];
-        if (typeof req === 'object' && req !== null && 'php' in req) {
-          const phpConstraint = (req as Record<string, unknown>)['php'];
-          if (typeof phpConstraint === 'string') {
-            return parseComposerPhpConstraint(phpConstraint);
-          }
+  versionSources: [
+    {
+      file: '.php-version',
+      label: '.php-version',
+      extract: (content: string): string | undefined => {
+        const stripped = content.replace(/^v/i, '').trim();
+        if (stripped && /^\d[\d.]*$/.test(stripped)) {
+          return stripped;
         }
-      }
-    } catch {
-      // file missing or malformed — fall through
-    }
-
-    return undefined;
-  },
+        return undefined;
+      },
+    },
+    {
+      file: 'composer.json',
+      label: 'composer.json#require.php',
+      extract: (content: string): string | undefined => {
+        try {
+          const composer: unknown = JSON.parse(content);
+          if (
+            composer !== null &&
+            typeof composer === 'object' &&
+            'require' in (composer as Record<string, unknown>)
+          ) {
+            const req = (composer as Record<string, unknown>)['require'];
+            if (typeof req === 'object' && req !== null && 'php' in req) {
+              const phpConstraint = (req as Record<string, unknown>)['php'];
+              if (typeof phpConstraint === 'string') {
+                return parseComposerPhpConstraint(phpConstraint);
+              }
+            }
+          }
+        } catch {
+          // malformed JSON — fall through
+        }
+        return undefined;
+      },
+    },
+  ] satisfies VersionSource[],
 };

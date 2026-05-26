@@ -15,6 +15,7 @@ import { CLI_NAME, DEFAULT_AUDIT_SUBDIR, DEFAULT_REPORTS_SUBDIR } from '@infra/b
 import { __, setLocale } from '@core/i18n';
 import { logger } from '@infra/utils/logger';
 import { sectionHeader, dim } from '@infra/utils/ui';
+import { inferVersionFromSources } from '@infra/utils/infer-version';
 
 export interface InitCommandOptions {
   projectName?: string;
@@ -429,9 +430,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     }
 
     // ── Version inference (plugin-native, scoped to ecosystem's discovered path) ──
-    const inferredVersion = plugin.inferVersion
-      ? await plugin.inferVersion(ecoAbsPath)
-      : undefined;
+    const inferredVersion = await inferVersionFromSources(ecoAbsPath, plugin.versionSources ?? []);
 
     // Build per-ecosystem runner object
     const ecosystemVersionPrompts: Record<string, {

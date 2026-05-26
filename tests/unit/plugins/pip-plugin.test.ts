@@ -1,5 +1,5 @@
 /**
- * Tests for pipPlugin.inferVersion implementation.
+ * Tests for pip version inference via inferVersionFromSources().
  *
  * pip precedence: .python-version → .tool-versions → pyproject.toml → setup.cfg → runtime.txt
  *
@@ -15,6 +15,7 @@ vi.mock('node:fs/promises', () => ({
 
 import { readFile } from 'node:fs/promises';
 import { pipPlugin } from '@modules/ecosystem/plugins/pip';
+import { inferVersionFromSources } from '@infra/utils/infer-version';
 
 const mockReadFile = vi.mocked(readFile);
 
@@ -23,7 +24,7 @@ const ENOENT = Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
 
 // ─── .python-version ─────────────────────────────────────────────────────────
 
-describe('pipPlugin.inferVersion — .python-version precedence', () => {
+describe('inferVersionFromSources (pip) — .python-version precedence', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('returns "3.11" from .python-version with value "3.11"', async () => {
@@ -31,7 +32,7 @@ describe('pipPlugin.inferVersion — .python-version precedence', () => {
       if (String(p).endsWith('.python-version')) return '3.11';
       throw ENOENT;
     });
-    expect(await pipPlugin.inferVersion!('/project')).toBe('3.11');
+    expect(await inferVersionFromSources('/project', pipPlugin.versionSources!)).toBe('3.11');
   });
 
   it('returns "3.11" from .python-version with value "3.11.2" (truncates to major.minor)', async () => {
@@ -39,7 +40,7 @@ describe('pipPlugin.inferVersion — .python-version precedence', () => {
       if (String(p).endsWith('.python-version')) return '3.11.2';
       throw ENOENT;
     });
-    expect(await pipPlugin.inferVersion!('/project')).toBe('3.11');
+    expect(await inferVersionFromSources('/project', pipPlugin.versionSources!)).toBe('3.11');
   });
 
   it('strips leading "v" and returns "3.10" from "v3.10"', async () => {
@@ -47,7 +48,7 @@ describe('pipPlugin.inferVersion — .python-version precedence', () => {
       if (String(p).endsWith('.python-version')) return 'v3.10';
       throw ENOENT;
     });
-    expect(await pipPlugin.inferVersion!('/project')).toBe('3.10');
+    expect(await inferVersionFromSources('/project', pipPlugin.versionSources!)).toBe('3.10');
   });
 
   it('returns "3" from bare major version "3"', async () => {
@@ -55,7 +56,7 @@ describe('pipPlugin.inferVersion — .python-version precedence', () => {
       if (String(p).endsWith('.python-version')) return '3';
       throw ENOENT;
     });
-    expect(await pipPlugin.inferVersion!('/project')).toBe('3');
+    expect(await inferVersionFromSources('/project', pipPlugin.versionSources!)).toBe('3');
   });
 
   it('.python-version wins over pyproject.toml when both present', async () => {
@@ -64,13 +65,13 @@ describe('pipPlugin.inferVersion — .python-version precedence', () => {
       if (String(p).endsWith('pyproject.toml')) return `[project]\nrequires-python = ">=3.9"`;
       throw ENOENT;
     });
-    expect(await pipPlugin.inferVersion!('/project')).toBe('3.11');
+    expect(await inferVersionFromSources('/project', pipPlugin.versionSources!)).toBe('3.11');
   });
 });
 
 // ─── .tool-versions ──────────────────────────────────────────────────────────
 
-describe('pipPlugin.inferVersion — .tool-versions (asdf/mise format)', () => {
+describe('inferVersionFromSources (pip) — .tool-versions (asdf/mise format)', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('parses python line from .tool-versions with other tools present', async () => {
@@ -79,7 +80,7 @@ describe('pipPlugin.inferVersion — .tool-versions (asdf/mise format)', () => {
       if (String(p).endsWith('.tool-versions')) return 'python 3.12.0\nnodejs 20';
       throw ENOENT;
     });
-    expect(await pipPlugin.inferVersion!('/project')).toBe('3.12');
+    expect(await inferVersionFromSources('/project', pipPlugin.versionSources!)).toBe('3.12');
   });
 
   it('returns undefined when .tool-versions has no python line', async () => {
@@ -89,13 +90,13 @@ describe('pipPlugin.inferVersion — .tool-versions (asdf/mise format)', () => {
       throw ENOENT;
     });
     // Falls through to pyproject.toml etc., all missing
-    expect(await pipPlugin.inferVersion!('/project')).toBeUndefined();
+    expect(await inferVersionFromSources('/project', pipPlugin.versionSources!)).toBeUndefined();
   });
 });
 
 // ─── pyproject.toml ──────────────────────────────────────────────────────────
 
-describe('pipPlugin.inferVersion — pyproject.toml requires-python', () => {
+describe('inferVersionFromSources (pip) — pyproject.toml requires-python', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('returns "3.10" from requires-python = ">=3.10"', async () => {
@@ -105,7 +106,7 @@ describe('pipPlugin.inferVersion — pyproject.toml requires-python', () => {
       if (String(p).endsWith('pyproject.toml')) return `[project]\nrequires-python = ">=3.10"`;
       throw ENOENT;
     });
-    expect(await pipPlugin.inferVersion!('/project')).toBe('3.10');
+    expect(await inferVersionFromSources('/project', pipPlugin.versionSources!)).toBe('3.10');
   });
 
   it('returns "3.11" from requires-python = "^3.11"', async () => {
@@ -115,7 +116,7 @@ describe('pipPlugin.inferVersion — pyproject.toml requires-python', () => {
       if (String(p).endsWith('pyproject.toml')) return `[project]\nrequires-python = "^3.11"`;
       throw ENOENT;
     });
-    expect(await pipPlugin.inferVersion!('/project')).toBe('3.11');
+    expect(await inferVersionFromSources('/project', pipPlugin.versionSources!)).toBe('3.11');
   });
 
   it('returns "3.9" from requires-python = "~=3.9.2" (major.minor only)', async () => {
@@ -125,13 +126,13 @@ describe('pipPlugin.inferVersion — pyproject.toml requires-python', () => {
       if (String(p).endsWith('pyproject.toml')) return `[project]\nrequires-python = "~=3.9.2"`;
       throw ENOENT;
     });
-    expect(await pipPlugin.inferVersion!('/project')).toBe('3.9');
+    expect(await inferVersionFromSources('/project', pipPlugin.versionSources!)).toBe('3.9');
   });
 });
 
 // ─── setup.cfg ───────────────────────────────────────────────────────────────
 
-describe('pipPlugin.inferVersion — setup.cfg python_requires', () => {
+describe('inferVersionFromSources (pip) — setup.cfg python_requires', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('returns "3.9" from python_requires = >=3.9', async () => {
@@ -142,13 +143,13 @@ describe('pipPlugin.inferVersion — setup.cfg python_requires', () => {
       if (String(p).endsWith('setup.cfg')) return '[options]\npython_requires = >=3.9';
       throw ENOENT;
     });
-    expect(await pipPlugin.inferVersion!('/project')).toBe('3.9');
+    expect(await inferVersionFromSources('/project', pipPlugin.versionSources!)).toBe('3.9');
   });
 });
 
 // ─── runtime.txt ─────────────────────────────────────────────────────────────
 
-describe('pipPlugin.inferVersion — runtime.txt (Heroku format)', () => {
+describe('inferVersionFromSources (pip) — runtime.txt (Heroku format)', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('returns "3.11" from "python-3.11.4" in runtime.txt', async () => {
@@ -160,18 +161,18 @@ describe('pipPlugin.inferVersion — runtime.txt (Heroku format)', () => {
       if (String(p).endsWith('runtime.txt')) return 'python-3.11.4';
       throw ENOENT;
     });
-    expect(await pipPlugin.inferVersion!('/project')).toBe('3.11');
+    expect(await inferVersionFromSources('/project', pipPlugin.versionSources!)).toBe('3.11');
   });
 });
 
 // ─── Error handling ───────────────────────────────────────────────────────────
 
-describe('pipPlugin.inferVersion — error handling', () => {
+describe('inferVersionFromSources (pip) — error handling', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('returns undefined when all files are missing (ENOENT)', async () => {
     mockReadFile.mockRejectedValue(ENOENT);
-    expect(await pipPlugin.inferVersion!('/project')).toBeUndefined();
+    expect(await inferVersionFromSources('/project', pipPlugin.versionSources!)).toBeUndefined();
   });
 
   it('returns undefined for missing/malformed files (never throws)', async () => {
@@ -179,7 +180,7 @@ describe('pipPlugin.inferVersion — error handling', () => {
       if (String(p).endsWith('pyproject.toml')) return 'NOT TOML AT ALL >>>>';
       throw ENOENT;
     });
-    await expect(pipPlugin.inferVersion!('/project')).resolves.toBeUndefined();
+    await expect(inferVersionFromSources('/project', pipPlugin.versionSources!)).resolves.toBeUndefined();
   });
 });
 
@@ -201,7 +202,7 @@ describe('pipPlugin shape', () => {
   });
 
   it('has defaultAdvisors including pip-audit', () => {
-    expect(pipPlugin.defaultAdvisors.some((a) => a.command === 'pip-audit')).toBe(true);
+    expect(pipPlugin.defaultAdvisors.some((a) => a.command.startsWith('pip-audit'))).toBe(true);
   });
 
   it('has defaultValidationCommands including pip check', () => {
@@ -211,11 +212,26 @@ describe('pipPlugin shape', () => {
   it('buildScanArgs returns lockfile flag', () => {
     expect(pipPlugin.buildScanArgs()).toEqual(['--lockfile', 'requirements.txt']);
   });
+
+  it('has versionSources defined with 7 sources', () => {
+    expect(pipPlugin.versionSources).toBeDefined();
+    expect(pipPlugin.versionSources!.length).toBe(7);
+    const files = pipPlugin.versionSources!.map((s) => s.file);
+    expect(files).toEqual([
+      '.python-version',
+      '.tool-versions',
+      'pyproject.toml',
+      'setup.cfg',
+      'runtime.txt',
+      'Dockerfile',
+      'Pipfile',
+    ]);
+  });
 });
 
 // ─── Additional branch coverage for extractPythonMajorMinor and parsePythonConstraint ───
 
-describe('pipPlugin.inferVersion — additional branch coverage', () => {
+describe('inferVersionFromSources (pip) — additional branch coverage', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('returns undefined when .python-version contains non-numeric string (line 31 !stripped branch)', async () => {
@@ -224,7 +240,7 @@ describe('pipPlugin.inferVersion — additional branch coverage', () => {
       if (String(p).endsWith('.python-version')) return 'abc';
       throw ENOENT;
     });
-    const result = await pipPlugin.inferVersion!('/project');
+    const result = await inferVersionFromSources('/project', pipPlugin.versionSources!);
     expect(result).toBeUndefined();
   });
 
@@ -233,7 +249,7 @@ describe('pipPlugin.inferVersion — additional branch coverage', () => {
       if (String(p).endsWith('pyproject.toml')) return 'requires-python = "*"';
       throw ENOENT;
     });
-    const result = await pipPlugin.inferVersion!('/project');
+    const result = await inferVersionFromSources('/project', pipPlugin.versionSources!);
     expect(result).toBeUndefined();
   });
 
@@ -243,7 +259,7 @@ describe('pipPlugin.inferVersion — additional branch coverage', () => {
       if (String(p).endsWith('pyproject.toml')) return 'requires-python = ",3.11"';
       throw ENOENT;
     });
-    const result = await pipPlugin.inferVersion!('/project');
+    const result = await inferVersionFromSources('/project', pipPlugin.versionSources!);
     expect(result).toBeUndefined();
   });
 
@@ -253,7 +269,7 @@ describe('pipPlugin.inferVersion — additional branch coverage', () => {
       if (String(p).endsWith('pyproject.toml')) return 'requires-python = ">="';
       throw ENOENT;
     });
-    const result = await pipPlugin.inferVersion!('/project');
+    const result = await inferVersionFromSources('/project', pipPlugin.versionSources!);
     expect(result).toBeUndefined();
   });
 });

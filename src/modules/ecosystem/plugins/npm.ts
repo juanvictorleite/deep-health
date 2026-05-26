@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { resolve, join } from 'node:path';
+import { join } from 'node:path';
 import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
 import type { ProjectConfig, ProtectedPackage, FixerStrategyId } from '@core/types/config';
 import type { CommandRunner } from '@core/types/common';
@@ -12,6 +12,7 @@ import { readNpmLockfileVersion } from '@modules/ecosystem/utils/lockfile-utils'
 import { runNpmUpdater } from './npm-updater';
 import { resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
 import { NPM_DEFAULT_FIXER } from '@infra/brand';
+import type { VersionSource } from '@infra/utils/infer-version';
 
 // ─── Version inference helpers ────────────────────────────────────────────────
 
@@ -45,16 +46,6 @@ function sanitizeNodeVersionFile(raw: string): string | undefined {
   if (!/^\d[\d.]*$/.test(stripped)) return undefined;
 
   return stripped;
-}
-
-/** Read a UTF-8 text file and return its trimmed contents, or undefined on any error. */
-async function readTextFile(filePath: string): Promise<string | undefined> {
-  try {
-    const content = await readFile(filePath, 'utf-8');
-    return (content as string).trim();
-  } catch {
-    return undefined;
-  }
 }
 
 /**
@@ -176,6 +167,7 @@ export const npmPlugin: EcosystemPlugin = {
       ctx.osvFixOutcome,
       ctx.preRunSnapshots,
       ctx.advisorResults,
+      ctx.ecosystemKey,
     );
   },
 
@@ -279,49 +271,47 @@ export const npmPlugin: EcosystemPlugin = {
   },
 
   /**
-   * Infer Node.js version for the npm ecosystem.
+   * Declarative version sources for Node.js version inference.
    *
    * Precedence:
    * 1. `.nvmrc`
    * 2. `.node-version`
    * 3. `package.json#engines.node`
-   *
-   * Returns undefined on missing/malformed/unparseable values. Never throws.
    */
-  async inferVersion(cwd: string): Promise<string | undefined> {
-    // 1. .nvmrc
-    const nvmrc = await readTextFile(resolve(cwd, '.nvmrc'));
-    if (nvmrc !== undefined) {
-      const version = sanitizeNodeVersionFile(nvmrc);
-      if (version !== undefined) return version;
-    }
-
-    // 2. .node-version
-    const nodeVersion = await readTextFile(resolve(cwd, '.node-version'));
-    if (nodeVersion !== undefined) {
-      const version = sanitizeNodeVersionFile(nodeVersion);
-      if (version !== undefined) return version;
-    }
-
-    // 3. package.json#engines.node
-    try {
-      const raw = await readFile(resolve(cwd, 'package.json'), 'utf-8');
-      const pkg: unknown = JSON.parse(raw as string);
-      if (
-        pkg !== null &&
-        typeof pkg === 'object' &&
-        'engines' in pkg &&
-        typeof (pkg as Record<string, unknown>)['engines'] === 'object'
-      ) {
-        const engines = (pkg as Record<string, unknown>)['engines'] as Record<string, unknown>;
-        if (typeof engines['node'] === 'string') {
-          return parseEnginesNodeRange(engines['node']);
+  versionSources: [
+    {
+      file: '.nvmrc',
+      label: '.nvmrc',
+      extract: (content: string) => sanitizeNodeVersionFile(content),
+    },
+    {
+      file: '.node-version',
+      label: '.node-version',
+      extract: (content: string) => sanitizeNodeVersionFile(content),
+    },
+    {
+      file: 'package.json',
+      label: 'package.json#engines.node',
+      extract: (content: string): string | undefined => {
+        try {
+          const pkg: unknown = JSON.parse(content);
+          if (
+            pkg !== null &&
+            typeof pkg === 'object' &&
+            'engines' in pkg &&
+            typeof (pkg as Record<string, unknown>)['engines'] === 'object' &&
+            (pkg as Record<string, unknown>)['engines'] !== null
+          ) {
+            const engines = (pkg as Record<string, unknown>)['engines'] as Record<string, unknown>;
+            if (typeof engines['node'] === 'string') {
+              return parseEnginesNodeRange(engines['node']);
+            }
+          }
+        } catch {
+          // malformed JSON — fall through
         }
-      }
-    } catch {
-      // file missing or malformed — fall through
-    }
-
-    return undefined;
-  },
+        return undefined;
+      },
+    },
+  ] satisfies VersionSource[],
 };

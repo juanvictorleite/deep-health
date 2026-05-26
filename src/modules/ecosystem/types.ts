@@ -5,6 +5,7 @@ import type { UpdateResultJson } from '@core/types/update';
 import type { AdvisorResult } from '@core/types/report';
 import type { EcosystemRuntimeSpec } from '@infra/ecosystem-runtime/types';
 import type { OsvFixOutcome } from '@modules/ecosystem/fixers/index';
+import type { VersionSource } from '@infra/utils/infer-version';
 
 export interface EcosystemUpdaterContext {
   runner: CommandRunner;
@@ -41,6 +42,11 @@ export interface EcosystemUpdaterContext {
    * Fixers can consume structured findings by flat-mapping result.findings.
    */
   advisorResults?: AdvisorResult[];
+  /**
+   * Composite key (e.g. pip, pip:api) for looking up this ecosystem in
+   * scanResult.ecosystems. When absent, updaters fall back to their hardcoded plugin id.
+   */
+  ecosystemKey?: string;
 }
 
 export interface EcosystemPlugin {
@@ -142,15 +148,10 @@ export interface EcosystemPlugin {
   }): Promise<{ status: 'success' | 'error'; error?: string } | null>;
 
   /**
-   * Optional file-based runtime version inference for this ecosystem.
+   * Declarative version inference sources for this ecosystem.
    *
-   * Reads project files in `cwd` to infer a reasonable runtime version hint
-   * (e.g. "20" for Node.js, "8.2" for PHP).
-   *
-   * Rules:
-   * - Must never throw.
-   * - Returns `undefined` when no usable version can be inferred.
-   * - Async to allow file I/O.
+   * When present, the orchestration layer uses `inferVersionFromSources` to
+   * iterate these sources in order and return the first extractable version.
    */
-  inferVersion?(cwd: string): Promise<string | undefined>;
+  versionSources?: VersionSource[];
 }
