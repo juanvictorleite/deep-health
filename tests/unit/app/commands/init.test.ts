@@ -474,6 +474,75 @@ describe('init command — AC4: Dockerfile association from discovery', () => {
     expect(selectMessages.some((m) => m.includes('Select Dockerfile') || m.includes('Selecione o Dockerfile'))).toBe(false);
   });
 
+  it('AC2/AC4: stores Dockerfile path relative to ecosystem path, not root-relative', async () => {
+    // eco at 'web', Dockerfile discovered at 'web/Dockerfile' (root-relative value = 'web/Dockerfile')
+    mockDiscoverProject.mockResolvedValue({
+      ecosystems: [npmWebDiscovery],
+      dockerfiles: [webDockerfile],
+    });
+
+    mockCheckbox.mockResolvedValue(['0']);
+
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      if (msg.includes('Image mode') || msg.includes('Modo de imagem')) return 'build';
+      // Dockerfile select: return root-relative value as the prompt would present it
+      if (msg.includes('Select Dockerfile') || msg.includes('Selecione o Dockerfile')) return 'web/Dockerfile';
+      return choices[0]!.value;
+    });
+
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Test',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const call = mockGenerateConfigJson.mock.calls[0]![0];
+    const npmEntry = call.ecosystemConfigs?.find((e) => e.id === 'npm');
+    // Should be 'Dockerfile' (relative to 'web/'), not 'web/Dockerfile' (root-relative)
+    expect(npmEntry?.runner?.build?.dockerfile).toBe('Dockerfile');
+  });
+
+  it('AC2: stores Dockerfile path as "../Dockerfile" when Dockerfile is in parent dir of ecosystem', async () => {
+    // eco at 'api/app', Dockerfile discovered at 'api/Dockerfile' (df.path='api', df.filename='Dockerfile')
+    const apiAppDiscovery = { pluginId: 'pip', path: 'api/app', lockfile: 'requirements.txt', suggestedLabel: 'app' };
+    const apiDockerfile = { path: 'api', filename: 'Dockerfile' };
+
+    mockDiscoverProject.mockResolvedValue({
+      ecosystems: [apiAppDiscovery],
+      dockerfiles: [apiDockerfile],
+    });
+
+    mockCheckbox.mockResolvedValue(['0']);
+
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      if (msg.includes('Image mode') || msg.includes('Modo de imagem')) return 'build';
+      // Dockerfile select: return root-relative value 'api/Dockerfile'
+      if (msg.includes('Select Dockerfile') || msg.includes('Selecione o Dockerfile')) return 'api/Dockerfile';
+      return choices[0]!.value;
+    });
+
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Test',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const call = mockGenerateConfigJson.mock.calls[0]![0];
+    const pipEntry = call.ecosystemConfigs?.find((e) => e.id === 'pip');
+    // relative('api/app', 'api/Dockerfile') = '../Dockerfile'
+    expect(pipEntry?.runner?.build?.dockerfile).toBe('../Dockerfile');
+  });
+
   it('uses collectRunnerConfig (manual prompt) when no nearby Dockerfiles exist', async () => {
     // Ecosystem at 'web' but Dockerfile only at root
     mockDiscoverProject.mockResolvedValue({
@@ -573,7 +642,7 @@ describe('init command — AC5: path and label in generateConfigJson', () => {
     expect(webEntry?.label).toBe('web');
   });
 
-  it('does NOT emit label for single (non-duplicate) entries', async () => {
+  it('emits label for entries with a non-empty path even when plugin id is unique; root unique entries get no label', async () => {
     mockDiscoverProject.mockResolvedValue({
       ecosystems: [npmRootDiscovery, pipApiDiscovery],
       dockerfiles: [],
@@ -591,9 +660,10 @@ describe('init command — AC5: path and label in generateConfigJson', () => {
     const call = mockGenerateConfigJson.mock.calls[0]![0];
     const npmEntry = call.ecosystemConfigs?.find((e) => e.id === 'npm');
     const pipEntry = call.ecosystemConfigs?.find((e) => e.id === 'pip');
-    // Both are unique ids — no labels
+    // npm at root (path='') with unique id → no label
     expect(npmEntry?.label).toBeUndefined();
-    expect(pipEntry?.label).toBeUndefined();
+    // pip at api/app (path non-empty) → gets label from suggestedLabel='app'
+    expect(pipEntry?.label).toBe('app');
   });
 });
 
@@ -836,9 +906,9 @@ describe('init command — monorepo scenario', () => {
     expect(pipEntry?.path).toBe('api/app');
     expect(npmEntry?.path).toBe('web');
 
-    // Single entries — no labels
-    expect(pipEntry?.label).toBeUndefined();
-    expect(npmEntry?.label).toBeUndefined();
+    // Entries with non-empty paths get labels (from suggestedLabel)
+    expect(pipEntry?.label).toBe('app');
+    expect(npmEntry?.label).toBe('web');
   });
 
   it('detectProjectScripts is called with resolved ecosystem paths, not root cwd', async () => {

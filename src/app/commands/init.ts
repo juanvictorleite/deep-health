@@ -1,5 +1,5 @@
 import { writeFile, access, mkdir } from 'node:fs/promises';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, relative } from 'node:path';
 import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
 import { generateConfigJson, type GenerateConfigOptions, type EcosystemRunnerConfig } from '@infra/config/generator';
 import { generateJsonSchema } from '@infra/config/schema-export';
@@ -251,11 +251,12 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     pluginIdCounts.set(eco.pluginId, (pluginIdCounts.get(eco.pluginId) ?? 0) + 1);
   }
 
-  // Assign labels: entries with duplicate ids get a label; non-duplicates don't
+  // Assign labels: entries with duplicate ids OR a non-empty path get a label; root unique entries don't
   const discoveryLabels = new Map<DiscoveredEcosystem, string | undefined>();
   for (const eco of selectedDiscoveries) {
     const isDuplicate = (pluginIdCounts.get(eco.pluginId) ?? 0) > 1;
-    if (isDuplicate) {
+    const hasPath = eco.path !== '' && eco.path !== undefined;
+    if (isDuplicate || hasPath) {
       const suggestedLabel = eco.suggestedLabel ?? eco.path ?? eco.pluginId;
       if (opts.nonInteractive) {
         discoveryLabels.set(eco, suggestedLabel);
@@ -493,7 +494,8 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
             dfPath = await prompt(__('  [{{plugin}}] Dockerfile path', { plugin: plugin.name }), 'Dockerfile');
             dfPath = dfPath.trim() || 'Dockerfile';
           } else {
-            dfPath = selectedDf;
+            // selectedDf is root-relative (e.g. 'web/Dockerfile'); store relative to ecosystem path
+            dfPath = ecoPath ? relative(ecoPath, selectedDf) : selectedDf;
           }
           const ctxAnswer = await prompt(__("  [{{plugin}}] Build context (blank for '.')", { plugin: plugin.name }), '');
           const targetAnswer = await prompt(__('  [{{plugin}}] Build target stage (blank to skip)', { plugin: plugin.name }), '');
