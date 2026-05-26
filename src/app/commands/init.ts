@@ -13,6 +13,7 @@ import { ConfigLoadError } from '@core/errors';
 import { resolveDefaultLocale } from '@core/locale-detect';
 import { CLI_NAME, DEFAULT_AUDIT_SUBDIR, DEFAULT_REPORTS_SUBDIR } from '@infra/brand';
 import { __, setLocale } from '@core/i18n';
+import { logger } from '@infra/utils/logger';
 
 export interface InitCommandOptions {
   projectName?: string;
@@ -100,6 +101,23 @@ async function collectRunnerConfig(opts: CollectRunnerConfigOpts): Promise<Ecosy
 }
 
 /**
+ * Prints a formatted summary of discovered ecosystems when any discovery
+ * is in a subdirectory (path !== ''). Root-only discoveries are silent.
+ */
+function printDiscoverySummary(discoveries: DiscoveredEcosystem[]): void {
+  const hasSubdirDiscovery = discoveries.some((eco) => eco.path !== '');
+  if (!hasSubdirDiscovery) return;
+
+  logger.info(__('Found {{count}} ecosystem(s):', { count: String(discoveries.length) }));
+  for (const eco of discoveries) {
+    const plugin = defaultRegistry.get(eco.pluginId);
+    const pluginName = plugin ? plugin.name : eco.pluginId;
+    const pathLabel = eco.path ? eco.path + '/' : '(root)';
+    logger.info(`  ${pluginName.padEnd(12)}${eco.lockfile.padEnd(24)}${pathLabel}`);
+  }
+}
+
+/**
  * Registry-driven init: prompts for ecosystems from the plugin registry,
  * per-ecosystem fixer strategy, validation commands, and advisors.
  * Also prompts for OSV/SonarQube scanner config and outputs settings.
@@ -154,6 +172,9 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
 
   const allPlugins = defaultRegistry.getAll();
   const discovery = await discoverProject(opts.cwd, allPlugins);
+
+  // Show ecosystem discovery summary when subdirectory discoveries exist
+  printDiscoverySummary(discovery.ecosystems);
 
   /**
    * Build a human-readable label for a checkbox choice.

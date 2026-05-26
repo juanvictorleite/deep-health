@@ -1,4 +1,5 @@
 {
+  "Found {{count}} ecosystem(s):": "{{count}} ecossistema(s) encontrado(s):",
   "Project name": "Nome do projeto",
   "Client name": "Nome do cliente",
   "Select ecosystems to configure (Space to toggle, Enter to confirm)": "Selecione os ecossistemas para configurar (Espaço para marcar, Enter para confirmar)",

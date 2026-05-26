@@ -49,13 +49,24 @@ vi.mock('@app/commands/sonar-properties-template', () => ({
   writeSonarPropertiesTemplateIfMissing: vi.fn().mockResolvedValue('created'),
 }));
 
+vi.mock('@infra/utils/logger', () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  },
+}));
+
 import { generateConfigJson } from '@infra/config/generator';
 import { prompt } from '@infra/utils/prompt';
 import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
 import { discoverProject } from '@infra/utils/detect-ecosystems';
 import { detectProjectScripts } from '@infra/utils/detect-scripts';
 import { runInitCommand } from '@app/commands/init';
+import { logger } from '@infra/utils/logger';
 
+const mockLoggerInfo = vi.mocked(logger.info);
 const mockGenerateConfigJson = vi.mocked(generateConfigJson);
 const mockPrompt = vi.mocked(prompt);
 const mockConfirm = vi.mocked(confirmPrompt);
@@ -859,5 +870,159 @@ describe('init command — monorepo scenario', () => {
     expect(scriptCwds.some((p) => p.endsWith('/tramontina-trade/web') || p.includes('web'))).toBe(true);
     // Root cwd should NOT appear in script detections
     expect(scriptCwds.every((p) => p !== '/tramontina-trade')).toBe(true);
+  });
+});
+
+// ── Discovery summary display ─────────────────────────────────────────────────
+
+describe('init command — discovery summary display', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupNonInteractiveMocks();
+  });
+
+  it('AC2: does NOT call logger.info for summary when all discoveries are at root', async () => {
+    mockDiscoverProject.mockResolvedValue({
+      ecosystems: [npmRootDiscovery],
+      dockerfiles: [],
+    });
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      projectName: 'Test',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    // No summary lines should be emitted (all root)
+    const summaryCalls = mockLoggerInfo.mock.calls.filter((args) =>
+      typeof args[0] === 'string' && (args[0].includes('ecosystem') || args[0].startsWith('  ')),
+    );
+    expect(summaryCalls.length).toBe(0);
+  });
+
+  it('AC1+AC5: calls logger.info with summary header when subdirectory discoveries exist (non-interactive)', async () => {
+    mockDiscoverProject.mockResolvedValue({
+      ecosystems: [npmWebDiscovery],
+      dockerfiles: [],
+    });
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      projectName: 'Test',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    // Summary header should appear
+    const headerCall = mockLoggerInfo.mock.calls.find((args) =>
+      typeof args[0] === 'string' && args[0].includes('1') && args[0].toLowerCase().includes('ecosystem'),
+    );
+    expect(headerCall).toBeDefined();
+
+    // Detail line for the web ecosystem should appear
+    const detailCall = mockLoggerInfo.mock.calls.find((args) =>
+      typeof args[0] === 'string' && args[0].includes('web/'),
+    );
+    expect(detailCall).toBeDefined();
+  });
+
+  it('AC1: summary shows lockfile and path for each subdirectory discovery', async () => {
+    mockDiscoverProject.mockResolvedValue({
+      ecosystems: [npmWebDiscovery, pipApiDiscovery],
+      dockerfiles: [],
+    });
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      projectName: 'Test',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const allInfoMessages = mockLoggerInfo.mock.calls.map((args) => String(args[0]));
+
+    // Header should mention 2 ecosystems
+    const hasHeader = allInfoMessages.some((m) => m.includes('2') && m.toLowerCase().includes('ecosystem'));
+    expect(hasHeader).toBe(true);
+
+    // web/ path should appear
+    const hasWebLine = allInfoMessages.some((m) => m.includes('web/') && m.includes('package-lock.json'));
+    expect(hasWebLine).toBe(true);
+
+    // api/app/ path should appear
+    const hasApiLine = allInfoMessages.some((m) => m.includes('api/app/') && m.includes('requirements.txt'));
+    expect(hasApiLine).toBe(true);
+  });
+
+  it('AC3: non-interactive mode with subdirectory discoveries logs summary', async () => {
+    mockDiscoverProject.mockResolvedValue({
+      ecosystems: [npmWebDiscovery],
+      dockerfiles: [],
+    });
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      projectName: 'Test',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    expect(mockLoggerInfo).toHaveBeenCalled();
+    const infoMessages = mockLoggerInfo.mock.calls.map((args) => String(args[0]));
+    const hasSummary = infoMessages.some((m) => m.toLowerCase().includes('ecosystem'));
+    expect(hasSummary).toBe(true);
+  });
+
+  it('AC2: summary is also suppressed when no ecosystems discovered at all', async () => {
+    mockDiscoverProject.mockResolvedValue({
+      ecosystems: [],
+      dockerfiles: [],
+    });
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      projectName: 'Test',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const summaryCalls = mockLoggerInfo.mock.calls.filter((args) =>
+      typeof args[0] === 'string' && args[0].toLowerCase().includes('ecosystem'),
+    );
+    expect(summaryCalls.length).toBe(true ? 0 : 0); // explicit: no summary
+    expect(summaryCalls.length).toBe(0);
+  });
+
+  it('AC1: summary is shown in interactive mode too when subdirectory discoveries exist', async () => {
+    mockDiscoverProject.mockResolvedValue({
+      ecosystems: [npmWebDiscovery],
+      dockerfiles: [],
+    });
+
+    setupInteractiveMocks();
+    mockCheckbox.mockResolvedValue(['0']);
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Test',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const infoMessages = mockLoggerInfo.mock.calls.map((args) => String(args[0]));
+    const hasSummary = infoMessages.some((m) => m.toLowerCase().includes('ecosystem'));
+    expect(hasSummary).toBe(true);
   });
 });
