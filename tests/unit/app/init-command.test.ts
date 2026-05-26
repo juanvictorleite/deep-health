@@ -28,7 +28,7 @@ vi.mock('@infra/utils/inquirer-prompts', () => ({
 }));
 
 vi.mock('@infra/utils/detect-ecosystems', () => ({
-  detectEcosystems: vi.fn(),
+  discoverProject: vi.fn(),
 }));
 
 vi.mock('@infra/utils/detect-scripts', () => ({
@@ -40,7 +40,7 @@ import { generateConfigJson } from '@infra/config/generator';
 import { generateJsonSchema } from '@infra/config/schema-export';
 import { prompt } from '@infra/utils/prompt';
 import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
-import { detectEcosystems } from '@infra/utils/detect-ecosystems';
+import { discoverProject } from '@infra/utils/detect-ecosystems';
 import { detectProjectScripts } from '@infra/utils/detect-scripts';
 import { runInitCommand } from '@app/commands/init';
 import { ConfigLoadError } from '@core/errors';
@@ -50,7 +50,7 @@ const mockAccess = vi.mocked(access);
 const mockConfirm = vi.mocked(confirmPrompt);
 const mockSelect = vi.mocked(selectPrompt);
 const mockCheckbox = vi.mocked(checkboxPrompt);
-const mockDetectEcosystems = vi.mocked(detectEcosystems);
+const mockDiscoverProject = vi.mocked(discoverProject);
 const mockDetectProjectScripts = vi.mocked(detectProjectScripts);
 
 // ─── Non-interactive mode ─────────────────────────────────────────────────────
@@ -59,7 +59,7 @@ describe('runInitCommand — non-interactive', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Default: no ecosystems detected → fallback to all (preserves pre-detection behavior)
-    mockDetectEcosystems.mockResolvedValue(new Set());
+    mockDiscoverProject.mockResolvedValue({ ecosystems: [], dockerfiles: [] });
     // Default: no scripts detected → use plugin defaults
     mockDetectProjectScripts.mockResolvedValue([]);
   });
@@ -173,7 +173,7 @@ describe('runInitCommand — interactive version prompts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Default: no ecosystems detected → nothing pre-selected (checkboxPrompt mock controls selection)
-    mockDetectEcosystems.mockResolvedValue(new Set());
+    mockDiscoverProject.mockResolvedValue({ ecosystems: [], dockerfiles: [] });
     // Default: no scripts detected → fall back to confirm flow
     mockDetectProjectScripts.mockResolvedValue([]);
   });
@@ -342,7 +342,7 @@ describe('runInitCommand — interactive build mode prompts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Default: no ecosystems detected → nothing pre-selected (checkboxPrompt mock controls selection)
-    mockDetectEcosystems.mockResolvedValue(new Set());
+    mockDiscoverProject.mockResolvedValue({ ecosystems: [], dockerfiles: [] });
     // Default: no scripts detected → fall back to confirm flow
     mockDetectProjectScripts.mockResolvedValue([]);
   });
@@ -469,7 +469,7 @@ describe('runInitCommand — existing file guard', () => {
     // Simulate "file not found" (ENOENT) so the guard proceeds by default
     mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
     // Default: no ecosystems detected → fallback to all
-    mockDetectEcosystems.mockResolvedValue(new Set());
+    mockDiscoverProject.mockResolvedValue({ ecosystems: [], dockerfiles: [] });
     // Default: no scripts detected → use plugin defaults
     mockDetectProjectScripts.mockResolvedValue([]);
   });
@@ -588,15 +588,18 @@ describe('runInitCommand — ecosystem detection', () => {
     mockDetectProjectScripts.mockResolvedValue([]);
   });
 
-  it('pre-selects only detected ecosystems in the checkbox prompt (interactive)', async () => {
-    // Only npm detected
-    mockDetectEcosystems.mockResolvedValue(new Set(['npm']));
+  it('pre-selects discovered ecosystems in the checkbox prompt (interactive)', async () => {
+    // Only npm discovered at root
+    mockDiscoverProject.mockResolvedValue({
+      ecosystems: [{ pluginId: 'npm', path: '', lockfile: 'package-lock.json', suggestedLabel: undefined }],
+      dockerfiles: [],
+    });
 
-    // checkboxPrompt: capture choices and return only npm
+    // checkboxPrompt: capture choices and return the npm discovery index '0'
     let capturedChoices: Array<{ name: string; value: string; checked: boolean }> = [];
     mockCheckbox.mockImplementation(async (_msg: string, choices: any[]) => {
       capturedChoices = choices;
-      return ['npm'];
+      return ['0']; // select the first (npm) discovery
     });
 
     mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
@@ -618,17 +621,14 @@ describe('runInitCommand — ecosystem detection', () => {
       output: 'security-scan.config.json',
     });
 
-    const npmChoice = capturedChoices.find((c) => c.value === 'npm');
-    const composerChoice = capturedChoices.find((c) => c.value === 'composer');
-    const pipChoice = capturedChoices.find((c) => c.value === 'pip');
-
-    expect(npmChoice?.checked).toBe(true);
-    expect(composerChoice?.checked).toBe(false);
-    expect(pipChoice?.checked).toBe(false);
+    // All discovered entries are pre-checked=true; only one choice shown (npm)
+    expect(capturedChoices.length).toBe(1);
+    expect(capturedChoices[0]!.checked).toBe(true);
+    expect(capturedChoices[0]!.name).toMatch(/npm/i);
   });
 
   it('checkbox message includes keyboard hint text', async () => {
-    mockDetectEcosystems.mockResolvedValue(new Set());
+    mockDiscoverProject.mockResolvedValue({ ecosystems: [], dockerfiles: [] });
 
     let capturedMessage = '';
     mockCheckbox.mockImplementation(async (msg: string, choices: any[]) => {
@@ -659,9 +659,12 @@ describe('runInitCommand — ecosystem detection', () => {
     expect(capturedMessage).toMatch(/Enter/i);
   });
 
-  it('non-interactive mode uses only detected ecosystems when detection finds some', async () => {
-    // Only composer detected
-    mockDetectEcosystems.mockResolvedValue(new Set(['composer']));
+  it('non-interactive mode uses only discovered ecosystems when discovery finds some', async () => {
+    // Only composer discovered at root
+    mockDiscoverProject.mockResolvedValue({
+      ecosystems: [{ pluginId: 'composer', path: '', lockfile: 'composer.lock', suggestedLabel: undefined }],
+      dockerfiles: [],
+    });
 
     await runInitCommand({
       cwd: '/repo',
@@ -678,7 +681,7 @@ describe('runInitCommand — ecosystem detection', () => {
 
   it('non-interactive mode falls back to all ecosystems when nothing is detected', async () => {
     // Nothing detected → fallback to all
-    mockDetectEcosystems.mockResolvedValue(new Set());
+    mockDiscoverProject.mockResolvedValue({ ecosystems: [], dockerfiles: [] });
 
     await runInitCommand({
       cwd: '/repo',
@@ -704,7 +707,7 @@ describe('runInitCommand — SonarQube mode selection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
-    mockDetectEcosystems.mockResolvedValue(new Set());
+    mockDiscoverProject.mockResolvedValue({ ecosystems: [], dockerfiles: [] });
     // Default: no scripts detected → use plugin defaults / confirm flow
     mockDetectProjectScripts.mockResolvedValue([]);
   });
@@ -880,7 +883,7 @@ describe('runInitCommand — i18n', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
-    mockDetectEcosystems.mockResolvedValue(new Set());
+    mockDiscoverProject.mockResolvedValue({ ecosystems: [], dockerfiles: [] });
     // Default: no scripts detected → use plugin defaults / confirm flow
     mockDetectProjectScripts.mockResolvedValue([]);
   });
@@ -1076,7 +1079,7 @@ describe('runInitCommand — schema file write', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
-    mockDetectEcosystems.mockResolvedValue(new Set());
+    mockDiscoverProject.mockResolvedValue({ ecosystems: [], dockerfiles: [] });
     // Default: no scripts detected → use plugin defaults
     mockDetectProjectScripts.mockResolvedValue([]);
   });
@@ -1178,7 +1181,7 @@ describe('runInitCommand — script detection flow (interactive)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
-    mockDetectEcosystems.mockResolvedValue(new Set());
+    mockDiscoverProject.mockResolvedValue({ ecosystems: [], dockerfiles: [] });
     // Default: no scripts detected (tests override this as needed)
     mockDetectProjectScripts.mockResolvedValue([]);
   });
@@ -1616,7 +1619,7 @@ describe('runInitCommand — description fields on prompt choices (AC1/AC2)', ()
   beforeEach(() => {
     vi.clearAllMocks();
     mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
-    mockDetectEcosystems.mockResolvedValue(new Set());
+    mockDiscoverProject.mockResolvedValue({ ecosystems: [], dockerfiles: [] });
     mockDetectProjectScripts.mockResolvedValue([]);
   });
 
@@ -1688,7 +1691,7 @@ describe('runInitCommand — script detection flow (non-interactive)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockAccess.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
-    mockDetectEcosystems.mockResolvedValue(new Set());
+    mockDiscoverProject.mockResolvedValue({ ecosystems: [], dockerfiles: [] });
   });
 
   it('non-interactive mode uses detected+recommended scripts when available', async () => {

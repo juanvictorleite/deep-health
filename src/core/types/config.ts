@@ -176,6 +176,19 @@ export interface EcosystemConfig {
   advisors?: AdvisorConfig[];
   /** Per-ecosystem runner configuration (Docker image, version hint, native deps, etc.) */
   runner?: RunnerConfig;
+  /**
+   * Subdirectory path where this ecosystem's lockfile lives (monorepo support).
+   * Relative path — no leading `./`, no leading `/`, no `..` segments, no globs.
+   * When absent the ecosystem is treated as root.
+   */
+  path?: string;
+  /**
+   * Human-readable label to distinguish multiple instances of the same ecosystem
+   * in a monorepo (e.g. "frontend", "backend").
+   * Required when two or more ecosystems share the same `id`.
+   * Must match ^[a-z0-9-]+$ (lowercase alphanumeric and hyphens only).
+   */
+  label?: string;
 }
 
 export interface CloudStorageConfig {

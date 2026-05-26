@@ -6,7 +6,7 @@ import { generateJsonSchema } from '@infra/config/schema-export';
 import { writeSonarPropertiesTemplateIfMissing } from './sonar-properties-template';
 import { prompt } from '@infra/utils/prompt';
 import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
-import { detectEcosystems } from '@infra/utils/detect-ecosystems';
+import { discoverProject, type DiscoveredEcosystem, type DiscoveredDockerfile } from '@infra/utils/detect-ecosystems';
 import { detectProjectScripts } from '@infra/utils/detect-scripts';
 import { defaultRegistry } from '@modules/ecosystem/index';
 import { ConfigLoadError } from '@core/errors';
@@ -150,22 +150,104 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   const projectName = opts.projectName ?? await prompt(__('Project name'), 'Project');
   const client = opts.client ?? await prompt(__('Client name'), 'Client Name');
 
-  // ─── Ecosystem selection (registry-driven) ───────────────────────────────────
+  // ─── Ecosystem discovery (deep monorepo scanning) ───────────────────────────
 
   const allPlugins = defaultRegistry.getAll();
-  const detectedIds = await detectEcosystems(opts.cwd, allPlugins);
-  let selectedEcosystemIds: string[];
+  const discovery = await discoverProject(opts.cwd, allPlugins);
+
+  /**
+   * Build a human-readable label for a checkbox choice.
+   * Format: "npm — package-lock.json (web/)" or "npm — package-lock.json" for root.
+   */
+  function formatDiscoveryChoice(eco: DiscoveredEcosystem): string {
+    const plugin = defaultRegistry.get(eco.pluginId)!;
+    const pathSuffix = eco.path ? ` (${eco.path}/)` : '';
+    return `${plugin.name} — ${eco.lockfile}${pathSuffix}`;
+  }
+
+  let selectedDiscoveries: DiscoveredEcosystem[];
 
   if (opts.nonInteractive) {
-    // Non-interactive: use detected ecosystems when found, otherwise fallback to all (safe for CI/new projects)
-    selectedEcosystemIds = detectedIds.size > 0
-      ? allPlugins.filter((p) => detectedIds.has(p.id)).map((p) => p.id)
-      : allPlugins.map((p) => p.id);
+    // Non-interactive: auto-select all discovered ecosystems; fallback to all plugins at root if none found
+    if (discovery.ecosystems.length > 0) {
+      selectedDiscoveries = discovery.ecosystems;
+    } else {
+      // Fallback: create a synthetic discovery entry per plugin at root
+      selectedDiscoveries = allPlugins.map((p) => ({
+        pluginId: p.id,
+        path: '',
+        lockfile: p.lockfiles?.[0] ?? '',
+        suggestedLabel: undefined,
+      }));
+    }
   } else {
-    selectedEcosystemIds = await checkboxPrompt(
+    const choices = discovery.ecosystems.map((eco, idx) => ({
+      name: formatDiscoveryChoice(eco),
+      value: String(idx),
+      checked: true,
+    }));
+
+    // If no ecosystems discovered, fall back to showing all plugins (root-only, unchecked)
+    const checkboxChoices = choices.length > 0
+      ? choices
+      : allPlugins.map((p) => ({
+          name: `${p.name} (${p.id})`,
+          value: p.id,
+          checked: false,
+        }));
+
+    const selectedValues = await checkboxPrompt(
       __('Select ecosystems to configure (Space to toggle, Enter to confirm)'),
-      allPlugins.map((p) => ({ name: `${p.name} (${p.id})`, value: p.id, checked: detectedIds.has(p.id) })),
+      checkboxChoices,
     );
+
+    if (choices.length > 0) {
+      // Map selected indices back to discovery entries
+      selectedDiscoveries = selectedValues
+        .map((v) => {
+          const idx = parseInt(v, 10);
+          return isNaN(idx) ? undefined : discovery.ecosystems[idx];
+        })
+        .filter((e): e is DiscoveredEcosystem => e !== undefined);
+    } else {
+      // Fallback: map plugin IDs directly to synthetic root-level discoveries
+      const pluginMap = new Map(allPlugins.map((p) => [p.id, p]));
+      selectedDiscoveries = selectedValues
+        .map((v): DiscoveredEcosystem | undefined => {
+          const p = pluginMap.get(v);
+          if (!p) return undefined;
+          return { pluginId: p.id, path: '', lockfile: p.lockfiles?.[0] ?? '', suggestedLabel: undefined };
+        })
+        .filter((e): e is DiscoveredEcosystem => e !== undefined);
+    }
+  }
+
+  // ─── Label assignment for duplicate plugin ids ───────────────────────────────
+
+  // Count occurrences of each pluginId among selected discoveries
+  const pluginIdCounts = new Map<string, number>();
+  for (const eco of selectedDiscoveries) {
+    pluginIdCounts.set(eco.pluginId, (pluginIdCounts.get(eco.pluginId) ?? 0) + 1);
+  }
+
+  // Assign labels: entries with duplicate ids get a label; non-duplicates don't
+  const discoveryLabels = new Map<DiscoveredEcosystem, string | undefined>();
+  for (const eco of selectedDiscoveries) {
+    const isDuplicate = (pluginIdCounts.get(eco.pluginId) ?? 0) > 1;
+    if (isDuplicate) {
+      const suggestedLabel = eco.suggestedLabel ?? eco.path ?? eco.pluginId;
+      if (opts.nonInteractive) {
+        discoveryLabels.set(eco, suggestedLabel);
+      } else {
+        const confirmedLabel = await prompt(
+          __('  [{{plugin}}] Label for "{{path}}" entry', { plugin: eco.pluginId, path: eco.path || 'root' }),
+          suggestedLabel,
+        );
+        discoveryLabels.set(eco, confirmedLabel.trim() || suggestedLabel);
+      }
+    } else {
+      discoveryLabels.set(eco, undefined);
+    }
   }
 
   // ─── Per-ecosystem config ────────────────────────────────────────────────────
@@ -179,7 +261,11 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     'osv-then-audit': __('Tries OSV first, then falls back to npm audit fix if needed'),
   };
 
-  for (const id of selectedEcosystemIds) {
+  for (const discovery_eco of selectedDiscoveries) {
+    const id = discovery_eco.pluginId;
+    const ecoPath = discovery_eco.path;
+    // Resolved absolute path for this ecosystem (used for inferVersion and detectProjectScripts)
+    const ecoAbsPath = ecoPath ? resolve(opts.cwd, ecoPath) : opts.cwd;
     const plugin = defaultRegistry.get(id)!;
 
     let fixerStrategy: string | undefined;
@@ -196,9 +282,9 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       fixerStrategy = plugin.supportedFixers[0];
     }
 
-    // Validation commands
+    // Validation commands — use ecosystem's discovered path
     const validationCommands: Array<{ name: string; command: string }> = [];
-    const detectedScripts = await detectProjectScripts(opts.cwd, id);
+    const detectedScripts = await detectProjectScripts(ecoAbsPath, id);
 
     const NONE_SENTINEL = '__none__';
     if (!opts.nonInteractive) {
@@ -307,9 +393,9 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       advisors.push(...plugin.defaultAdvisors);
     }
 
-    // ── Version inference (plugin-native, scoped to selected ecosystems) ──
+    // ── Version inference (plugin-native, scoped to ecosystem's discovered path) ──
     const inferredVersion = plugin.inferVersion
-      ? await plugin.inferVersion(opts.cwd)
+      ? await plugin.inferVersion(ecoAbsPath)
       : undefined;
 
     // Build per-ecosystem runner object
@@ -331,25 +417,102 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       },
     };
 
+    // ── Dockerfile association ──
+    // Find Dockerfiles whose path is the same as or a parent of this ecosystem's path
+    const nearbyDockerfiles: DiscoveredDockerfile[] = discovery.dockerfiles.filter((df) => {
+      if (ecoPath === '') {
+        // Root ecosystem: only show Dockerfiles at root
+        return df.path === '';
+      }
+      // Non-root: Dockerfile is in same dir as ecosystem or in a parent dir
+      const ecoPathNorm = ecoPath.replace(/\\/g, '/');
+      const dfPathNorm = df.path.replace(/\\/g, '/');
+      return ecoPathNorm === dfPathNorm || ecoPathNorm.startsWith(dfPathNorm + '/');
+    });
+
+    let runnerData: EcosystemRunnerConfig;
+
     const versionPrompts = ecosystemVersionPrompts[id];
-    const runnerData = versionPrompts
-      ? await collectRunnerConfig({
+    if (versionPrompts) {
+      if (!opts.nonInteractive && nearbyDockerfiles.length > 0) {
+        // Override the Dockerfile prompt in collectRunnerConfig with our discovered ones
+        const dfChoices: Array<{ name: string; value: string; description?: string }> = [
+          ...nearbyDockerfiles.map((df) => ({
+            name: df.path ? `${df.path}/${df.filename}` : df.filename,
+            value: df.path ? `${df.path}/${df.filename}` : df.filename,
+          })),
+          { name: __('Enter path manually'), value: '__manual__' },
+        ];
+
+        const buildMode = await selectPrompt(
+          __('  [{{plugin}}] Image mode', { plugin: plugin.name }),
+          [
+            { name: __('build (recommended)'), value: 'build' as const, description: __('Builds from your project Dockerfile with all tools pre-installed') },
+            { name: __('pull'), value: 'pull' as const, description: __('Uses a standard registry image (may lack project-specific tools)') },
+          ],
+          'build',
+        );
+
+        const versionDefault = inferredVersion ?? '';
+        const versionPromptMsg = inferredVersion ? versionPrompts.withInferred : versionPrompts.blank;
+        const versionAnswer = await prompt(versionPromptMsg, versionDefault);
+        const resolvedVersion = versionAnswer.trim() || undefined;
+
+        runnerData = {};
+        if (resolvedVersion) runnerData.language_version = resolvedVersion;
+
+        if (buildMode === 'build') {
+          let dfPath: string;
+          const selectedDf = await selectPrompt(
+            __('  [{{plugin}}] Select Dockerfile', { plugin: plugin.name }),
+            dfChoices,
+            dfChoices[0]!.value,
+          );
+          if (selectedDf === '__manual__') {
+            dfPath = await prompt(__('  [{{plugin}}] Dockerfile path', { plugin: plugin.name }), 'Dockerfile');
+            dfPath = dfPath.trim() || 'Dockerfile';
+          } else {
+            dfPath = selectedDf;
+          }
+          const ctxAnswer = await prompt(__("  [{{plugin}}] Build context (blank for '.')", { plugin: plugin.name }), '');
+          const targetAnswer = await prompt(__('  [{{plugin}}] Build target stage (blank to skip)', { plugin: plugin.name }), '');
+          const buildArgsAnswer = await prompt(__('  [{{plugin}}] Build args (KEY=VALUE comma-separated, blank to skip)', { plugin: plugin.name }), '');
+          const parsedArgs = parseBuildArgs(buildArgsAnswer);
+
+          const buildConfig: NonNullable<EcosystemRunnerConfig['build']> = {
+            dockerfile: dfPath,
+            context: ctxAnswer.trim() || '.',
+          };
+          const resolvedTarget = targetAnswer.trim();
+          if (resolvedTarget) buildConfig.target = resolvedTarget;
+          if (parsedArgs) buildConfig.args = parsedArgs;
+
+          runnerData.build = buildConfig;
+        }
+      } else {
+        runnerData = await collectRunnerConfig({
           pluginName: plugin.name,
           nonInteractive: opts.nonInteractive,
           inferredVersion,
           versionPromptWithInferred: versionPrompts.withInferred,
           versionPromptBlank: versionPrompts.blank,
-        })
-      : {};
+        });
+      }
+    } else {
+      runnerData = {};
+    }
 
     // Only attach runner if there's actual data to include
     const hasRunnerData = Object.keys(runnerData).length > 0;
+    const entryLabel = discoveryLabels.get(discovery_eco);
     ecosystemConfigs.push({
       id,
       fixerStrategy,
       validationCommands,
       advisors,
       ...(hasRunnerData ? { runner: runnerData } : {}),
+      ...(ecoPath ? { path: ecoPath } : {}),
+      ...(entryLabel !== undefined ? { label: entryLabel } : {}),
     });
   }
 
@@ -430,7 +593,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   if (enableSonarQube) {
     const status = await writeSonarPropertiesTemplateIfMissing(opts.cwd, {
       projectName,
-      ecosystemIds: selectedEcosystemIds,
+      ecosystemIds: [...new Set(selectedDiscoveries.map((e) => e.pluginId))],
     });
     if (status === 'created') {
       sonarPropsCreated = true;

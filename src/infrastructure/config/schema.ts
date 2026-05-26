@@ -1,4 +1,5 @@
 import { CLI_NAME } from '@infra/brand';
+import { __ } from '@core/i18n';
 import { z } from "zod";
 
 const ProtectedPackageSchema = z
@@ -345,6 +346,59 @@ const EcosystemConfigSchema = z
     validationCommands: z.array(ValidationCommandConfigSchema).optional(),
     advisors: z.array(AdvisorConfigSchema).optional(),
     runner: EcosystemRunnerConfigSchema.optional(),
+    /**
+     * Subdirectory path where this ecosystem's lockfile lives (monorepo support).
+     * Must be a relative path: no leading `./`, no leading `/`, no `..` segments,
+     * no glob characters. When absent, the ecosystem is treated as root.
+     */
+    path: z
+      .string()
+      .superRefine((val, ctx) => {
+        if (val.startsWith('/')) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: __('ecosystem path must be relative (no leading /)'),
+          });
+        }
+        if (val.startsWith('./')) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: __('ecosystem path must not start with ./'),
+          });
+        }
+        if (val.split('/').some((seg) => seg === '..')) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: __('ecosystem path must not contain .. segments'),
+          });
+        }
+        if (/[*?]/.test(val)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: __('ecosystem path must not contain glob characters (* or ?)'),
+          });
+        }
+        if (/\s/.test(val)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: __('ecosystem path must not contain whitespace'),
+          });
+        }
+      })
+      .optional(),
+    /**
+     * Human-readable label to distinguish multiple instances of the same
+     * ecosystem in a monorepo (e.g. "frontend", "backend").
+     * Required when two or more entries share the same `id`.
+     * Must match ^[a-z0-9-]+$ (lowercase alphanumeric and hyphens only).
+     */
+    label: z
+      .string()
+      .regex(
+        /^[a-z0-9-]+$/,
+        __('label must contain only lowercase letters, digits, and hyphens'),
+      )
+      .optional(),
   })
   .strict();
 
@@ -480,6 +534,50 @@ export const ProjectConfigSchema = z
           `This version of ${CLI_NAME} supports config_version "1". ` +
           `Run "${CLI_NAME} init --force" to regenerate a compatible config.`,
       });
+    }
+
+    // Build a map of id -> entries for duplicate-id validation.
+    const idGroups = new Map<string, typeof data.ecosystems>();
+    for (const entry of data.ecosystems) {
+      const group = idGroups.get(entry.id);
+      if (group) {
+        group.push(entry);
+      } else {
+        idGroups.set(entry.id, [entry]);
+      }
+    }
+
+    for (const [id, entries] of idGroups) {
+      if (entries.length < 2) continue;
+
+      // When multiple entries share the same id, every entry must have a label.
+      const missingLabel = entries.some((e) => e.label === undefined);
+      if (missingLabel) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: __(
+            'Each ecosystem entry with id "{{id}}" must have a distinct label when multiple entries share the same id',
+            { id },
+          ),
+        });
+        continue;
+      }
+
+      // Labels must be distinct within the same id group.
+      const labels = entries.map((e) => e.label as string);
+      const seen = new Set<string>();
+      for (const lbl of labels) {
+        if (seen.has(lbl)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: __(
+              'Duplicate ecosystem entry: id "{{id}}" with label "{{label}}" appears more than once',
+              { id, label: lbl },
+            ),
+          });
+        }
+        seen.add(lbl);
+      }
     }
   });
 

@@ -28,9 +28,10 @@ Options:
 
 **What it does:**
 
-1. Detects the runtime environment (PHP version from `composer.json`, Node version from `.nvmrc` / `package.json`, Python version from `runtime.txt` / `.python-version`).
-2. Generates `security-scan.config.json` programmatically via the config generator (`infrastructure/config/generator.ts`). The generated file includes a `$schema` field for IDE autocomplete.
-3. Writes to the output path. Fails if the file exists and `--force` is not set.
+1. Recursively scans the project tree for lockfiles and Dockerfiles using `discoverProject()`. Each found lockfile is presented as a candidate ecosystem entry with its subdirectory path. When two or more entries share the same ecosystem id, a distinct label is assigned to each.
+2. Prompts for per-ecosystem config (fixer strategy, validation commands, runner version, Dockerfile).
+3. Generates `security-scan.config.json` programmatically via the config generator (`infrastructure/config/generator.ts`). The generated file includes a `$schema` field for IDE autocomplete.
+4. Writes to the output path. Fails if the file exists and `--force` is not set.
 
 **Exit codes:** `0` success, `3` config/output error.
 
@@ -98,10 +99,10 @@ See the [Orchestrator Pipeline Flow](./architecture.md#orchestrator-pipeline-flo
 1. Loads config and validates.
 2. Runs all scanner engines (OSV primary + SonarQube secondary if configured).
 3. Runs Gate A validation on the OSV result.
-4. For each registered ecosystem plugin (in registration order):
+4. For each `config.ecosystems` entry (in declaration order):
    a. Runs advisors (informational only — never blocks).
-   b. Skips the plugin if there are no `auto_safe` vulnerabilities (or no `breaking` vulns when `--authorize-breaking` was given).
-   c. Resolves the Docker container runner (npm/pip/composer).
+   b. Skips the entry if there are no `auto_safe` vulnerabilities (or no `breaking` vulns when `--authorize-breaking` was given).
+   c. Resolves the Docker container runner for this entry (npm/pip/composer), using the entry's inline `runner` config.
    d. For npm, auto-demotes `osv`/`osv-then-audit` to `npm-audit` if `package-lock.json` has `lockfileVersion: 1` (osv-scanner cannot patch v1 lockfiles in-place). Applies OSV staging-fix if the effective strategy is `osv` or `osv-then-audit`.
    e. Calls `plugin.runUpdater()`.
    f. Optionally installs breaking packages (`--authorize-breaking`).
@@ -192,6 +193,8 @@ Full annotated `security-scan.config.json`:
   "ecosystems": [
     {
       "id": "npm",
+      "path": "frontend",
+      "label": "frontend",
       "fixer": "osv-then-audit",
       "validationCommands": [
         {
@@ -199,15 +202,24 @@ Full annotated `security-scan.config.json`:
           "command": "npm test",
           "timeout_seconds": 120
         }
-      ]
+      ],
+      "runner": {
+        "language_version": "20"
+      }
     },
     {
       "id": "composer",
-      "fixer": "osv"
+      "fixer": "osv",
+      "runner": {
+        "language_version": "8.1"
+      }
     },
     {
       "id": "pip",
-      "fixer": "osv"
+      "fixer": "osv",
+      "runner": {
+        "language_version": "3.11"
+      }
     }
   ],
 
@@ -251,19 +263,6 @@ Full annotated `security-scan.config.json`:
     "sonarqube": {
       "enabled": false,
       "on_failure": "warn"
-    }
-  },
-
-  "runners": {
-    "npm": {
-      "language_version": "20",
-      "image_source": "pull"
-    },
-    "composer": {
-      "language_version": "8.1"
-    },
-    "pip": {
-      "language_version": "3.11"
     }
   },
 

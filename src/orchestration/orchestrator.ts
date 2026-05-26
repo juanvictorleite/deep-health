@@ -29,7 +29,7 @@ import type { AggregatedScanResult } from "@modules/scanner/index";
 import { runAdvisors } from "@modules/advisor/index";
 import { CLI_NAME, KILL_SWITCH_VAR } from "@infra/brand";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { runEcosystemFix } from "./run-ecosystem-fix";
 
 export interface OrchestratorOptions {
@@ -285,11 +285,6 @@ export async function runOrchestrator(
     `Scan complete: ${ecosystemSummaryParts.join(", ") || "no vulnerabilities found"}`,
   );
 
-  // Resolve active plugins from declarative config.ecosystems[]
-  const activePlugins = ecosystemRegistry
-    .getAll()
-    .filter((p) => config.ecosystems.some((e) => e.id === p.id));
-
   // Kill-switch: skip all automated fixes when KILL_SWITCH_VAR is set
   if (process.env[KILL_SWITCH_VAR]) {
     logger.warn(
@@ -303,23 +298,32 @@ export async function runOrchestrator(
     return result;
   }
 
-  // Iterate over active plugins in registration order (npm → composer)
-  for (const plugin of activePlugins) {
+  // Iterate over config.ecosystems entries (not unique plugins from registry).
+  // This ensures monorepo entries with the same plugin id at different paths
+  // are each processed independently.
+  for (const ecoEntry of config.ecosystems) {
+    const plugin = ecosystemRegistry.getAll().find((p) => p.id === ecoEntry.id);
+    if (!plugin) continue;
+
     if (!shouldRunPhase(plugin.id, options)) {
       logger.info(`Phase: Skipping ${plugin.name} — not in phases list`);
       continue;
     }
 
+    // Resolve the working directory for this ecosystem entry.
+    // When entry.path is present, resolve it relative to the project root so
+    // Docker volumes and runtime commands operate in the correct subdirectory.
+    const ecosystemCwd = ecoEntry.path ? resolve(options.cwd, ecoEntry.path) : options.cwd;
+
     // Run advisors (informational only — never throws, never blocks pipeline).
     // Kept outside runEcosystemFix so they fire even when the plugin would skip
     // due to no auto-safe vulnerabilities.
-    const ecoConfigEntry = config.ecosystems.find((e) => e.id === plugin.id);
-    const advisors = ecoConfigEntry?.advisors ?? plugin.defaultAdvisors;
+    const advisors = ecoEntry.advisors ?? plugin.defaultAdvisors;
     if (advisors.length > 0) {
       logger.tagged(plugin.id, 'Advisor Step', `Running advisors for ${plugin.name}...`);
       result.advisorResults[plugin.id] = await runAdvisors(
         runner,
-        options.cwd,
+        ecosystemCwd,
         plugin.id,
         advisors,
       );
@@ -329,10 +333,11 @@ export async function runOrchestrator(
 
     const outcome = await runEcosystemFix({
       plugin,
+      ecoEntry,
       hostRunner: runner,
       config,
       scanResult,
-      cwd: options.cwd,
+      cwd: ecosystemCwd,
       dryRun: options.dryRun,
       authorizeBreaking,
       preRunSnapshots,

@@ -16,6 +16,7 @@ import { classifyPackage } from '@core/policy/safe-update';
 import { getPlatformInstallHint } from '@infra/utils/platform';
 import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
 import semver from 'semver';
+import { join } from 'node:path';
 
 // ─── Internal types ────────────────────────────────────────────────────────────
 
@@ -382,7 +383,26 @@ export class OsvScannerEngine implements ScannerEngine {
           );
         }
       } else {
-        rawArgs = activePlugins.flatMap((p) => p.buildScanArgs());
+        // Derive lockfile args from config.ecosystems[] entries.
+        // Each entry maps to a plugin; its path (if set) is prepended to the
+        // plugin's lockfile filename so monorepo subdirectories are resolved correctly.
+        rawArgs = config.ecosystems.flatMap((entry) => {
+          const plugin = ecosystemRegistry.getAll().find((p) => p.id === entry.id);
+          if (!plugin) return [];
+          const pluginArgs = plugin.buildScanArgs();
+          if (!entry.path) return pluginArgs;
+          // Rewrite every '--lockfile <file>' pair: prepend entry.path to the file.
+          const result: string[] = [];
+          for (let i = 0; i < pluginArgs.length; i++) {
+            if (pluginArgs[i] === '--lockfile' && i + 1 < pluginArgs.length) {
+              result.push('--lockfile', join(entry.path, pluginArgs[i + 1]));
+              i++;
+            } else {
+              result.push(pluginArgs[i]);
+            }
+          }
+          return result;
+        });
       }
 
       if (runner.dryRun) {

@@ -129,10 +129,10 @@ flowchart TD
     KILL_SW -- yes --> RETURN_SCAN([return scan result only])
     KILL_SW -- no --> PLUGINS
 
-    PLUGINS["Iterate active ecosystem plugins\n(registration order: npm → composer → pip)"]
+    PLUGINS["Iterate config.ecosystems entries\n(each entry has id + optional path + optional label)"]
     PLUGINS --> PHASE_PLUGIN
 
-    PHASE_PLUGIN{"plugin phase\nenabled?"}
+    PHASE_PLUGIN{"entry phase\nenabled?"}
     PHASE_PLUGIN -- no --> NEXT_PLUGIN
     PHASE_PLUGIN -- yes --> ADVISORS
 
@@ -189,7 +189,7 @@ flowchart TD
     RET_ERR --> PIPELINE_STOP([stop pipeline, set overallStatus=error])
     ABORT_BREAKING --> PIPELINE_STOP
 
-    NEXT_PLUGIN{more\nplugins?}
+    NEXT_PLUGIN{more\nentries?}
     NEXT_PLUGIN -- yes --> PHASE_PLUGIN
     NEXT_PLUGIN -- no --> PENDING
 
@@ -271,7 +271,7 @@ No new files in `infrastructure/`, no orchestrator edits. The unified runtime mo
 
 ## Per-Ecosystem Fix Flow (`runEcosystemFix`)
 
-`src/orchestration/run-ecosystem-fix.ts` encapsulates the per-plugin sub-pipeline that the orchestrator dispatches to once per active plugin. The orchestrator owns: phase filtering, advisors, fan-out across plugins, and result aggregation. Everything between "we're about to run plugin X" and "X returned an outcome" lives in `runEcosystemFix`.
+`src/orchestration/run-ecosystem-fix.ts` encapsulates the per-entry sub-pipeline that the orchestrator dispatches to once per `config.ecosystems` entry. The orchestrator owns: phase filtering, advisors, fan-out across entries, and result aggregation. Everything between "we're about to process entry X" and "X returned an outcome" lives in `runEcosystemFix`. When the entry carries a `path` field, the orchestrator resolves it relative to the project root and passes the resulting absolute path as `cwd` — so all Docker volumes and runtime commands operate in the correct subdirectory.
 
 ```ts
 export type RunEcosystemFixOutcome =
@@ -283,6 +283,115 @@ export type RunEcosystemFixOutcome =
 **Why the seam exists:** before this extraction, the orchestrator's plugin loop body was ~193 lines mixing 15 distinct concerns. Tests of any single concern required full orchestrator setup (registry, scanner engines, Gate A wiring). After extraction, `runEcosystemFix` is testable directly with fake plugins — no scanner, no orchestrator. See `tests/unit/orchestration/run-ecosystem-fix.test.ts`.
 
 **Throws** `GateValidationError` when the ecosystem gate fails. Otherwise always returns an outcome — including the breaking-install short-circuit, which returns `'error'` without running residual verification or gate validation (mirroring legacy semantics).
+
+---
+
+## Project Discovery (Init)
+
+`src/infrastructure/utils/detect-ecosystems.ts` provides the `discoverProject()` function used by the `init` command to find all ecosystems and Dockerfiles in a project tree before prompting the user.
+
+### discoverProject()
+
+```ts
+async function discoverProject(
+  cwd: string,
+  plugins: EcosystemPlugin[],
+  options?: DiscoverProjectOptions,
+): Promise<DiscoveryResult>
+```
+
+**How it works:**
+
+- Recursively walks the directory tree rooted at `cwd` using a breadth-limiting depth cap (`maxDepth`, default: `4`).
+- At each directory, matches filenames against each plugin's `lockfiles` array (plugin-driven lockfile matching — no hardcoded filenames).
+- Also matches any file whose name starts with `'Dockerfile'` (case-sensitive) for Docker image inference.
+- Skips the following directories by default: `node_modules`, `vendor`, `.git`, `dist`, `build`, `__pycache__`, `.venv`, `.tox`.
+- All returned paths are relative to `cwd`, with no leading `./` or `/`. Root-level discoveries have `path: ''`.
+
+**Return types:**
+
+```ts
+interface DiscoveredEcosystem {
+  pluginId: string;       // e.g. 'npm', 'composer', 'pip'
+  path: string;           // relative dir path; '' = project root
+  lockfile: string;       // e.g. 'package-lock.json'
+  suggestedLabel?: string; // derived from dir name; undefined for root
+}
+
+interface DiscoveredDockerfile {
+  path: string;           // relative dir path; '' = project root
+  filename: string;       // e.g. 'Dockerfile', 'Dockerfile.prod'
+}
+```
+
+### Discovery Flowchart
+
+```mermaid
+flowchart TD
+    INIT([discoverProject called]) --> SETUP
+
+    SETUP["Build WalkContext\n(cwd, maxDepth=4, exclude list, plugins)"]
+    SETUP --> WALK
+
+    WALK["walk(ctx, absDir, depth=0)"]
+    WALK --> READ_DIR["readdir(absDir, withFileTypes)\n(skip unreadable dirs silently)"]
+    READ_DIR --> CLASSIFY
+
+    CLASSIFY["classifyEntries()\nSplit into fileNames Set + subDirs list\n(exclude dirs matching exclude list)"]
+    CLASSIFY --> MATCH_PLUGINS
+
+    MATCH_PLUGINS["matchPluginLockfiles()\nFor each plugin: check lockfiles[] against fileNames\nOne match per plugin per directory"]
+    MATCH_PLUGINS --> MATCH_DOCKER
+
+    MATCH_DOCKER["matchDockerfiles()\nAny file starting with 'Dockerfile'"]
+    MATCH_DOCKER --> DEPTH_CHECK
+
+    DEPTH_CHECK{"depth < maxDepth?"}
+    DEPTH_CHECK -- yes --> RECURSE["walk() each subDir\n(Promise.all — parallel)"]
+    DEPTH_CHECK -- no --> DONE_DIR([done with this directory])
+    RECURSE --> DONE_DIR
+
+    DONE_DIR --> RESULT([return DiscoveryResult\n{ ecosystems[], dockerfiles[] }])
+```
+
+### Monorepo Config Shape
+
+When `discoverProject()` finds multiple entries for the same plugin (e.g. an npm lockfile at the root and another under `frontend/`), the `init` command assigns a `label` to each entry so they can be distinguished in the config.
+
+The generated `config.ecosystems` array supports the following fields on each entry:
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | `string` | yes | Plugin id: `'npm'`, `'composer'`, `'pip'` |
+| `path` | `string` | no | Relative subdirectory (no leading `./` or `/`, no `..` segments, no globs). When absent the entry runs at the project root. |
+| `label` | `string` | no | Disambiguator when two or more entries share the same `id`. Must match `^[a-z0-9-]+$`. Required when duplicate ids exist. |
+
+**Example — monorepo with two npm entries:**
+
+```json
+{
+  "ecosystems": [
+    {
+      "id": "npm",
+      "label": "backend",
+      "path": "api",
+      "fixer": "osv-then-audit"
+    },
+    {
+      "id": "npm",
+      "label": "frontend",
+      "path": "web",
+      "fixer": "npm-audit"
+    },
+    {
+      "id": "composer",
+      "path": "api"
+    }
+  ]
+}
+```
+
+The orchestrator iterates `config.ecosystems` in declaration order. Each entry is dispatched to `runEcosystemFix()` independently — two npm entries at different paths each get a separate fix pipeline run with their own resolved `cwd`.
 
 ---
 

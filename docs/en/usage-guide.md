@@ -157,22 +157,20 @@ security-scan init [options]
 
 1. Checks if `security-scan.config.json` already exists (fails unless `--force` is set).
 2. Prompts for project name and client name (or uses CLI flags).
-3. Detects the runtime environment by reading project files:
-   - **npm**: reads `.nvmrc`, `.node-version`, `package.json#engines.node`
-   - **composer**: reads `.php-version`, `composer.json#require.php`
-   - **pip**: reads `runtime.txt`, `.python-version`
-4. Presents an ecosystem selection checkbox (detected ecosystems are pre-checked).
-5. For each ecosystem, prompts for:
+3. Recursively scans the project tree for lockfiles (`package-lock.json`, `composer.lock`, `requirements.txt`, `Pipfile.lock`) and Dockerfiles declared by each ecosystem plugin, using `discoverProject()`. Each found lockfile becomes a candidate ecosystem entry, with its subdirectory path recorded.
+4. Presents an ecosystem selection checkbox. Each entry is labelled with the ecosystem type, lockfile name, and subdirectory path (e.g. `npm — package-lock.json (web/)`). Detected ecosystems are pre-checked.
+5. When two or more entries share the same ecosystem id (e.g. two `npm` entries in a monorepo), prompts for a distinct `label` for each (e.g. `frontend`, `backend`). Labels are used to distinguish the entries in reports and CLI output.
+6. For each ecosystem, prompts for:
    - Fixer strategy (`osv`, `npm-audit`, `osv-then-audit`)
    - Validation commands (e.g. `npm test`, `php artisan test`)
    - Advisor commands (e.g. `npm audit --json`)
-   - Language/runtime version (inferred or entered manually)
+   - Language/runtime version (inferred from the ecosystem's subdirectory or entered manually)
    - Build mode (pull or build from Dockerfile)
-6. Asks whether to enable SonarQube integration.
-7. Asks for the report language (`en` or `pt-br`).
-8. Asks whether to generate Markdown reports and where to save them.
-9. Writes the generated `security-scan.config.json`.
-10. If SonarQube is enabled and `sonar-project.properties` does not exist, creates a starter template.
+7. Asks whether to enable SonarQube integration.
+8. Asks for the report language (`en` or `pt-br`).
+9. Asks whether to generate Markdown reports and where to save them.
+10. Writes the generated `security-scan.config.json`.
+11. If SonarQube is enabled and `sonar-project.properties` does not exist, creates a starter template.
 
 **Example — non-interactive (CI-friendly):**
 
@@ -327,10 +325,10 @@ This is useful in CI pipelines where you want the scan result logged but no file
 
 **Per-ecosystem pipeline detail:**
 
-For each ecosystem plugin:
+For each `config.ecosystems` entry (in declaration order):
 1. Runs advisors (informational — never blocks the pipeline).
-2. Skips the plugin if there are no `auto_safe` vulnerabilities (and no `breaking` with `--authorize-breaking`).
-3. Resolves the Docker container runner (npm/pip/composer).
+2. Skips the entry if there are no `auto_safe` vulnerabilities (and no `breaking` with `--authorize-breaking`).
+3. Resolves the Docker container runner for this entry (npm/pip/composer), using the entry's inline `runner` config.
 4. For npm: auto-demotes `osv`/`osv-then-audit` strategy to `npm-audit` if `package-lock.json` has `lockfileVersion: 1` (osv-scanner cannot patch v1 lockfiles in-place).
 5. Calls the plugin's updater.
 6. Optionally installs breaking packages (`--authorize-breaking`).
@@ -468,6 +466,8 @@ Declarative list of ecosystems to scan and update. At least one entry is require
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `id` | `npm` \| `composer` \| `pip` | Yes | Ecosystem identifier |
+| `path` | string | No | Relative subdirectory path where this ecosystem's lockfile lives (monorepo support). No leading `/`, `./`, or `..` segments. When absent, the ecosystem is treated as the project root. |
+| `label` | string | No | Human-readable label to distinguish multiple entries with the same `id` (e.g. `frontend`, `backend`). Required when two or more entries share the same `id`. Must match `^[a-z0-9-]+$`. |
 | `fixer` | string | No | Fixer strategy (see [Fixer Strategies](#fixer-strategies)) |
 | `validationCommands` | array | No | Commands run after updates to verify nothing broke |
 | `validationCommands[].name` | string | Yes | Human-readable label for the command |
@@ -477,6 +477,7 @@ Declarative list of ecosystems to scan and update. At least one entry is require
 | `advisors[].name` | string | Yes | Human-readable label |
 | `advisors[].command` | string | Yes | Shell command string |
 | `advisors[].format` | `json` \| `text` | No | Output format; use `json` for `npm audit --json` |
+| `runner` | object | No | Inline Docker runner config for this ecosystem entry (see [runners](#runners)) |
 
 **Security note on `validationCommands`:** These run inside the ecosystem's Docker container via `sh -c`. They are not exposed to external input — only commands authored in `security-scan.config.json` (which you control) are executed. Commands starting with `git`, `gh`, or `open` are exempted and run on the host.
 
@@ -580,20 +581,29 @@ Controls which scanning engines are used and how they are configured.
 |------|----------|
 | `docker` | Always run osv-scanner via an ephemeral Docker container. **Default and recommended.** |
 | `local` | Use the locally installed `osv-scanner` binary. Fails if not installed. Emits a warning. |
-| `auto` | Try local first; fall back to Docker if unavailable. **Deprecated escape hatch — emits a warning.** |
 
 ### `runners`
 
-Per-ecosystem container configuration. Controls which Docker image is used, the runtime version, and optional OS-level dependencies. Runner settings are declared inline under each ecosystem entry:
+Per-ecosystem container configuration. Controls which Docker image is used, the runtime version, and optional OS-level dependencies. Runner config is declared **inline on each ecosystem entry** using the `runner` field — there is no separate top-level `runners` block:
 
 ```json
 {
   "ecosystems": [
     {
       "id": "npm",
+      "path": "frontend",
+      "label": "frontend",
       "runner": {
         "language_version": "20",
         "native_deps": ["libvips-dev", "build-essential", "python3"]
+      }
+    },
+    {
+      "id": "npm",
+      "path": "backend",
+      "label": "backend",
+      "runner": {
+        "language_version": "20"
       }
     },
     {
@@ -1188,18 +1198,21 @@ Also remove any `sonar.login` or `sonar.password` lines from `sonar-project.prop
 The lock file is not up to date with the latest changes in composer.json
 ```
 
-This happens when `composer.lock` was generated in an environment with a different PHP version than the one used in deploy or CI. security-scan runs Composer inside a Docker container with the PHP version configured in `runners.composer.language_version`.
+This happens when `composer.lock` was generated in an environment with a different PHP version than the one used in deploy or CI. security-scan runs Composer inside a Docker container with the PHP version configured in the ecosystem entry's `runner.language_version`.
 
 **Solutions:**
 
 1. **Make sure the PHP version is correct in the config:**
    ```json
    {
-     "runners": {
-       "composer": {
-         "language_version": "8.2"
+     "ecosystems": [
+       {
+         "id": "composer",
+         "runner": {
+           "language_version": "8.2"
+         }
        }
-     }
+     ]
    }
    ```
 
@@ -1263,19 +1276,32 @@ security-scan automatically reverts all changes to that ecosystem and continues 
 
 **Q: Can I use security-scan with a monorepo?**
 
-Yes. Use `scan.paths` to specify which subdirectories to scan:
+Yes. Use the `path` field on each ecosystem entry to point to the subdirectory where its lockfile lives. When two or more entries share the same ecosystem `id`, add a distinct `label` to each:
 
 ```json
 {
-  "scan": {
-    "auto_discover": false,
-    "paths": [
-      "packages/frontend/",
-      "packages/backend/"
-    ]
-  }
+  "ecosystems": [
+    {
+      "id": "npm",
+      "path": "packages/frontend",
+      "label": "frontend",
+      "fixer": "osv-then-audit"
+    },
+    {
+      "id": "npm",
+      "path": "packages/backend",
+      "label": "backend",
+      "fixer": "osv-then-audit"
+    },
+    {
+      "id": "composer",
+      "path": "api"
+    }
+  ]
 }
 ```
+
+`security-scan init` discovers all lockfiles automatically with recursive scanning, so in most cases you can run `init` and the entries are populated for you.
 
 **Q: Does security-scan support yarn or pnpm?**
 
@@ -1283,7 +1309,7 @@ Currently only npm (`package-lock.json`) and yarn v1 (`yarn.lock`, read-only sca
 
 **Q: Can I run security-scan without Docker?**
 
-Docker is required for running ecosystem CLIs (npm, composer, pip) in the fix phase. OSV Scanner also uses Docker by default, though it can be run locally with `runners.osv.runner: 'local'`. The `local` mode for ecosystem runners is available but not recommended and emits a warning.
+Docker is required for running ecosystem CLIs (npm, composer, pip) in the fix phase. OSV Scanner also uses Docker by default, though it can be run locally by setting `scanners.osv.runner: 'local'` in the config. There is no `local` mode for ecosystem runners — those always run inside Docker containers.
 
 **Q: What does "authorization required" mean in the report?**
 

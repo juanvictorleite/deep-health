@@ -33,6 +33,10 @@ export interface EcosystemConfigEntry {
   validationCommands?: Array<{ name: string; command: string }>;
   advisors?: Array<{ name: string; command: string }>;
   runner?: EcosystemRunnerConfig;
+  /** Relative path from cwd to the directory containing the lockfile. Omitted for root. */
+  path?: string;
+  /** User-facing label for this ecosystem entry (used when multiple entries share the same plugin id). */
+  label?: string;
 }
 
 export interface GenerateConfigOptions {
@@ -119,6 +123,16 @@ function buildEcosystemObject(entry: EcosystemConfigEntry): Record<string, unkno
     if (runnerObj !== undefined) {
       obj['runner'] = runnerObj;
     }
+  }
+
+  // Emit path only when non-empty (root discoveries have no path in output)
+  if (entry.path !== undefined && entry.path !== '') {
+    obj['path'] = entry.path;
+  }
+
+  // Emit label only when defined
+  if (entry.label !== undefined) {
+    obj['label'] = entry.label;
   }
 
   return obj;

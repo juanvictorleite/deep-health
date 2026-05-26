@@ -16,7 +16,7 @@
  */
 
 import type { CommandRunner } from '@core/types/common';
-import type { ProjectConfig, FixerStrategyId } from '@core/types/config';
+import type { ProjectConfig, FixerStrategyId, EcosystemConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 import type { OsvJsonOutput } from '@modules/scanner/osv-engine';
 import type { UpdateResultJson } from '@core/types/update';
@@ -28,9 +28,17 @@ import { logger, setProgressSink, makeProgressSink } from '@infra/utils/logger';
 import { resolveEcosystemRuntime, resolveOsvRuntime } from '@infra/ecosystem-runtime';
 import { applyOsvFixViaStaging } from './osv-fix-applier';
 import { logDryRunPreview } from '@modules/ecosystem/utils/dry-run-preview';
+import { join } from 'node:path';
 
 export interface RunEcosystemFixParams {
   plugin: EcosystemPlugin;
+  /**
+   * The ecosystem config entry being processed (from config.ecosystems[]).
+   * Passed directly from the orchestrator so runEcosystemFix doesn't have to
+   * search for it; also carries the entry.path for monorepo subdirectory support.
+   * When absent, falls back to `config.ecosystems.find(e => e.id === plugin.id)`.
+   */
+  ecoEntry?: EcosystemConfig;
   /** Host command runner — passed through to `resolveEcosystemRuntime`. */
   hostRunner: CommandRunner;
   config: ProjectConfig;
@@ -70,15 +78,17 @@ export async function runEcosystemFix(
     advisorResults,
   } = params;
 
-  // Resolve per-ecosystem config entry
-  const ecoConfigEntry = config.ecosystems.find((e) => e.id === plugin.id);
+  // Resolve per-ecosystem config entry: use the passed entry directly when
+  // available (fast path from orchestrator), otherwise fall back to a search.
+  const ecoEntry: EcosystemConfig =
+    params.ecoEntry ?? config.ecosystems.find((e) => e.id === plugin.id) ?? { id: plugin.id };
 
   const validationCommands =
-    ecoConfigEntry?.validationCommands ?? plugin.defaultValidationCommands;
+    ecoEntry.validationCommands ?? plugin.defaultValidationCommands;
 
   const fixerStrategy: FixerStrategyId = plugin.resolveEffectiveFixer
     ? await plugin.resolveEffectiveFixer(config, cwd)
-    : (ecoConfigEntry?.fixer ?? (plugin.supportedFixers[0] ?? 'osv') as FixerStrategyId);
+    : (ecoEntry.fixer ?? (plugin.supportedFixers[0] ?? 'osv') as FixerStrategyId);
 
   const ecosystemResult = scanResult.ecosystems[plugin.id];
   const hasUpdates =
@@ -96,7 +106,7 @@ export async function runEcosystemFix(
   // Resolve effective runner via the ecosystem runtime module
   // Pass the per-ecosystem inline runner config from ecosystems[].runner (if any).
   const effectiveRunner: CommandRunner = plugin.runtimeSpec
-    ? await resolveEcosystemRuntime(plugin, hostRunner, config, cwd, ecoConfigEntry?.runner)
+    ? await resolveEcosystemRuntime(plugin, hostRunner, config, cwd, ecoEntry.runner)
     : hostRunner;
 
   // OSV staging-apply (generic, driven by plugin.osvFixSpec)
@@ -116,13 +126,15 @@ export async function runEcosystemFix(
     (fixerStrategy === 'osv' || fixerStrategy === 'osv-then-audit') &&
     plugin.osvFixSpec
   ) {
-    // When scan.paths is configured, derive the fix lockfile path from the
-    // first explicit file path whose basename matches the plugin's fixLockfile.
-    // For directory paths (ending with /), construct: '<dir><fixLockfile>'.
-    // Falls back to plugin default (osvFixSpec.fixLockfile) when no match is found.
+    // Derive the fix lockfile path from either:
+    //   1. scan.paths (explicit config — takes precedence)
+    //   2. ecoEntry.path (monorepo subdirectory path from config.ecosystems[].path)
+    //   3. plugin default (osvFixSpec.fixLockfile) — fallback
     let fixLockfileOverride: string | undefined;
     const scanPaths = config.scan?.paths;
     if (scanPaths && scanPaths.length > 0) {
+      // scan.paths is explicitly configured — derive fix lockfile from the first
+      // matching path entry.
       const pluginLockfile = plugin.osvFixSpec.fixLockfile;
       for (const p of scanPaths) {
         if (p.endsWith('/')) {
@@ -139,6 +151,9 @@ export async function runEcosystemFix(
         logger.tagged('osv', 'OSV fix', `scan.paths is configured but no entry matches "${pluginLockfile}". ` +
           `Falling back to default fix lockfile path.`, 'warn');
       }
+    } else if (ecoEntry.path) {
+      // No scan.paths configured — derive fix lockfile from the ecosystem entry path.
+      fixLockfileOverride = join(ecoEntry.path, plugin.osvFixSpec.fixLockfile);
     }
 
     setProgressSink(makeProgressSink());
@@ -167,7 +182,7 @@ export async function runEcosystemFix(
     logDryRunPreview(plugin.id, ecosystemResult, authorizeBreaking);
   }
 
-  logger.tagged(plugin.id, 'fixer', `Strategy: ${fixerStrategy} (config: ${ecoConfigEntry?.fixer ?? 'undefined'}, supportedFixers[0]: ${plugin.supportedFixers[0] ?? 'undefined'}, hasResolveEffectiveFixer: ${!!plugin.resolveEffectiveFixer})`);
+  logger.tagged(plugin.id, 'fixer', `Strategy: ${fixerStrategy} (config: ${ecoEntry.fixer ?? 'undefined'}, supportedFixers[0]: ${plugin.supportedFixers[0] ?? 'undefined'}, hasResolveEffectiveFixer: ${!!plugin.resolveEffectiveFixer})`);
   setProgressSink(makeProgressSink());
   let updateResult: Awaited<ReturnType<typeof plugin.runUpdater>>;
   try {

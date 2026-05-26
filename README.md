@@ -90,7 +90,7 @@ That's it. Results are printed to stdout. Pass `--output report.html` to save th
 
 ### `init`
 
-Generate a `security-scan.config.json` template.
+Recursively scans the project tree for lockfiles (`package-lock.json`, `composer.lock`, `requirements.txt`, `Pipfile.lock`) and Dockerfiles, then generates a `security-scan.config.json` with detected ecosystems pre-configured.
 
 ```bash
 security-scan init [options]
@@ -183,6 +183,8 @@ security-scan cloud-setup
   "ecosystems": [
     {
       "id": "npm",
+      "path": "frontend",
+      "label": "frontend",
       "fixer": "osv",
       "validationCommands": [
         {
@@ -197,7 +199,10 @@ security-scan cloud-setup
           "command": "npm audit --json",
           "format": "json"
         }
-      ]
+      ],
+      "runner": {
+        "language_version": "20"
+      }
     },
     {
       "id": "composer",
@@ -207,7 +212,10 @@ security-scan cloud-setup
           "name": "tests",
           "command": "php artisan test"
         }
-      ]
+      ],
+      "runner": {
+        "language_version": "8.2"
+      }
     }
   ],
 
@@ -242,18 +250,6 @@ security-scan cloud-setup
     },
     "sonarqube": {
       "enabled": false
-    }
-  },
-
-  "runners": {
-    "npm": {
-      "language_version": "20"
-    },
-    "composer": {
-      "language_version": "8.2"
-    },
-    "pip": {
-      "language_version": "3.11"
     }
   },
 
