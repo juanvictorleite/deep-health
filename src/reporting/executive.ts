@@ -18,6 +18,7 @@ type VulnerabilityClass = 'auto_safe' | 'breaking' | 'manual';
 type AggregatedVulnEntry = VulnerabilityEntry & {
   affectedVersions: string[];
   instanceCount: number;
+  ghsaIds: string[];
 };
 
 const CLASS_RANK: Record<VulnerabilityClass, number> = { auto_safe: 0, breaking: 1, manual: 2 };
@@ -25,7 +26,7 @@ const CLASS_RANK: Record<VulnerabilityClass, number> = { auto_safe: 0, breaking:
 function dedupVulns(entries: VulnerabilityEntry[]): AggregatedVulnEntry[] {
   const groups = new Map<string, VulnerabilityEntry[]>();
   for (const entry of entries) {
-    const key = `${entry.ecosystem}|${entry.ghsaId ?? 'no-ghsa'}|${entry.package}`;
+    const key = `${entry.ecosystem}|${entry.package}`;
     const group = groups.get(key) ?? [];
     group.push(entry);
     groups.set(key, group);
@@ -50,6 +51,8 @@ function dedupVulns(entries: VulnerabilityEntry[]): AggregatedVulnEntry[] {
 
     const minVersion = affectedVersions.slice().sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))[0] ?? first.currentVersion;
 
+    const ghsaIds = [...new Set(group.map((v) => v.ghsaId ?? '').filter((id) => id !== ''))];
+
     return {
       ...first,
       currentVersion: minVersion,
@@ -58,6 +61,8 @@ function dedupVulns(entries: VulnerabilityEntry[]): AggregatedVulnEntry[] {
       classification: worstClass,
       affectedVersions,
       instanceCount: group.length,
+      ghsaIds,
+      ghsaId: ghsaIds.join(', '),
     };
   });
 }
@@ -122,239 +127,329 @@ function pendingStatus(vuln: VulnerabilityEntry, locale: Locale): string {
   return locale.status.pending;
 }
 
-// ── context builder ──────────────────────────────────────────────────────────
+// ── private context-builder helpers ─────────────────────────────────────────
 
-export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Record<string, unknown> {
-  const locale = getLocale(opts.locale);
-  const now = new Date();
+type EcoEntry = { key: string; entry?: EcosystemConfig; pluginId: string; reportLabel: string; name: string };
 
-  // Resolve the list of ecosystem entries to iterate.
-  // When opts.ecosystems is provided (new per-entry mode), use it directly.
-  // Otherwise fall back to defaultRegistry.getAll() for backward compatibility.
-  const ecoEntries: Array<{ key: string; entry?: EcosystemConfig; pluginId: string; reportLabel: string; name: string }> =
-    opts.ecosystems
-      ? opts.ecosystems.map((entry) => {
-          const plugin = defaultRegistry.get(entry.id);
-          const entryKey = ecosystemEntryKey(entry);
-          const baseLabel = plugin?.reportLabel ?? entry.id;
-          // When entry has a label, show 'npm (frontend)'; otherwise show plugin's reportLabel.
-          const reportLabel = entry.label ? `${baseLabel} (${entry.label})` : baseLabel;
-          return {
-            key: entryKey,
-            entry,
-            pluginId: entry.id,
-            reportLabel,
-            name: plugin?.name ?? entry.id,
-          };
-        })
-      : defaultRegistry.getAll().map((plugin) => ({
-          key: plugin.id,
-          entry: undefined,
-          pluginId: plugin.id,
-          reportLabel: plugin.reportLabel,
-          name: plugin.name,
-        }));
+/** Resolve the list of ecosystem entries from opts (new per-entry mode or registry fallback). */
+function resolveEcoEntries(opts: ExecutiveReportOptions): EcoEntry[] {
+  if (opts.ecosystems) {
+    return opts.ecosystems.map((entry) => {
+      const plugin = defaultRegistry.get(entry.id);
+      const entryKey = ecosystemEntryKey(entry);
+      const baseLabel = plugin?.reportLabel ?? entry.id;
+      const reportLabel = entry.label ? `${baseLabel} (${entry.label})` : baseLabel;
+      return {
+        key: entryKey,
+        entry,
+        pluginId: entry.id,
+        reportLabel,
+        name: plugin?.name ?? entry.id,
+      };
+    });
+  }
+  return defaultRegistry.getAll().map((plugin) => ({
+    key: plugin.id,
+    entry: undefined,
+    pluginId: plugin.id,
+    reportLabel: plugin.reportLabel,
+    name: plugin.name,
+  }));
+}
 
-  // Resolve residual verification state — use the explicit union type.
-  const residualVerification: ResidualVerification = opts.residualVerification ?? { status: 'skipped' };
+type EcoScanEntry = { vulnerabilities_total: number; auto_safe: number; breaking: number; manual: number; auto_safe_packages: string[]; breaking_packages: string[]; manual_packages: string[]; vulnerabilities: VulnerabilityEntry[] };
 
-  // Clone the top-level scanBefore so we never mutate the original. For each entry
-  // that carries audit_findings, deep-clone its ecosystem entry and push synthetic
-  // entries so the existing fixedVulns/pendingVulns filters naturally include them.
+/** Create an empty ecosystem scan entry for when none exists yet. */
+function emptyEcoScanEntry(): EcoScanEntry {
+  return { vulnerabilities_total: 0, auto_safe: 0, breaking: 0, manual: 0, auto_safe_packages: [], breaking_packages: [], manual_packages: [], vulnerabilities: [] };
+}
+
+/** Append audit findings as synthetic VulnerabilityEntry rows into a cloned eco entry. */
+function applyAuditFindingsToEco(
+  ecoKey: string,
+  findings: NonNullable<NonNullable<ExecutiveReportOptions['updates'][string]>['audit_findings']>,
+  existing: EcoScanEntry | undefined,
+): EcoScanEntry {
+  const cloned: EcoScanEntry = existing ? structuredClone(existing) : emptyEcoScanEntry();
+  for (const finding of findings) {
+    cloned.vulnerabilities.push({
+      ecosystem: ecoKey,
+      package: finding.package,
+      ghsaId: finding.cve || '',
+      cvss: '—',
+      risk: finding.title,
+      currentVersion: finding.installedVersion ?? finding.affectedVersions,
+      safeVersion: null,
+      classification: 'auto_safe',
+      reason: '',
+    });
+    cloned.vulnerabilities_total += 1;
+    cloned.auto_safe += 1;
+  }
+  return cloned;
+}
+
+/** Inject audit_findings into a cloned scanBefore so downstream filters pick them up. */
+function injectAuditFindings(opts: ExecutiveReportOptions, ecoEntries: EcoEntry[]): ScanResultJson {
   let effectiveScanBefore: ScanResultJson = opts.scanBefore;
 
   for (const eco of ecoEntries) {
     const auditFindings = opts.updates[eco.key]?.audit_findings;
     if (!auditFindings || auditFindings.length === 0) continue;
 
-    // Clone the top-level object (shallow) plus the ecosystems map on first mutation.
     if (effectiveScanBefore === opts.scanBefore) {
       effectiveScanBefore = { ...opts.scanBefore, ecosystems: { ...opts.scanBefore.ecosystems } };
     }
 
-    // Deep-clone the specific ecosystem entry we need to mutate.
-    const existingEco = effectiveScanBefore.ecosystems[eco.key];
-    const clonedEco = existingEco
-      ? structuredClone(existingEco)
-      : { vulnerabilities_total: 0, auto_safe: 0, breaking: 0, manual: 0, auto_safe_packages: [], breaking_packages: [], manual_packages: [], vulnerabilities: [] };
-
-    for (const finding of auditFindings) {
-      const syntheticEntry: VulnerabilityEntry = {
-        ecosystem: eco.key,
-        package: finding.package,
-        ghsaId: finding.cve || '',
-        cvss: '—',
-        risk: finding.title,
-        currentVersion: finding.installedVersion ?? finding.affectedVersions,
-        safeVersion: null,
-        classification: 'auto_safe',
-        reason: '',
-      };
-      clonedEco.vulnerabilities.push(syntheticEntry);
-      clonedEco.vulnerabilities_total += 1;
-      clonedEco.auto_safe += 1;
-    }
-
-    effectiveScanBefore.ecosystems[eco.key] = clonedEco;
+    effectiveScanBefore.ecosystems[eco.key] = applyAuditFindingsToEco(
+      eco.key,
+      auditFindings,
+      effectiveScanBefore.ecosystems[eco.key] as EcoScanEntry | undefined,
+    );
   }
 
-  // Map: entryKey -> Set of updated package names
-  const updatedNamesByEco = new Map<string, Set<string>>();
-  for (const eco of ecoEntries) {
-    const update = opts.updates[eco.key] ?? null;
-    const updatedPackages = update?.packages_updated ?? [];
-    updatedNamesByEco.set(eco.key, new Set(updatedPackages.map(parsePackageName)));
-  }
+  return effectiveScanBefore;
+}
 
-  // Map: entryKey -> Map<packageName, actualInstalledVersion>
-  const installedVersionsByEco = new Map<string, Map<string, string>>();
+/** Build a map of entryKey -> Set of updated package names. */
+function buildUpdatedNamesByEco(ecoEntries: EcoEntry[], updates: ExecutiveReportOptions['updates']): Map<string, Set<string>> {
+  const map = new Map<string, Set<string>>();
   for (const eco of ecoEntries) {
-    const updatedPackages = opts.updates[eco.key]?.packages_updated ?? [];
+    const updatedPackages = updates[eco.key]?.packages_updated ?? [];
+    map.set(eco.key, new Set(updatedPackages.map(parsePackageName)));
+  }
+  return map;
+}
+
+/** Build a map of entryKey -> Map<packageName, actualInstalledVersion>. */
+function buildInstalledVersionsByEco(ecoEntries: EcoEntry[], updates: ExecutiveReportOptions['updates']): Map<string, Map<string, string>> {
+  const map = new Map<string, Map<string, string>>();
+  for (const eco of ecoEntries) {
+    const updatedPackages = updates[eco.key]?.packages_updated ?? [];
     const versionMap = new Map<string, string>();
     for (const ref of updatedPackages) {
       const name = parsePackageName(ref);
       const version = parsePackageVersion(ref);
       if (version) versionMap.set(name, version);
     }
-    installedVersionsByEco.set(eco.key, versionMap);
+    map.set(eco.key, versionMap);
   }
+  return map;
+}
 
-  const allVulnsBefore = [
-    ...Object.values(effectiveScanBefore.ecosystems).flatMap((e) => e.vulnerabilities),
-  ];
+/**
+ * Resolve a display label for a vulnerability's ecosystem.
+ * 4-fallback chain: ecoEntries -> findByOsvEcosystem -> get -> raw ecosystem id.
+ */
+function resolveReportLabel(ecoEntries: EcoEntry[], ecosystem: string): string {
+  const eco = ecoEntries.find((e) => e.key === ecosystem);
+  return eco?.reportLabel
+    ?? defaultRegistry.findByOsvEcosystem(ecosystem)?.reportLabel
+    ?? defaultRegistry.get(ecosystem)?.reportLabel
+    ?? ecosystem;
+}
 
-  // Fixed vulns: auto_safe and in the updated set for their ecosystem
-  const fixedVulns = dedupVulns(
+/** Render a list of GHSA/CVE ids as linked markdown or '—' when empty. */
+function formatGhsaLinks(ghsaIds: string[]): string {
+  return ghsaIds.length > 0 ? ghsaIds.map((id) => vulnLink(id)).join(', ') : '—';
+}
+
+/** Resolve residual warning flag for a given ecosystem from the verification state. */
+function resolveResidualWarning(residualVerification: ResidualVerification, ecosystem: string): boolean {
+  if (residualVerification.status === 'skipped') return false;
+  const count = residualVerification.summary[ecosystem] ?? 0;
+  return residualVerification.status === 'unverified' && count > 0;
+}
+
+/** Resolve the installed version for a package, falling back to safeVersion then '—'. */
+function resolveInstalledVersion(
+  installedVersionsByEco: Map<string, Map<string, string>>,
+  ecosystem: string,
+  pkg: string,
+  fallback: string | null,
+): string {
+  return installedVersionsByEco.get(ecosystem)?.get(pkg) ?? fallback ?? '—';
+}
+
+/** Map a single AggregatedVulnEntry to a fixed-vuln row object. */
+function mapFixedVulnRow(
+  v: AggregatedVulnEntry,
+  ecoEntries: EcoEntry[],
+  residualVerification: ResidualVerification,
+  installedVersionsByEco: Map<string, Map<string, string>>,
+): Record<string, unknown> {
+  return {
+    ecoLabel: resolveReportLabel(ecoEntries, v.ecosystem),
+    ghsaLink: formatGhsaLinks(v.ghsaIds),
+    ghsaId: v.ghsaIds.join(', '),
+    cvss: v.cvss,
+    package: v.package,
+    affectedVersions: escapeMdTableCell(v.affectedVersions.join(', ')),
+    safeVersion: resolveInstalledVersion(installedVersionsByEco, v.ecosystem, v.package, v.safeVersion),
+    risk: v.risk,
+    residualWarning: resolveResidualWarning(residualVerification, v.ecosystem),
+  };
+}
+
+/** Build the fixedVulns rows array. */
+function buildFixedVulnRows(
+  allVulnsBefore: VulnerabilityEntry[],
+  ecoEntries: EcoEntry[],
+  updatedNamesByEco: Map<string, Set<string>>,
+  residualVerification: ResidualVerification,
+  installedVersionsByEco: Map<string, Map<string, string>>,
+): Record<string, unknown>[] {
+  return dedupVulns(
     allVulnsBefore.filter((v) => {
       const names = updatedNamesByEco.get(v.ecosystem) ?? new Set();
       return v.classification === 'auto_safe' && names.has(v.package);
     }),
-  ).map((v) => {
-    // Look up reportLabel — prefer from ecoEntries map, fall back to registry
-    const eco = ecoEntries.find((e) => e.key === v.ecosystem);
-    const reportLabel = eco?.reportLabel
-      ?? defaultRegistry.findByOsvEcosystem(v.ecosystem)?.reportLabel
-      ?? defaultRegistry.get(v.ecosystem)?.reportLabel
-      ?? v.ecosystem;
-    // Render residual warning distinctly: only when verification ran and CVEs remain
-    const residualCount = residualVerification.status !== 'skipped'
-      ? (residualVerification.summary[v.ecosystem] ?? 0)
-      : null;
-    const residualWarning = residualVerification.status === 'unverified' && residualCount !== null && residualCount > 0;
+  ).map((v) => mapFixedVulnRow(v, ecoEntries, residualVerification, installedVersionsByEco));
+}
+
+/** Map a single AggregatedVulnEntry to a pending-vuln row object. */
+function mapPendingVulnRow(v: AggregatedVulnEntry, ecoEntries: EcoEntry[], locale: Locale): Record<string, unknown> {
+  const reportLabel = resolveReportLabel(ecoEntries, v.ecosystem);
+  return {
+    ecoLabel: reportLabel,
+    ghsaLink: v.ghsaIds.length > 0 ? v.ghsaIds.map((id) => vulnLink(id)).join(', ') : '—',
+    ghsaId: v.ghsaIds.join(', '),
+    cvss: v.cvss,
+    package: v.package,
+    affectedVersions: escapeMdTableCell(v.affectedVersions.join(', ')),
+    motivoPt: motivoStr(v, locale),
+  };
+}
+
+/** Build the pendingVulns rows array. */
+function buildPendingVulnRows(
+  pendingOriginal: VulnerabilityEntry[],
+  ecoEntries: EcoEntry[],
+  locale: Locale,
+): Record<string, unknown>[] {
+  return dedupVulns(pendingOriginal).map((v) => mapPendingVulnRow(v, ecoEntries, locale));
+}
+
+/** Build the allVulnsBefore rows array. */
+function buildAllVulnsBeforeRows(
+  allVulnsBefore: VulnerabilityEntry[],
+  ecoEntries: EcoEntry[],
+): Record<string, unknown>[] {
+  return dedupVulns(allVulnsBefore).map((v) => ({
+    ecoLabel: resolveReportLabel(ecoEntries, v.ecosystem),
+    ghsaId: v.ghsaIds.join(', '),
+    cvss: v.cvss,
+    package: v.package,
+    affectedVersions: escapeMdTableCell(v.affectedVersions.join(', ')),
+    risk: v.risk,
+  }));
+}
+
+/** Compute the statusPt string for a single vuln row in an evidence section. */
+function computeEvidenceStatusPt(
+  v: VulnerabilityEntry,
+  fixed: boolean,
+  isUnverified: boolean,
+  residualCount: number | null,
+  installedVersions: Map<string, string>,
+  locale: Locale,
+): string {
+  if (!fixed) return pendingStatus(v, locale);
+  const fixedVersionLabel = locale.exec.fixed_version(installedVersions.get(v.package) ?? v.safeVersion ?? '—');
+  if (isUnverified && residualCount !== null && residualCount > 0) {
+    return fixedVersionLabel + ' ⚠ residual CVE unverified — post-update scan detected remaining vulnerabilities';
+  }
+  return fixedVersionLabel;
+}
+
+type RawVulnAfterRow = { ghsaId: string | null; cvss: string; package: string; currentVersion: string; statusPt: string; risk: string };
+
+/** Deduplicate rawVulnsAfter rows by (package, statusPt), merging versions and ghsaIds. */
+function deduplicateAfterRows(rawVulnsAfter: RawVulnAfterRow[]): Record<string, unknown>[] {
+  const afterGroups = new Map<string, RawVulnAfterRow[]>();
+  for (const row of rawVulnsAfter) {
+    const key = `${row.package}|${row.statusPt}`;
+    const group = afterGroups.get(key) ?? [];
+    group.push(row);
+    afterGroups.set(key, group);
+  }
+  return [...afterGroups.values()].map((group) => {
+    const first = group[0]!;
+    const affectedVersions = escapeMdTableCell([...new Set(group.map((r) => r.currentVersion))].join(', '));
+    const groupGhsaIds = [...new Set(group.map((r) => r.ghsaId ?? '').filter((id) => id !== ''))];
     return {
-      ecoLabel: reportLabel,
-      ghsaLink: vulnLink(v.ghsaId),
+      ghsaId: groupGhsaIds.join(', '),
+      cvss: first.cvss,
+      package: first.package,
+      affectedVersions,
+      statusPt: first.statusPt,
+      risk: first.risk,
+    };
+  });
+}
+
+/** Build the evidence section for one ecosystem entry. */
+function buildEvidenceSection(
+  eco: EcoEntry,
+  effectiveScanBefore: ScanResultJson,
+  update: UpdateResultJson | null,
+  updatedNames: Set<string>,
+  installedVersions: Map<string, string>,
+  residualVerification: ResidualVerification,
+  locale: Locale,
+): Record<string, unknown> {
+  const ecoScan = effectiveScanBefore.ecosystems[eco.key];
+  const residualCount = residualVerification.status !== 'skipped'
+    ? (residualVerification.summary[eco.key] ?? 0)
+    : null;
+  const isUnverified = residualVerification.status === 'unverified';
+
+  const rawVulnsAfter: RawVulnAfterRow[] = (ecoScan?.vulnerabilities ?? []).map((v) => {
+    const fixed = updatedNames.has(v.package) && v.classification === 'auto_safe';
+    const statusPt = computeEvidenceStatusPt(v, fixed, isUnverified, residualCount, installedVersions, locale);
+    return {
       ghsaId: v.ghsaId,
       cvss: v.cvss,
       package: v.package,
-      affectedVersions: escapeMdTableCell(v.affectedVersions.join(', ')),
-      safeVersion: installedVersionsByEco.get(v.ecosystem)?.get(v.package) ?? v.safeVersion ?? '—',
+      currentVersion: v.currentVersion,
+      statusPt,
       risk: v.risk,
-      residualWarning,
     };
   });
 
-  const pendingOriginal = allVulnsBefore.filter((v) => {
-    if (v.classification !== 'auto_safe') return true;
-    const names = updatedNamesByEco.get(v.ecosystem) ?? new Set();
-    return !names.has(v.package);
-  });
+  const vulnsAfter = deduplicateAfterRows(rawVulnsAfter);
+  const hasVulns = vulnsAfter.length > 0;
 
-  const pendingVulns = dedupVulns(pendingOriginal).map((v) => {
-    const eco = ecoEntries.find((e) => e.key === v.ecosystem);
-    const reportLabel = eco?.reportLabel
-      ?? defaultRegistry.findByOsvEcosystem(v.ecosystem)?.reportLabel
-      ?? defaultRegistry.get(v.ecosystem)?.reportLabel
-      ?? v.ecosystem;
-    return {
-      ecoLabel: reportLabel,
-      ghsaLink: vulnLink(v.ghsaId),
-      ghsaId: v.ghsaId,
-      cvss: v.cvss,
-      package: v.package,
-      affectedVersions: escapeMdTableCell(v.affectedVersions.join(', ')),
-      motivoPt: motivoStr(v, locale),
-    };
-  });
-
-  // Per-entry evidence sections
-  const evidenceSections = ecoEntries.map((eco) => {
-    const ecoScan = effectiveScanBefore.ecosystems[eco.key];
-    const update = opts.updates[eco.key] ?? null;
-    const updatedNames = updatedNamesByEco.get(eco.key) ?? new Set();
-
-    const installedVersions = installedVersionsByEco.get(eco.key) ?? new Map<string, string>();
-    // Use the explicit verification state: only show residual warning when 'unverified'
-    const residualCount = residualVerification.status !== 'skipped'
-      ? (residualVerification.summary[eco.key] ?? 0)
-      : null;
-    const isUnverified = residualVerification.status === 'unverified';
-    const rawVulnsAfter = (ecoScan?.vulnerabilities ?? []).map((v) => {
-      const fixed = updatedNames.has(v.package) && v.classification === 'auto_safe';
-      let statusPt: string;
-      if (fixed) {
-        const fixedVersionLabel = locale.exec.fixed_version(installedVersions.get(v.package) ?? v.safeVersion ?? '—');
-        statusPt = (isUnverified && residualCount !== null && residualCount > 0)
-          ? fixedVersionLabel + ' ⚠ residual CVE unverified — post-update scan detected remaining vulnerabilities'
-          : fixedVersionLabel;
-      } else {
-        statusPt = pendingStatus(v, locale);
-      }
-      return {
-        ghsaId: v.ghsaId,
-        cvss: v.cvss,
-        package: v.package,
-        currentVersion: v.currentVersion,
-        statusPt,
-        risk: v.risk,
-      };
+  const validationEntries = (update?.validations ?? [])
+    .filter((v) => v.status === 'pass' && v.detail)
+    .map((v) => {
+      const detail = v.detail ?? '';
+      const verifiedMsg = v.command
+        ? `✅ **${v.name}** (\`${v.command}\`) — ${detail}`
+        : locale.exec.validation_verified(v.name, detail);
+      return { name: v.name, detail, command: v.command, verifiedMsg };
     });
-    // Deduplicate by (ghsaId, package, statusPt) — keep separate rows when status differs
-    const afterGroups = new Map<string, typeof rawVulnsAfter>();
-    for (const row of rawVulnsAfter) {
-      const key = `${row.ghsaId ?? 'no-ghsa'}|${row.package}|${row.statusPt}`;
-      const group = afterGroups.get(key) ?? [];
-      group.push(row);
-      afterGroups.set(key, group);
-    }
-    const vulnsAfter = [...afterGroups.values()].map((group) => {
-      const first = group[0]!;
-      const affectedVersions = escapeMdTableCell([...new Set(group.map((r) => r.currentVersion))].join(', '));
-      return {
-        ghsaId: first.ghsaId,
-        cvss: first.cvss,
-        package: first.package,
-        affectedVersions,
-        statusPt: first.statusPt,
-        risk: first.risk,
-      };
-    });
+  const showValidations = validationEntries.length > 0;
 
-    const hasVulns = vulnsAfter.length > 0;
+  return {
+    id: eco.key,
+    name: eco.name,
+    reportLabel: eco.reportLabel,
+    evidenceTitle: locale.exec.ecosystem_evidence_title(eco.reportLabel),
+    hasVulns,
+    vulnsAfter,
+    showValidations,
+    validationEntries,
+  };
+}
 
-    // Render all validations generically — no fixed names assumed
-    const validationEntries = (update?.validations ?? [])
-      .filter((v) => v.status === 'pass' && v.detail)
-      .map((v) => ({
-        name: v.name,
-        detail: v.detail ?? '',
-        verifiedMsg: locale.exec.validation_verified(v.name, v.detail ?? ''),
-      }));
-    const showValidations = validationEntries.length > 0;
-
-    return {
-      id: eco.key,
-      name: eco.name,
-      reportLabel: eco.reportLabel,
-      evidenceTitle: locale.exec.ecosystem_evidence_title(eco.reportLabel),
-      hasVulns,
-      vulnsAfter,
-      showValidations,
-      validationEntries,
-    };
-  });
-
-  // Summary: per-entry before/after labels
+/** Build per-entry before/after summary labels. */
+function buildSummaryLabels(
+  ecoEntries: EcoEntry[],
+  effectiveScanBefore: ScanResultJson,
+  pendingOriginal: VulnerabilityEntry[],
+  locale: Locale,
+): { ecoBeforeLabels: string; ecoAfterLabels: string } {
   const ecoBeforeLabels = ecoEntries
     .map((eco) => {
       const ecoData = effectiveScanBefore.ecosystems[eco.key];
@@ -382,9 +477,11 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
     })
     .join(', ');
 
-  const totalBefore = allVulnsBefore.length;
+  return { ecoBeforeLabels, ecoAfterLabels };
+}
 
-  // pendingByPkg for Summary section
+/** Build the pendingByPkg array for the Summary section. */
+function buildPendingByPkg(pendingOriginal: VulnerabilityEntry[], locale: Locale): Record<string, unknown>[] {
   const pendingByPkgMap = new Map<string, VulnerabilityEntry[]>();
   for (const v of pendingOriginal) {
     const key = `${v.ecosystem}:${v.package}`;
@@ -392,7 +489,7 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
     arr.push(v);
     pendingByPkgMap.set(key, arr);
   }
-  const pendingByPkg = [...pendingByPkgMap.values()].map((vulns) => {
+  return [...pendingByPkgMap.values()].map((vulns) => {
     const v = vulns[0]!;
     const maxCvss = vulns.reduce((max, x) => {
       const n = parseFloat(x.cvss);
@@ -408,11 +505,47 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
       cvssDisplay: maxCvss !== '0' ? ` CVSS ${maxCvss}` : '',
     };
   });
+}
 
-  // Build SonarQube section (graceful: absent when engineResults not provided)
+// ── context builder ──────────────────────────────────────────────────────────
+
+export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Record<string, unknown> {
+  const locale = getLocale(opts.locale);
+  const now = new Date();
+
+  const ecoEntries = resolveEcoEntries(opts);
+  const residualVerification: ResidualVerification = opts.residualVerification ?? { status: 'skipped' };
+  const effectiveScanBefore = injectAuditFindings(opts, ecoEntries);
+
+  const updatedNamesByEco = buildUpdatedNamesByEco(ecoEntries, opts.updates);
+  const installedVersionsByEco = buildInstalledVersionsByEco(ecoEntries, opts.updates);
+
+  const allVulnsBefore = [
+    ...Object.values(effectiveScanBefore.ecosystems).flatMap((e) => e.vulnerabilities),
+  ];
+
+  const fixedVulns = buildFixedVulnRows(allVulnsBefore, ecoEntries, updatedNamesByEco, residualVerification, installedVersionsByEco);
+
+  const pendingOriginal = allVulnsBefore.filter((v) => {
+    if (v.classification !== 'auto_safe') return true;
+    const names = updatedNamesByEco.get(v.ecosystem) ?? new Set();
+    return !names.has(v.package);
+  });
+
+  const pendingVulns = buildPendingVulnRows(pendingOriginal, ecoEntries, locale);
+
+  const evidenceSections = ecoEntries.map((eco) => {
+    const update = opts.updates[eco.key] ?? null;
+    const updatedNames = updatedNamesByEco.get(eco.key) ?? new Set();
+    const installedVersions = installedVersionsByEco.get(eco.key) ?? new Map<string, string>();
+    return buildEvidenceSection(eco, effectiveScanBefore, update, updatedNames, installedVersions, residualVerification, locale);
+  });
+
+  const { ecoBeforeLabels, ecoAfterLabels } = buildSummaryLabels(ecoEntries, effectiveScanBefore, pendingOriginal, locale);
+  const totalBefore = allVulnsBefore.length;
+  const pendingByPkg = buildPendingByPkg(pendingOriginal, locale);
+
   const sonarSection = buildSonarQubeExecSection(opts.engineResults, locale.exec);
-
-  // Build advisor section (graceful: absent when advisorResults not provided)
   const advisorSection = buildAdvisorExecSection(opts.advisorResults, locale.exec);
 
   return {
@@ -427,21 +560,7 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
     noVulns: totalBefore === 0,
     fixedVulns,
     pendingVulns,
-    allVulnsBefore: dedupVulns(allVulnsBefore).map((v) => {
-      const eco = ecoEntries.find((e) => e.key === v.ecosystem);
-      const reportLabel = eco?.reportLabel
-        ?? defaultRegistry.findByOsvEcosystem(v.ecosystem)?.reportLabel
-        ?? defaultRegistry.get(v.ecosystem)?.reportLabel
-        ?? v.ecosystem;
-      return {
-        ecoLabel: reportLabel,
-        ghsaId: v.ghsaId,
-        cvss: v.cvss,
-        package: v.package,
-        affectedVersions: escapeMdTableCell(v.affectedVersions.join(', ')),
-        risk: v.risk,
-      };
-    }),
+    allVulnsBefore: buildAllVulnsBeforeRows(allVulnsBefore, ecoEntries),
     totalBefore,
     scanBeforeSummary: locale.exec.scan_summary(totalBefore, ecoBeforeLabels),
     evidenceSections,

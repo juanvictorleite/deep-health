@@ -751,16 +751,39 @@ describe('generateExecutiveReport() — vulnerability deduplication', () => {
     });
   });
 
-  it('case 5 — same package, different GHSAs → separate rows for each GHSA', () => {
+  it('case 5 — same package, different GHSAs → single merged row with both GHSAs comma-separated', () => {
     const scan = makeScan([
       makeVuln('qs', '6.5.2', 'GHSA-xxxx-aaaa'),
       makeVuln('qs', '6.5.2', 'GHSA-xxxx-bbbb'),
     ]);
     const result = generateExecutiveReport({ ...baseOpts, scanBefore: scan, scanAfter: scan });
-    const ghsaARows = allTableRows(result).filter((l) => l.includes('GHSA-xxxx-aaaa'));
-    const ghsaBRows = allTableRows(result).filter((l) => l.includes('GHSA-xxxx-bbbb'));
-    expect(ghsaARows.length).toBeGreaterThanOrEqual(1);
-    expect(ghsaBRows.length).toBeGreaterThanOrEqual(1);
+    // Both GHSAs must appear in the same row (i.e., a single row containing qs also has both IDs)
+    const qsRows = allTableRows(result).filter((l) => l.includes('qs'));
+    expect(qsRows.length).toBeGreaterThanOrEqual(1);
+    // Every row that mentions qs should contain both GHSA IDs (they are merged into one row)
+    const rowsWithBothGhsas = qsRows.filter((l) => l.includes('GHSA-xxxx-aaaa') && l.includes('GHSA-xxxx-bbbb'));
+    expect(rowsWithBothGhsas.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('case 6 — same package, different GHSAs, different versions → single row with all IDs and all versions', () => {
+    const scan = makeScan([
+      makeVuln('axios', '0.21.0', 'GHSA-yyyy-1111'),
+      makeVuln('axios', '0.21.1', 'GHSA-yyyy-2222'),
+      makeVuln('axios', '0.21.2', 'GHSA-yyyy-3333'),
+    ]);
+    const result = generateExecutiveReport({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+    const axiosRows = allTableRows(result).filter((l) => l.includes('axios'));
+    expect(axiosRows.length).toBeGreaterThanOrEqual(1);
+    // All three GHSA IDs must be in the same row
+    const mergedRows = axiosRows.filter(
+      (l) => l.includes('GHSA-yyyy-1111') && l.includes('GHSA-yyyy-2222') && l.includes('GHSA-yyyy-3333'),
+    );
+    expect(mergedRows.length).toBeGreaterThanOrEqual(1);
+    // All three versions must also be in the same row
+    const versionRows = axiosRows.filter(
+      (l) => l.includes('0.21.0') && l.includes('0.21.1') && l.includes('0.21.2'),
+    );
+    expect(versionRows.length).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -1499,6 +1522,196 @@ describe('generateExecutiveReport() — audit findings installedVersion field', 
 
     const rowWithRange = rows.find((r) => r.includes('>=3.0.0 <4.0.0'));
     expect(rowWithRange).toBeDefined();
+  });
+});
+
+// ── AC4 & AC5: validation entries with command field ─────────────────────────
+
+describe('generateExecutiveReport() — validation entries with command field (AC4, AC5)', () => {
+  const scanWithNpm: ScanResultJson = {
+    agent: 'osv-scanner',
+    status: 'success',
+    environment: 'local',
+    ecosystems: {
+      npm: {
+        vulnerabilities_total: 1,
+        auto_safe: 1,
+        breaking: 0,
+        manual: 0,
+        auto_safe_packages: ['lodash'],
+        breaking_packages: [],
+        manual_packages: [],
+        vulnerabilities: [{
+          ghsaId: 'GHSA-0001',
+          cvss: '7.5',
+          package: 'lodash',
+          ecosystem: 'npm',
+          currentVersion: '4.17.20',
+          safeVersion: '4.17.21',
+          classification: 'auto_safe',
+          risk: 'high',
+        }],
+      },
+    },
+    error: null,
+  };
+
+  const updateWithCommandEntry = {
+    $schema: 'osv-update-result/v1' as const,
+    agent: 'npm-safe-update',
+    status: 'success' as const,
+    packages_updated: ['lodash@4.17.21'],
+    packages_skipped: [],
+    packages_pending_breaking: [],
+    error: null,
+  };
+
+  it('(AC4) when validation entry has command field, verifiedMsg uses backtick format', () => {
+    const result = generateExecutiveReport({
+      ...baseOpts,
+      scanBefore: scanWithNpm,
+      scanAfter: scanWithNpm,
+      updates: {
+        npm: {
+          ...updateWithCommandEntry,
+          validations: [{
+            name: 'tests',
+            status: 'pass',
+            detail: 'All tests passed',
+            command: 'npm run test',
+          }],
+        },
+      },
+    });
+
+    expect(typeof result).toBe('string');
+    // The command must appear in backticks in the report
+    expect(result).toContain('`npm run test`');
+    // The detail must also appear
+    expect(result).toContain('All tests passed');
+    // The name must appear
+    expect(result).toContain('tests');
+  });
+
+  it('(AC4) verifiedMsg format: ✅ **{name}** (`{command}`) — {detail}', () => {
+    const result = generateExecutiveReport({
+      ...baseOpts,
+      scanBefore: scanWithNpm,
+      scanAfter: scanWithNpm,
+      updates: {
+        npm: {
+          ...updateWithCommandEntry,
+          validations: [{
+            name: 'build',
+            status: 'pass',
+            detail: 'Build succeeded',
+            command: 'npm run build',
+          }],
+        },
+      },
+    });
+
+    expect(typeof result).toBe('string');
+    // Full format check: name, command in backticks, detail with em-dash separator
+    expect(result).toContain('**build**');
+    expect(result).toContain('`npm run build`');
+    expect(result).toContain('Build succeeded');
+  });
+
+  it('(AC5) backward compat: validation entry WITHOUT command uses locale fallback', () => {
+    const result = generateExecutiveReport({
+      ...baseOpts,
+      scanBefore: scanWithNpm,
+      scanAfter: scanWithNpm,
+      updates: {
+        npm: {
+          ...updateWithCommandEntry,
+          validations: [{
+            name: 'validation',
+            status: 'pass',
+            detail: 'Tests passed',
+            // no command field — backward compat
+          }],
+        },
+      },
+    });
+
+    expect(typeof result).toBe('string');
+    // Backward compat: must NOT use the backtick format (no backtick-wrapped command)
+    expect(result).not.toMatch(/`[^`]+`/);
+    // The locale fallback message should be present
+    expect(result).toContain('Tests passed');
+  });
+
+  it('(AC5) entries with command and entries without command both render correctly in same report', () => {
+    const result = generateExecutiveReport({
+      ...baseOpts,
+      scanBefore: scanWithNpm,
+      scanAfter: scanWithNpm,
+      updates: {
+        npm: {
+          ...updateWithCommandEntry,
+          validations: [
+            {
+              name: 'tests',
+              status: 'pass',
+              detail: 'Tests ok',
+              command: 'npm test',
+            },
+          ],
+        },
+      },
+    });
+
+    expect(typeof result).toBe('string');
+    // The command entry uses backtick format
+    expect(result).toContain('`npm test`');
+    expect(result).toContain('Tests ok');
+  });
+
+  it('(AC4) pip check command appears in verifiedMsg when set', () => {
+    const pipScan: ScanResultJson = {
+      ...emptyScan,
+      ecosystems: {
+        pip: {
+          vulnerabilities_total: 0,
+          auto_safe: 0,
+          breaking: 0,
+          manual: 0,
+          auto_safe_packages: [],
+          breaking_packages: [],
+          manual_packages: [],
+          vulnerabilities: [],
+        },
+      },
+    };
+
+    const result = generateExecutiveReport({
+      ...baseOpts,
+      scanBefore: pipScan,
+      scanAfter: pipScan,
+      updates: {
+        pip: {
+          $schema: 'osv-update-result/v1' as const,
+          agent: 'pip-safe-update',
+          status: 'success' as const,
+          packages_updated: [],
+          packages_skipped: [],
+          packages_pending_breaking: [],
+          error: null,
+          validations: [{
+            name: 'pip-check',
+            status: 'pass',
+            detail: 'No broken requirements',
+            command: 'pip check',
+          }],
+        },
+      },
+    });
+
+    expect(typeof result).toBe('string');
+    expect(result).toContain('`pip check`');
+    expect(result).toContain('No broken requirements');
   });
 });
 

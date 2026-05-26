@@ -96,11 +96,11 @@ export async function runValidations(
     if (passed) {
       const detail =
         result.stdout.trim().split("\n").slice(-2).join(" ") || "Passed";
-      entries.push({ name: cmd.name, status: "pass", detail });
+      entries.push({ name: cmd.name, status: "pass", detail, command: cmd.command });
     } else {
       const detail =
         result.stdout || result.stderr || `Exited with code ${result.exitCode}`;
-      entries.push({ name: cmd.name, status: "fail", detail });
+      entries.push({ name: cmd.name, status: "fail", detail, command: cmd.command });
       // Stop on first failure — emit detailed diagnostics before caller reverts
       logger.error(`Validation "${cmd.name}" failed (exit ${result.exitCode})`);
       logger.error(`  Command : ${cmd.command}`);

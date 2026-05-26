@@ -11,6 +11,8 @@ export interface ValidationEntry {
   status: 'pass' | 'fail' | 'skipped';
   /** Optional human-readable detail for this step */
   detail?: string;
+  /** The shell command that was executed for this validation step, e.g. 'npm run test' */
+  command?: string;
 }
 
 /**

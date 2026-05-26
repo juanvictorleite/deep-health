@@ -69,6 +69,7 @@ const ValidationEntrySchema = z.object({
   name: z.string(),
   status: z.enum(['pass', 'fail', 'skipped']),
   detail: z.string().optional(),
+  command: z.string().optional(),
 });
 
 const UpdateResultSchema = z.object({
