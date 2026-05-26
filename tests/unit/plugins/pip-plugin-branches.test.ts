@@ -70,6 +70,7 @@ describe('pipPlugin.runUpdater — validationCommands ?? [] branch (line 104)', 
       ctx.cwd,
       ctx.authorizeBreaking,
       [],
+      undefined, // osvFixOutcome
     );
   });
 
@@ -83,6 +84,7 @@ describe('pipPlugin.runUpdater — validationCommands ?? [] branch (line 104)', 
       ctx.cwd,
       ctx.authorizeBreaking,
       ['pytest'],
+      undefined, // osvFixOutcome
     );
   });
 });

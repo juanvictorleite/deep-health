@@ -6,7 +6,7 @@ import type { AdvisorResult } from '@core/types/report';
 import { PhaseError } from '@core/errors';
 import { backupFiles } from '@infra/utils/fs-backup';
 import { logger } from '@infra/utils/logger';
-import { FIXER_MAP } from '../fixers/index';
+import { FIXER_MAP, mergeOsvFirstWins } from '../fixers/index';
 import type { OsvFixOutcome } from '../fixers/index';
 import { runUpdaterLifecycle } from '../utils/updater-lifecycle';
 import { collectRootNpmLockfileVersions } from '../utils/lockfile-inspect';
@@ -106,7 +106,7 @@ export async function runNpmUpdater(
         },
 
         async derivePackagesUpdated(_ctx, fixerResult) {
-          return fixerResult.packagesUpdated;
+          return mergeOsvFirstWins(osvFixOutcome, fixerResult.packagesUpdated);
         },
 
         async deriveAuditFindings(ctx, fixerResult): Promise<AuditFinding[] | undefined> {

@@ -109,6 +109,7 @@ export const composerPlugin: EcosystemPlugin = {
       ctx.authorizeBreaking,
       ctx.validationCommands ?? [],
       ctx.fixerStrategy,
+      ctx.osvFixOutcome,
     );
   },
 

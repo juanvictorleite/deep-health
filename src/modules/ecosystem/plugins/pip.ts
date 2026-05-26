@@ -109,6 +109,7 @@ export const pipPlugin: EcosystemPlugin = {
       ctx.cwd,
       ctx.authorizeBreaking,
       ctx.validationCommands ?? [],
+      ctx.osvFixOutcome,
     );
   },
 

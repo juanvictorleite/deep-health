@@ -990,7 +990,7 @@ describe('applyOsvThenAuditFix — partialRevert callable (AC6)', () => {
   });
 });
 
-// ─── AC4: osvFixOutcome merge (last-writer-wins) ──────────────────────────────
+// ─── AC4: osvFixOutcome merge (OSV-first-wins) ───────────────────────────────
 
 describe('applyOsvThenAuditFix — osvFixOutcome merge (AC4)', () => {
   beforeEach(() => {
@@ -998,7 +998,7 @@ describe('applyOsvThenAuditFix — osvFixOutcome merge (AC4)', () => {
     mockRevertWithBootstrap.mockResolvedValue(undefined);
   });
 
-  it('(AC4a) merges OSV packages with audit-verified: audit overwrites OSV for same package (last-writer-wins)', async () => {
+  it('(AC4a) merges OSV packages with audit-verified: OSV wins over audit-fix for same package (OSV-first-wins)', async () => {
     const runner = makeRunner();
 
     // OSV fixed both axios and lodash; but lodash gets a different version via audit-fix
@@ -1038,8 +1038,8 @@ describe('applyOsvThenAuditFix — osvFixOutcome merge (AC4)', () => {
 
     // axios: only from OSV (not in scan auto_safe_packages for audit verification)
     expect(result.packagesUpdated).toContain('axios@1.7.0');
-    // lodash: audit-fix wins over OSV (4.17.21 > 4.17.19) — last-writer-wins
-    expect(result.packagesUpdated).toContain('lodash@4.17.21');
+    // lodash: OSV wins over audit-fix (4.17.19 is verified on disk) — OSV-first-wins
+    expect(result.packagesUpdated).toContain('lodash@4.17.19');
     // no duplicates
     expect(result.packagesUpdated).toHaveLength(2);
   });

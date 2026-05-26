@@ -1715,3 +1715,173 @@ describe('derivePackagesUpdated — full lock diff including transitive deps (AC
     expect(result.packages_updated).not.toContain('vendor/unchanged@5.0.0');
   });
 });
+
+// ── OSV-first-wins in composer derivePackagesUpdated ─────────────────────────
+
+describe('runComposerUpdater — OSV-first-wins in derivePackagesUpdated', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('OSV-first-wins: OSV packages appear first, lockfile diff complements (no overlap)', async () => {
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
+    const { readFile } = await import('node:fs/promises');
+
+    // OSV fixed vendor/osv-pkg; composer update also fixes vendor/audit-pkg
+    const preLock = makeLockJson([
+      { name: 'vendor/osv-pkg', version: '1.0.0' },
+      { name: 'vendor/audit-pkg', version: '2.0.0' },
+    ]);
+    const postLock = makeLockJson([
+      { name: 'vendor/osv-pkg', version: '1.0.0' },  // OSV already fixed this, not in lockfile diff
+      { name: 'vendor/audit-pkg', version: '2.1.0' }, // composer update fixed this
+    ]);
+
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)    // applyFix: before-lock
+      .mockResolvedValueOnce(postLock);  // derivePackagesUpdated: after-lock
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // composer install (env-check)
+      .mockResolvedValueOnce(ok())  // composer outdated --direct
+      .mockResolvedValueOnce(ok()); // composer update
+
+    const runner = makeRunner({ runArgs: runArgsMock });
+    const scan = baseScan(['vendor/audit-pkg@2.1.0']);
+
+    const osvFixOutcome = {
+      applied: true,
+      packagesUpdated: [
+        { name: 'vendor/osv-pkg', versionFrom: '1.0.0', versionTo: '1.1.0' },
+      ],
+    };
+
+    const result = await runComposerUpdater(
+      runner, baseConfig(), scan, '/tmp/project',
+      false, [], undefined, osvFixOutcome,
+    );
+
+    expect(result.status).toBe('success');
+    // OSV package comes first
+    expect(result.packages_updated[0]).toBe('vendor/osv-pkg@1.1.0');
+    // Lockfile diff package added as complementary
+    expect(result.packages_updated).toContain('vendor/audit-pkg@2.1.0');
+    expect(result.packages_updated).toHaveLength(2);
+  });
+
+  it('OSV-first-wins: OSV version wins when lockfile diff also reports same package', async () => {
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
+    const { readFile } = await import('node:fs/promises');
+
+    // Both OSV and lockfile diff report vendor/pkg but with different versions
+    const preLock = makeLockJson([{ name: 'vendor/pkg', version: '1.0.0' }]);
+    const postLock = makeLockJson([{ name: 'vendor/pkg', version: '1.2.0' }]); // lockfile upgraded higher
+
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)
+      .mockResolvedValueOnce(postLock);
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // composer install (env-check)
+      .mockResolvedValueOnce(ok())  // composer outdated --direct
+      .mockResolvedValueOnce(ok()); // composer update
+
+    const runner = makeRunner({ runArgs: runArgsMock });
+    const scan = baseScan(['vendor/pkg@1.2.0']);
+
+    // OSV fixed vendor/pkg to 1.1.0 (lower than lockfile diff 1.2.0)
+    const osvFixOutcome = {
+      applied: true,
+      packagesUpdated: [
+        { name: 'vendor/pkg', versionFrom: '1.0.0', versionTo: '1.1.0' },
+      ],
+    };
+
+    const result = await runComposerUpdater(
+      runner, baseConfig(), scan, '/tmp/project',
+      false, [], undefined, osvFixOutcome,
+    );
+
+    expect(result.status).toBe('success');
+    // OSV version (1.1.0) wins over lockfile diff version (1.2.0)
+    expect(result.packages_updated).toContain('vendor/pkg@1.1.0');
+    expect(result.packages_updated).not.toContain('vendor/pkg@1.2.0');
+    expect(result.packages_updated).toHaveLength(1);
+  });
+
+  it('without osvFixOutcome, returns lockfile diff result as-is (no regression)', async () => {
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
+    const { readFile } = await import('node:fs/promises');
+
+    const preLock = makeLockJson([{ name: 'vendor/pkg', version: '1.0.0' }]);
+    const postLock = makeLockJson([{ name: 'vendor/pkg', version: '1.1.0' }]);
+
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)
+      .mockResolvedValueOnce(postLock);
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // composer install (env-check)
+      .mockResolvedValueOnce(ok())  // composer outdated --direct
+      .mockResolvedValueOnce(ok()); // composer update
+
+    const runner = makeRunner({ runArgs: runArgsMock });
+    const scan = baseScan(['vendor/pkg@1.1.0']);
+
+    const result = await runComposerUpdater(
+      runner, baseConfig(), scan, '/tmp/project',
+      false, [], undefined,
+      // no osvFixOutcome
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.packages_updated).toContain('vendor/pkg@1.1.0');
+  });
+
+  it('OSV-first-wins applies in fallback path (readFile failure) using auto_safe_packages', async () => {
+    const { backupFiles } = await import('@infra/utils/fs-backup.js');
+    const { readFile } = await import('node:fs/promises');
+
+    const preLock = makeLockJson([{ name: 'vendor/pkg', version: '1.0.0' }]);
+
+    (backupFiles as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      new Map([['composer.lock', preLock]]),
+    );
+    (readFile as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(preLock)                      // applyFix: before-lock
+      .mockRejectedValueOnce(new Error('ENOENT'));          // derivePackagesUpdated: post-lock fails
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // composer install (env-check)
+      .mockResolvedValueOnce(ok())  // composer outdated --direct
+      .mockResolvedValueOnce(ok()); // composer update
+
+    const runner = makeRunner({ runArgs: runArgsMock });
+    const scan = baseScan(['vendor/pkg@1.1.0']);
+
+    const osvFixOutcome = {
+      applied: true,
+      packagesUpdated: [
+        { name: 'vendor/osv-only', versionFrom: '2.0.0', versionTo: '2.1.0' },
+      ],
+    };
+
+    const result = await runComposerUpdater(
+      runner, baseConfig(), scan, '/tmp/project',
+      false, [], undefined, osvFixOutcome,
+    );
+
+    expect(result.status).toBe('success');
+    // OSV package present (from osvFixOutcome)
+    expect(result.packages_updated).toContain('vendor/osv-only@2.1.0');
+    // fallback package (auto_safe_packages) added since no overlap
+    expect(result.packages_updated).toContain('vendor/pkg@1.1.0');
+  });
+});

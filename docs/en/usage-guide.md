@@ -997,7 +997,9 @@ Scans `requirements.txt` or `Pipfile.lock` and applies Python package updates us
 |----------|------------|-------------|
 | `osv` | npm, composer, pip | OSV Scanner performs in-place fixes to lockfiles. This is the primary and most accurate method — fixes are sourced directly from the OSV database. |
 | `npm-audit` | npm only | Delegates fix to `npm audit fix`. Faster but less precise than OSV for complex dependency trees. |
-| `osv-then-audit` | npm only | Applies OSV fix first for precision, then runs `npm audit fix` to catch any remaining issues. Falls back gracefully to OSV-only if audit-fix causes validation failures. |
+| `osv-then-audit` | npm only | Applies OSV fix first for precision, then runs `npm audit fix` to catch additional issues OSV missed. Uses **OSV-first-wins** merge: OSV packages are trusted as ground truth; audit packages complement only. Falls back to OSV-only state if audit-fix causes validation failures. |
+
+> **Merge strategy:** Across all ecosystems, the CLI uses an **OSV-first-wins** merge for `packages_updated`. OSV-sourced fixes are verified against the lockfile and always take precedence. Ecosystem-specific fixers (npm audit, pip install, composer update) add only packages that OSV did not already cover. This ensures reliable, verified reporting.
 
 ---
 

@@ -4,6 +4,8 @@ import type { UpdateResultJson } from '@core/types/update';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import { logger } from '@infra/utils/logger';
+import { mergeOsvFirstWins } from '../fixers/index';
+import type { OsvFixOutcome } from '../fixers/index';
 import { runUpdaterLifecycle } from '../utils/updater-lifecycle';
 
 const PIP_FILES = ['requirements.txt'];
@@ -110,6 +112,7 @@ export async function runPipUpdater(
   cwd: string,
   authorizeBreaking = false,
   validationCommands: ValidationCommandConfig[] = [],
+  osvFixOutcome?: OsvFixOutcome,
 ): Promise<UpdateResultJson> {
   logger.info('Running pip safe updates...');
 
@@ -177,7 +180,8 @@ export async function runPipUpdater(
 
       async derivePackagesUpdated(_ctx, stdout) {
         const installedVersions = parsePipInstalledVersions(stdout);
-        return buildPipPackagesUpdated(pipEcosystem.auto_safe_packages, installedVersions);
+        const pipPackages = buildPipPackagesUpdated(pipEcosystem.auto_safe_packages, installedVersions);
+        return mergeOsvFirstWins(osvFixOutcome, pipPackages);
       },
     },
     { runner, cwd, scanResult, ecosystemId: 'pip', validationCommands, authorizeBreaking },

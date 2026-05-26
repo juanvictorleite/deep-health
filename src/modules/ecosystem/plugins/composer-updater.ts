@@ -6,6 +6,8 @@ import type { UpdateResultJson } from '@core/types/update';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import { logger } from '@infra/utils/logger';
+import { mergeOsvFirstWins } from '../fixers/index';
+import type { OsvFixOutcome } from '../fixers/index';
 import { runEcosystemEnvironmentProbe } from '../utils/environment-probe';
 import { runUpdaterLifecycle } from '../utils/updater-lifecycle';
 import { parseComposerAuditJson, parseComposerAuditAdvisories } from './composer-audit-parser';
@@ -124,6 +126,7 @@ export async function runComposerUpdater(
   authorizeBreaking = false,
   validationCommands: ValidationCommandConfig[] = [],
   fixerStrategy: FixerStrategyId | undefined = undefined,
+  osvFixOutcome?: OsvFixOutcome,
 ): Promise<UpdateResultJson> {
   logger.info('Running Composer safe updates...');
 
@@ -317,12 +320,12 @@ export async function runComposerUpdater(
 
           // Diff ALL packages in composer.lock (before vs after) so transitive dependency
           // changes from --with-all-dependencies are captured automatically.
-          return buildComposerPackagesUpdated(beforeVersions, afterVersions);
+          return mergeOsvFirstWins(osvFixOutcome, buildComposerPackagesUpdated(beforeVersions, afterVersions));
         } catch (readErr) {
           logger.warn(
             `composer-updater: could not read post-update composer.lock (${readErr instanceof Error ? readErr.message : String(readErr)}) — falling back to scan package list`,
           );
-          return composerEcosystem.auto_safe_packages;
+          return mergeOsvFirstWins(osvFixOutcome, composerEcosystem.auto_safe_packages);
         }
       },
 

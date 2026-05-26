@@ -72,6 +72,7 @@ describe('composerPlugin.runUpdater — validationCommands ?? [] branch', () => 
       ctx.authorizeBreaking,
       [], // ?? [] result
       undefined, // fixerStrategy
+      undefined, // osvFixOutcome
     );
   });
 
@@ -86,6 +87,7 @@ describe('composerPlugin.runUpdater — validationCommands ?? [] branch', () => 
       ctx.authorizeBreaking,
       ['php artisan'],
       undefined, // fixerStrategy
+      undefined, // osvFixOutcome
     );
   });
 
@@ -100,6 +102,7 @@ describe('composerPlugin.runUpdater — validationCommands ?? [] branch', () => 
       ctx.authorizeBreaking,
       [],
       'osv-then-audit',
+      undefined, // osvFixOutcome
     );
   });
 });

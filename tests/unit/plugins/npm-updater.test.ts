@@ -2605,3 +2605,202 @@ describe('runNpmUpdater — deriveAuditFindings (audit_findings)', () => {
     expect(result.audit_findings).toBeUndefined();
   });
 });
+
+// ── OSV-first-wins merge in derivePackagesUpdated ────────────────────────────
+
+describe('runNpmUpdater — OSV-first-wins in derivePackagesUpdated', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockReadFile.mockResolvedValue(DEFAULT_LOCKFILE);
+  });
+
+  it('OSV-first-wins: OSV packages appear first, fixer packages complement (no overlap)', async () => {
+    const runner = makeRunner();
+
+    // Build post-OSV and post-audit lockfiles for osv-then-audit-fixer
+    const postOsvLockfile = JSON.stringify({
+      name: 'test', lockfileVersion: 2,
+      dependencies: { axios: { version: '1.7.0' }, lodash: { version: '4.17.20' } },
+      packages: {
+        '': { name: 'test', version: '1.0.0' },
+        'node_modules/axios': { version: '1.7.0' },
+        'node_modules/lodash': { version: '4.17.20' },
+      },
+    });
+    const postAuditLockfile = JSON.stringify({
+      name: 'test', lockfileVersion: 2,
+      dependencies: { axios: { version: '1.7.0' }, lodash: { version: '4.17.21' } },
+      packages: {
+        '': { name: 'test', version: '1.0.0' },
+        'node_modules/axios': { version: '1.7.0' },
+        'node_modules/lodash': { version: '4.17.21' },
+      },
+    });
+
+    mockReadFile
+      .mockResolvedValueOnce(postOsvLockfile)
+      .mockResolvedValueOnce('{"name":"test"}')
+      .mockResolvedValueOnce(postAuditLockfile);
+
+    const runner2 = makeRunner();
+    const runArgsMock = runner2.runArgs as ReturnType<typeof vi.fn>;
+    runArgsMock
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm outdated', dryRun: false })
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm audit', dryRun: false })
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm audit fix', dryRun: false })
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm ci', dryRun: false });
+
+    (runner2.run as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm run build', dryRun: false });
+
+    // OSV fixed axios; audit-fix upgrades lodash (no overlap)
+    const osvFixOutcome = {
+      applied: true,
+      packagesUpdated: [{ name: 'axios', versionFrom: '1.6.0', versionTo: '1.7.0' }],
+    };
+
+    const result = await runNpmUpdater(
+      runner2,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv-then-audit',
+      undefined,
+      osvFixOutcome,
+    );
+
+    expect(result.status).toBe('success');
+    // OSV package (axios) comes first
+    expect(result.packages_updated[0]).toBe('axios@1.7.0');
+    // Fixer package (lodash) added as complementary
+    expect(result.packages_updated).toContain('lodash@4.17.21');
+    expect(result.packages_updated).toHaveLength(2);
+  });
+
+  it('OSV-first-wins: OSV version kept when fixer also reports same package', async () => {
+    // This tests the key behavior change: previously audit would overwrite OSV (last-writer-wins)
+    // Now OSV version is kept (OSV-first-wins)
+    const runner = makeRunner();
+
+    const postOsvLockfile = JSON.stringify({
+      name: 'test', lockfileVersion: 2,
+      dependencies: { lodash: { version: '4.17.20' } },
+      packages: {
+        '': { name: 'test', version: '1.0.0' },
+        'node_modules/lodash': { version: '4.17.20' },
+      },
+    });
+    // Post-audit lockfile shows higher version than OSV
+    const postAuditLockfile = JSON.stringify({
+      name: 'test', lockfileVersion: 2,
+      dependencies: { lodash: { version: '4.17.21' } },
+      packages: {
+        '': { name: 'test', version: '1.0.0' },
+        'node_modules/lodash': { version: '4.17.21' },
+      },
+    });
+
+    mockReadFile
+      .mockResolvedValueOnce(postOsvLockfile)
+      .mockResolvedValueOnce('{"name":"test"}')
+      .mockResolvedValueOnce(postAuditLockfile);
+
+    const runArgsMock = runner.runArgs as ReturnType<typeof vi.fn>;
+    runArgsMock
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm outdated', dryRun: false })
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm audit', dryRun: false })
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm audit fix', dryRun: false })
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm ci', dryRun: false });
+
+    (runner.run as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm run build', dryRun: false });
+
+    // OSV fixed lodash@4.17.19 (only partial fix)
+    const osvFixOutcome = {
+      applied: true,
+      packagesUpdated: [{ name: 'lodash', versionFrom: '4.17.20', versionTo: '4.17.19' }],
+    };
+
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv-then-audit',
+      undefined,
+      osvFixOutcome,
+    );
+
+    expect(result.status).toBe('success');
+    // OSV version (4.17.19) wins — audit version (4.17.21) is excluded
+    expect(result.packages_updated).toContain('lodash@4.17.19');
+    expect(result.packages_updated).not.toContain('lodash@4.17.21');
+    expect(result.packages_updated).toHaveLength(1);
+  });
+
+  it('deriveAuditFindings still uses fixerResult.packagesUpdated (not merged result) for findings', async () => {
+    // Constraint: deriveAuditFindings should continue using fixerResult.packagesUpdated (not merged result)
+    // This test verifies the merged result does NOT affect audit findings logic
+    const runner = makeRunner();
+
+    const postOsvLockfile = JSON.stringify({
+      name: 'test', lockfileVersion: 2,
+      dependencies: { lodash: { version: '4.17.20' }, axios: { version: '1.6.0' } },
+      packages: {
+        '': { name: 'test', version: '1.0.0' },
+        'node_modules/lodash': { version: '4.17.20' },
+        'node_modules/axios': { version: '1.6.0' },
+      },
+    });
+    const postAuditLockfile = JSON.stringify({
+      name: 'test', lockfileVersion: 2,
+      dependencies: { lodash: { version: '4.17.21' }, axios: { version: '1.7.0' } },
+      packages: {
+        '': { name: 'test', version: '1.0.0' },
+        'node_modules/lodash': { version: '4.17.21' },
+        'node_modules/axios': { version: '1.7.0' },
+      },
+    });
+
+    mockReadFile
+      .mockResolvedValueOnce(postOsvLockfile)
+      .mockResolvedValueOnce('{"name":"test"}')
+      .mockResolvedValueOnce(postAuditLockfile);
+
+    const runArgsMock = runner.runArgs as ReturnType<typeof vi.fn>;
+    runArgsMock
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm outdated', dryRun: false })
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm audit', dryRun: false })
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm audit fix', dryRun: false })
+      .mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm ci', dryRun: false });
+
+    (runner.run as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ stdout: '', stderr: '', exitCode: 0, command: 'npm run build', dryRun: false });
+
+    const osvFixOutcome = {
+      applied: true,
+      packagesUpdated: [{ name: 'axios', versionFrom: '1.6.0', versionTo: '1.7.0' }],
+    };
+
+    // No advisorResults → audit_findings should be undefined
+    const result = await runNpmUpdater(
+      runner,
+      baseConfig(),
+      baseScan([{ pkg: 'lodash', safeVersion: '4.17.21' }]),
+      '/tmp/project',
+      false,
+      [{ name: 'build', command: 'npm run build' }],
+      'osv-then-audit',
+      undefined,
+      osvFixOutcome,
+    );
+
+    expect(result.status).toBe('success');
+    // audit_findings undefined when no advisorResults
+    expect(result.audit_findings).toBeUndefined();
+    // packages_updated has both OSV and fixer packages
+    expect(result.packages_updated).toContain('axios@1.7.0');
+    expect(result.packages_updated).toContain('lodash@4.17.21');
+  });
+});

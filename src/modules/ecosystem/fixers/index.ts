@@ -16,6 +16,42 @@ export interface OsvFixOutcome {
   packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }>;
 }
 
+/**
+ * Extract the package name from a 'name@version' spec string.
+ * Handles scoped packages: '@scope/pkg@1.0.0' → '@scope/pkg'
+ * Non-scoped: 'lodash@4.17.21' → 'lodash'
+ * No version: 'lodash' → 'lodash'
+ */
+export function extractPackageName(spec: string): string {
+  const at = spec.startsWith('@') ? spec.indexOf('@', 1) : spec.indexOf('@');
+  return at > 0 ? spec.slice(0, at) : spec;
+}
+
+/**
+ * Merge OSV-sourced packages with fixer/audit packages using OSV-first-wins strategy.
+ *
+ * OSV packages are verified against the staging lockfile and trusted as ground truth.
+ * Fixer/audit packages complement — only packages NOT already covered by OSV are added.
+ * This ensures the report always reflects OSV's verified results while still capturing
+ * additional fixes from audit or other sources.
+ *
+ * @param osvFixOutcome - Evidence from the orchestrator's OSV staging-apply phase.
+ * @param fixerPackages - Packages reported by the fixer (audit-verified, pip install, etc.).
+ * @returns Merged array: OSV packages first, then complementary fixer packages.
+ */
+export function mergeOsvFirstWins(
+  osvFixOutcome: OsvFixOutcome | undefined,
+  fixerPackages: string[],
+): string[] {
+  if (!osvFixOutcome || osvFixOutcome.packagesUpdated.length === 0) {
+    return fixerPackages;
+  }
+  const osvPackages = osvFixOutcome.packagesUpdated.map((p) => `${p.name}@${p.versionTo}`);
+  const osvNames = new Set(osvPackages.map(extractPackageName));
+  const complementary = fixerPackages.filter((spec) => !osvNames.has(extractPackageName(spec)));
+  return [...osvPackages, ...complementary];
+}
+
 export interface FixerCallOptions {
   runner: CommandRunner;
   cwd: string;
@@ -25,7 +61,7 @@ export interface FixerCallOptions {
    * When present, contains the evidence of what OSV staging-apply wrote to disk.
    * Fixers use this to return the real packages list instead of an empty array.
    * - `osv-fixer`: returns packagesUpdated from this field.
-   * - `osv-then-audit-fixer`: merges this with its own audit-verified list (last-writer-wins).
+   * - `osv-then-audit-fixer`: merges this with its own audit-verified list (OSV-first-wins: OSV packages trusted, audit complements).
    */
   osvFixOutcome?: OsvFixOutcome;
   /**

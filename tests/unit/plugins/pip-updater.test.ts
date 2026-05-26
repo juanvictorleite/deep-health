@@ -487,3 +487,97 @@ describe('pip-updater additional branch coverage', () => {
     ).rejects.toThrow('pip updater phase failed: string-error');
   });
 });
+
+// ── OSV-first-wins in pip derivePackagesUpdated ──────────────────────────────
+
+describe('runPipUpdater — OSV-first-wins in derivePackagesUpdated', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('OSV-first-wins: OSV packages appear first when no overlap with pip install', async () => {
+    const runMock = vi.fn().mockResolvedValueOnce(ok());  // pip check (validation)
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // pip list --outdated
+      .mockResolvedValueOnce(ok('Successfully installed django-4.2.0')); // pip install -U
+
+    const runner = makeRunner({ run: runMock, runArgs: runArgsMock });
+
+    const osvFixOutcome = {
+      applied: true,
+      packagesUpdated: [
+        { name: 'pillow', versionFrom: '9.0.0', versionTo: '9.5.0' },
+      ],
+    };
+
+    const result = await runPipUpdater(
+      runner,
+      baseConfig(),
+      baseScan(['requests@2.31', 'django@4.2.0']),
+      '/tmp/project',
+      false,
+      [{ name: 'check', command: 'pip check' }],
+      osvFixOutcome,
+    );
+
+    expect(result.status).toBe('success');
+    // OSV package (pillow) comes first
+    expect(result.packages_updated[0]).toBe('pillow@9.5.0');
+    // pip install package (django) added as complementary
+    expect(result.packages_updated).toContain('django@4.2.0');
+  });
+
+  it('OSV-first-wins: OSV version wins when fixer also reports the same package', async () => {
+    const runMock = vi.fn().mockResolvedValueOnce(ok());  // pip check (validation)
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // pip list --outdated
+      .mockResolvedValueOnce(ok('Successfully installed requests-2.32.0')); // pip install -U
+
+    const runner = makeRunner({ run: runMock, runArgs: runArgsMock });
+
+    // OSV fixed requests@2.31.0; pip install upgraded to 2.32.0
+    const osvFixOutcome = {
+      applied: true,
+      packagesUpdated: [
+        { name: 'requests', versionFrom: '2.30.0', versionTo: '2.31.0' },
+      ],
+    };
+
+    const result = await runPipUpdater(
+      runner,
+      baseConfig(),
+      baseScan(['requests@2.32.0']),
+      '/tmp/project',
+      false,
+      [{ name: 'check', command: 'pip check' }],
+      osvFixOutcome,
+    );
+
+    expect(result.status).toBe('success');
+    // OSV version (2.31.0) wins over pip install version (2.32.0)
+    expect(result.packages_updated).toContain('requests@2.31.0');
+    expect(result.packages_updated).not.toContain('requests@2.32.0');
+    expect(result.packages_updated).toHaveLength(1);
+  });
+
+  it('without osvFixOutcome, returns pip packages as-is (no regression)', async () => {
+    const runMock = vi.fn().mockResolvedValueOnce(ok());  // pip check (validation)
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(ok())  // pip list --outdated
+      .mockResolvedValueOnce(ok('Successfully installed requests-2.32.0 django-4.2.0'));
+
+    const runner = makeRunner({ run: runMock, runArgs: runArgsMock });
+
+    const result = await runPipUpdater(
+      runner,
+      baseConfig(),
+      baseScan(['requests@2.32.0', 'django@4.2.0']),
+      '/tmp/project',
+      false,
+      [{ name: 'check', command: 'pip check' }],
+      // no osvFixOutcome
+    );
+
+    expect(result.status).toBe('success');
+    expect(result.packages_updated).toContain('requests@2.32.0');
+    expect(result.packages_updated).toContain('django@4.2.0');
+  });
+});

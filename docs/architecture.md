@@ -533,8 +533,20 @@ interface UpdaterRecipe<TFixerResult = void> {
 | `applyFix` | `FIXER_MAP[strategy]` dispatch | `pip install -U` | `composer update` + automationArgs |
 | `preValidation` | `npm ci` (stream: true) | — | — |
 | `partialRevert` | `fixerResult.partialRevert` → osv-only packages | — | — |
-| `derivePackagesUpdated` | `fixerResult.packagesUpdated` | `parsePipInstalledVersions` | diff `composer.lock` before/after |
+| `derivePackagesUpdated` | `mergeOsvFirstWins(osv, fixerResult)` | `mergeOsvFirstWins(osv, pipInstallResult)` | `mergeOsvFirstWins(osv, lockfileDiff)` |
 | `deriveAuditFindings` | cross-ref `advisorFindings` × `packagesUpdated` (excludes OSV-known) | — | `fixerResult.auditAdvisories` mapped to `AuditFinding[]` |
+
+### OSV-First-Wins Merge Strategy
+
+All ecosystem updaters apply an **OSV-first-wins** merge when building `packages_updated`:
+
+1. **OSV packages** (from `osvFixOutcome.packagesUpdated`) form the trusted base — they are verified against the staging lockfile before being written to disk.
+2. **Fixer/audit packages** complement — only packages whose name does NOT already appear in the OSV set are added.
+3. When both OSV and a fixer report the same package, the OSV version is kept (it was verified on disk).
+
+This ensures the report always reflects OSV's verified results while still capturing additional fixes from ecosystem-specific tools (npm audit, pip install, composer update).
+
+The shared helper `mergeOsvFirstWins(osvFixOutcome, fixerPackages)` implements this logic and is used by all three updaters.
 
 **npm `deriveAuditFindings` data bridge:** the npm updater captures the pre-fix `package-lock.json` from `primaryBackups` before calling `runUpdaterLifecycle`. Inside `deriveAuditFindings` it cross-references the flat-mapped `advisorFindings` (from `npm audit --json` via the advisor phase) with `fixerResult.packagesUpdated`. Packages that are also present in `scanResult.ecosystems.npm.vulnerabilities` are excluded — only findings the OSV scan did not already classify are surfaced as `AuditFinding[]`. The `installedVersion` field is populated from the pre-fix lockfile. This gives npm the same reporting fidelity as Composer: audit-discovered packages appear in the executive report as synthetic vulnerability entries.
 
