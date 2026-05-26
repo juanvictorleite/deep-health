@@ -16,7 +16,7 @@ vi.mock('@infra/utils/logger', () => ({
 // Identity passthrough — the host runner is what runUpdater receives.
 // resolveOsvRuntime also returns the host runner (matches the local-mode path used in makeConfig).
 vi.mock('@infra/ecosystem-runtime', () => ({
-  resolveEcosystemRuntime: vi.fn(async (_plugin: unknown, hostRunner: unknown) => hostRunner),
+  resolveEcosystemRuntime: vi.fn(async (opts: any) => opts.hostRunner),
   resolveOsvRuntime: vi.fn((_config: unknown, _cwd: unknown, hostRunner: unknown) => hostRunner),
 }));
 
@@ -29,15 +29,21 @@ vi.mock('@core/gates/validator', () => ({
   validateEcosystemGate: vi.fn().mockReturnValue({ valid: true, gate: 'npm', errors: [] }),
 }));
 
+vi.mock('@modules/advisor/index', () => ({
+  runAdvisors: vi.fn().mockResolvedValue([]),
+}));
+
 import { runEcosystemFix } from '@orchestration/run-ecosystem-fix';
 import { applyOsvFixViaStaging } from '@orchestration/osv-fix-applier';
 import { validateEcosystemGate } from '@core/gates/validator';
+import { runAdvisors } from '@modules/advisor/index';
 import { GateValidationError } from '@core/errors';
 import type { EcosystemPlugin } from '@modules/ecosystem/types';
 import type { CommandRunner, CommandResult, CommandRunnerOptions } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
+import type { AdvisorResult } from '@core/types/report';
 
 class MockRunner implements CommandRunner {
   readonly dryRun = false;
@@ -588,5 +594,67 @@ describe('runEcosystemFix', () => {
     }
     // No osv-scanner residual verify command should have been issued
     expect(hostRunner.calls.some((c) => c.startsWith('osv-scanner'))).toBe(false);
+  });
+
+  // ─── Advisors run in the skip path ───────────────────────────────────────────
+
+  it('runs advisors via hostRunner and returns results in skipped outcome when hasUpdates is false', async () => {
+    const advisorResults: AdvisorResult[] = [
+      {
+        name: 'npm-audit',
+        command: 'npm audit --json',
+        exitCode: 0,
+        status: 'clean',
+        output: '',
+      },
+    ];
+    vi.mocked(runAdvisors).mockResolvedValueOnce(advisorResults);
+
+    const plugin = makePlugin();
+    const outcome = await runEcosystemFix({
+      plugin,
+      hostRunner: new MockRunner(),
+      config: makeConfig({
+        ecosystems: [{ id: 'npm', validationCommands: [], advisors: [{ name: 'audit', command: 'npm audit --json', format: 'json' }] }],
+      }),
+      // auto_safe: 0 → !hasUpdates → skip path
+      scanResult: makeScan({ auto_safe: 0 }),
+      cwd: '/project',
+      dryRun: false,
+      authorizeBreaking: false,
+      preRunSnapshots: undefined,
+    });
+
+    // Outcome is skipped but advisor results are populated
+    expect(outcome.status).toBe('skipped');
+    expect(runAdvisors).toHaveBeenCalledOnce();
+    if (outcome.status === 'skipped') {
+      expect(outcome.advisorResults).toEqual(advisorResults);
+    }
+    // runUpdater must NOT have been called — still skipped
+    expect(plugin.runUpdater).not.toHaveBeenCalled();
+  });
+
+  it('returns skipped outcome with undefined advisorResults when no advisors configured and hasUpdates is false', async () => {
+    const plugin = makePlugin();
+    const outcome = await runEcosystemFix({
+      plugin,
+      hostRunner: new MockRunner(),
+      config: makeConfig({
+        // No advisors configured
+        ecosystems: [{ id: 'npm', validationCommands: [], advisors: [] }],
+      }),
+      scanResult: makeScan({ auto_safe: 0 }),
+      cwd: '/project',
+      dryRun: false,
+      authorizeBreaking: false,
+      preRunSnapshots: undefined,
+    });
+
+    expect(outcome.status).toBe('skipped');
+    expect(runAdvisors).not.toHaveBeenCalled();
+    if (outcome.status === 'skipped') {
+      expect(outcome.advisorResults).toBeUndefined();
+    }
   });
 });

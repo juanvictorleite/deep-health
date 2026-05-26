@@ -42,7 +42,7 @@ vi.mock('@infra/provisioner/osv-runner.js', () => ({
 }));
 
 vi.mock('@infra/ecosystem-runtime', () => ({
-  resolveEcosystemRuntime: vi.fn(async (_plugin: unknown, hostRunner: unknown) => hostRunner),
+  resolveEcosystemRuntime: vi.fn(async (opts: any) => opts.hostRunner),
   resolveOsvRuntime: vi.fn((_config: unknown, _cwd: unknown, hostRunner: unknown) => hostRunner),
 }));
 

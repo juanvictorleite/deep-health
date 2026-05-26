@@ -33,7 +33,7 @@ vi.mock('@core/gates/validator', () => ({
 }));
 
 vi.mock('@infra/ecosystem-runtime', () => ({
-  resolveEcosystemRuntime: vi.fn(async (_plugin: unknown, hostRunner: unknown) => hostRunner),
+  resolveEcosystemRuntime: vi.fn(async (opts: any) => opts.hostRunner),
   resolveOsvRuntime: vi.fn((_config: unknown, _cwd: unknown, hostRunner: unknown) => hostRunner),
 }));
 
@@ -266,10 +266,38 @@ describe('runOrchestrator — advisor results from runEcosystemFix outcome (AC3)
     expect(result.advisorResults['npm']).toBeUndefined();
   });
 
-  it('does NOT set result.advisorResults[entryKey] when outcome is skipped', async () => {
+  it('sets result.advisorResults[entryKey] when outcome is skipped AND contains advisorResults', async () => {
+    const scanResult = makeScanResult();
+    const npmAdvisorResults: AdvisorResult[] = [
+      makeAdvisorResult([makeAdvisorFinding('lodash')]),
+    ];
+
+    // runEcosystemFix returns a skipped outcome WITH advisorResults — advisors now run
+    // in the skip path via hostRunner (no container spin-up needed when !hasUpdates).
+    mockedOutcome = {
+      status: 'skipped',
+      reason: 'no-updates',
+      advisorResults: npmAdvisorResults,
+    };
+
+    const registry = await makeNpmRegistry();
+    const result = await runOrchestrator(new MockRunner(), makeConfig('npm'), {
+      configPath: 'security-scan.config.json',
+      cwd: '/project',
+      dryRun: false,
+      verbose: false,
+      registry,
+      scannerRegistry: makeScannerRegistry(scanResult),
+    });
+
+    // Orchestrator must read advisorResults BEFORE the skipped guard so they are stored
+    expect(result.advisorResults['npm']).toEqual(npmAdvisorResults);
+  });
+
+  it('does NOT set result.advisorResults[entryKey] when outcome is skipped with no advisorResults', async () => {
     const scanResult = makeScanResult();
 
-    // runEcosystemFix returns a skipped outcome (no advisorResults — advisors should not run)
+    // runEcosystemFix returns a skipped outcome with no advisorResults (no advisors configured)
     mockedOutcome = { status: 'skipped', reason: 'no-updates' };
 
     const registry = await makeNpmRegistry();
@@ -282,7 +310,7 @@ describe('runOrchestrator — advisor results from runEcosystemFix outcome (AC3)
       scannerRegistry: makeScannerRegistry(scanResult),
     });
 
-    // Skipped ecosystem: advisorResults should not be set
+    // When skipped outcome has no advisorResults (no advisors configured), key is absent
     expect(result.advisorResults['npm']).toBeUndefined();
   });
 

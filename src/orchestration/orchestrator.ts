@@ -31,6 +31,8 @@ import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { runEcosystemFix } from "./run-ecosystem-fix";
 import { ecosystemEntryKey } from "@core/types/config";
+import type { EcosystemPlugin } from "@modules/ecosystem/types";
+import type { EcosystemConfig } from "@core/types/config";
 
 export interface OrchestratorOptions {
   configPath: string;
@@ -150,48 +152,221 @@ function resolveOnFailure(
   return "fail";
 }
 
-export async function runOrchestrator(
-  runner: CommandRunner,
-  config: ProjectConfig,
-  options: OrchestratorOptions,
-): Promise<OrchestratorResult> {
-  const result: OrchestratorResult = {
-    scan: null,
-    updates: {},
-    overallStatus: "success",
-    hasPendingVulns: false,
-    warnings: [],
-    advisorResults: {},
-  };
+// ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
 
-  // Pre-run snapshots: capture package.json and package-lock.json before any mutations.
-  // Used for dirty-tree detection after revert — if on-disk state differs after revert,
-  // external changes during the run may have been lost (warn only, never fail).
+/**
+ * Captures pre-run snapshots of package.json and package-lock.json.
+ *
+ * These snapshots are used for dirty-tree detection after revert — if on-disk
+ * state differs after revert, external changes during the run may have been
+ * lost (warn only, never fail).
+ */
+async function capturePreRunSnapshots(cwd: string): Promise<Map<string, string>> {
   const preRunSnapshots = new Map<string, string>();
   for (const filename of ['package.json', 'package-lock.json']) {
     try {
-      const content = await readFile(join(options.cwd, filename), 'utf-8');
+      const content = await readFile(join(cwd, filename), 'utf-8');
       preRunSnapshots.set(filename, content as string);
     } catch {
       logger.tagged('pre-run', 'pre-run', `Could not read ${filename} — skipping pre-run snapshot`, 'debug');
     }
   }
+  return preRunSnapshots;
+}
 
-  // Scan — hard precondition for all update steps
-  if (!shouldRunPhase("scan", options)) {
-    logger.warn('Skipping scan phase — phases option does not include "scan"');
-    result.overallStatus = "skipped";
-    return result;
+interface ScanPhaseParams {
+  ctx: ScannerEngineContext;
+  engineRegistry: ScannerEngineRegistry;
+  config: ProjectConfig;
+  options: OrchestratorOptions;
+  primaryEngineId: string;
+}
+
+interface ScanPhaseResult {
+  scanResult: ScanResultJson;
+  aggregated: AggregatedScanResult;
+  engineEntries: Array<{ engineId: string; result: ScanResultJson }>;
+  warnings: EngineWarning[];
+}
+
+/**
+ * Executes the scan phase: runs all scan-phase engines via the scanner sweep,
+ * validates Gate A, logs the summary, and returns the aggregated results.
+ *
+ * Throws GateValidationError if Gate A validation fails.
+ * Re-throws the primary engine's original cause on PrimaryEngineFailure,
+ * preserving partial warnings from secondary engines that ran before it.
+ *
+ * Note: CC may be up to 15 for this helper due to the number of error-path
+ * branches required to faithfully preserve the orchestrator's observable
+ * error-handling behaviour.
+ */
+async function executeScanPhase(
+  params: ScanPhaseParams,
+  partialResult: OrchestratorResult,
+): Promise<ScanPhaseResult> {
+  const { ctx, engineRegistry, config, options, primaryEngineId } = params;
+
+  const sweepResult = await executeScannerSweep(
+    engineRegistry.getByPhase('scan'),
+    ctx,
+    {
+      primaryEngineId,
+      resolveOnFailure: (id) => resolveOnFailure(id, config),
+    },
+    listr2ScannerSweepRenderer(options.rendererType ?? 'default'),
+  );
+
+  if (isErr(sweepResult)) {
+    const sweepErr = sweepResult.error;
+    if (sweepErr.kind === 'primary') {
+      partialResult.warnings = sweepErr.failure.partialWarnings;
+      throw sweepErr.failure.cause instanceof Error
+        ? sweepErr.failure.cause
+        : new Error(String(sweepErr.failure.cause));
+    }
+    throw sweepErr.error;
   }
 
-  logger.phase('Vulnerability Scan');
+  const engineEntries = sweepResult.value.engineEntries;
+  const warnings = sweepResult.value.warnings;
+  const aggregated = aggregateScanResults(engineEntries, warnings, primaryEngineId);
+  const scanResult = aggregated.primary;
 
+  const gateA = validateGateA(scanResult);
+  if (!gateA.valid) {
+    throw new GateValidationError(
+      `Gate A validation failed: ${gateA.errors.join(", ")}`,
+      "A",
+      gateA.errors,
+    );
+  }
+
+  const ecosystemSummaryParts = Object.entries(scanResult.ecosystems).map(
+    ([id, e]) =>
+      `${e.vulnerabilities_total} ${id} vulns (${e.auto_safe} auto-safe, ${e.breaking} breaking)`,
+  );
+  logger.info(
+    `Scan complete: ${ecosystemSummaryParts.join(", ") || "no vulnerabilities found"}`,
+  );
+
+  return { scanResult, aggregated, engineEntries, warnings };
+}
+
+/**
+ * Processes the outcome of a single ecosystem fix run.
+ *
+ * Records advisor results (always), update results, residual verification,
+ * and error status. Returns true if the outer loop should break (error path).
+ */
+function processEcosystemOutcome(
+  outcome: Awaited<ReturnType<typeof runEcosystemFix>>,
+  ecoEntry: EcosystemConfig,
+  plugin: EcosystemPlugin,
+  result: OrchestratorResult,
+): boolean {
+  const entryKey = ecosystemEntryKey(ecoEntry);
+
+  if (outcome.advisorResults) {
+    result.advisorResults[entryKey] = outcome.advisorResults;
+  }
+
+  if (outcome.status === "skipped") return false;
+
+  result.updates[ecosystemEntryKey(ecoEntry)] = outcome.updateResult;
+
+  if (outcome.status === "success" && outcome.residualVerification) {
+    const rv = outcome.residualVerification;
+    if (rv.status !== 'skipped' && rv.summary[plugin.id] !== undefined && entryKey !== plugin.id) {
+      const rekeyed = { ...rv.summary, [entryKey]: rv.summary[plugin.id] };
+      delete rekeyed[plugin.id];
+      result.residualVerification = { ...rv, summary: rekeyed };
+    } else {
+      result.residualVerification = rv;
+    }
+  }
+
+  if (outcome.status === "error") {
+    result.overallStatus = "error";
+    return true;
+  }
+
+  return false;
+}
+
+interface PostFixSweepParams {
+  engineRegistry: ScannerEngineRegistry;
+  ctx: ScannerEngineContext;
+  config: ProjectConfig;
+  options: OrchestratorOptions;
+  engineEntries: Array<{ engineId: string; result: ScanResultJson }>;
+  result: OrchestratorResult;
+  primaryEngineId: string;
+}
+
+/**
+ * Executes the post-fix sweep for engines that declared phase='post-fix'
+ * (e.g. SonarQube). These engines analyse the final state of the code after
+ * all fixers have run. Skipped when the pipeline has already errored.
+ *
+ * Merges post-fix engine entries and warnings into result.aggregated in place.
+ */
+async function executePostFixSweep(params: PostFixSweepParams): Promise<void> {
+  const { engineRegistry, ctx, config, options, engineEntries, result, primaryEngineId } = params;
+
+  const postFixEngines = engineRegistry.getByPhase('post-fix');
+  if (postFixEngines.length === 0 || result.overallStatus === 'error') return;
+
+  logger.phase('Post-Fix Scan');
+  const postFixSweepResult = await executeScannerSweep(
+    postFixEngines,
+    ctx,
+    {
+      primaryEngineId: '__post-fix-no-primary__',
+      resolveOnFailure: (id) => resolveOnFailure(id, config),
+    },
+    listr2ScannerSweepRenderer(options.rendererType ?? 'default'),
+  );
+
+  if (isErr(postFixSweepResult)) {
+    const postFixErr = postFixSweepResult.error;
+    if (postFixErr.kind === 'primary') {
+      result.warnings.push(...postFixErr.failure.partialWarnings);
+    } else {
+      throw postFixErr.error;
+    }
+  } else {
+    engineEntries.push(...postFixSweepResult.value.engineEntries);
+    result.warnings.push(...postFixSweepResult.value.warnings);
+    result.aggregated = aggregateScanResults(engineEntries, result.warnings, primaryEngineId);
+  }
+}
+
+interface EngineSetup {
+  ecosystemRegistry: EcosystemRegistry;
+  engineRegistry: ScannerEngineRegistry;
+  primaryEngineId: string;
+}
+
+/**
+ * Resolves and validates the engine registry setup for a pipeline run.
+ *
+ * - Selects the ecosystem and scanner registries (injected or default).
+ * - Bootstraps default engines when using the default scanner registry.
+ * - Validates that the configured primary engine is registered.
+ *
+ * Throws when the primary engine is missing so the caller gets a clear error
+ * before any I/O occurs.
+ */
+function setupEngineRegistry(
+  options: OrchestratorOptions,
+  config: ProjectConfig,
+): EngineSetup {
   const ecosystemRegistry = options.registry ?? defaultRegistry;
   const engineRegistry = options.scannerRegistry ?? defaultScannerRegistry;
 
-  // Ensure default engines are registered when using the default registry.
-  // When a caller injects a custom scannerRegistry (e.g. tests), they are
-  // responsible for populating it — we must NOT auto-populate it here.
   if (!options.scannerRegistry) {
     bootstrapDefaultEngines(engineRegistry);
   }
@@ -205,102 +380,64 @@ export async function runOrchestrator(
     );
   }
 
-  // Detect git branch once before building the scan context.
-  // Never throws — returns null when branch cannot be determined.
+  return { ecosystemRegistry, engineRegistry, primaryEngineId };
+}
+
+/**
+ * Builds the scanner engine context, detecting the git branch once before
+ * running any scans. Never throws — branch detection returns null on failure.
+ */
+async function buildScanContext(
+  runner: CommandRunner,
+  config: ProjectConfig,
+  options: OrchestratorOptions,
+  ecosystemRegistry: EcosystemRegistry,
+): Promise<ScannerEngineContext> {
   const branch = await detectGitBranch(options.cwd, runner);
   if (branch) {
     logger.info(`Detected git branch: ${branch}`);
   }
-
-  const ctx: ScannerEngineContext = {
+  return {
     runner,
     config,
     cwd: options.cwd,
     ecosystemRegistry,
     branch,
   };
+}
 
-  // Run scan-phase engines via the Scanner Sweep module; collect results + warnings.
-  // Only engines with phase='scan' (or no phase, which defaults to 'scan') run here.
-  // Post-fix engines (e.g. SonarQube) run after ecosystem fixers complete.
-  //
-  // The orchestrator is config-aware (it builds the policy callback), but the sweep
-  // module itself is config-agnostic.
-  //
-  // On PrimaryEngineFailure: preserve partialWarnings from secondary engines that
-  // ran before the primary failed (otherwise already-paid work is silently discarded),
-  // then re-throw the original cause to preserve today's observable behaviour.
-  let engineEntries: Array<{ engineId: string; result: ScanResultJson }>;
-  let warnings: EngineWarning[];
-  const sweepResult = await executeScannerSweep(
-    engineRegistry.getByPhase('scan'),
-    ctx,
-    {
-      primaryEngineId,
-      resolveOnFailure: (id) => resolveOnFailure(id, config),
-    },
-    listr2ScannerSweepRenderer(options.rendererType ?? 'default'),
+/**
+ * Evaluates whether any ecosystem has pending breaking or manual vulnerabilities.
+ *
+ * Extracted from runOrchestrator to remove the `.some(e => e.breaking > 0 || ...)`
+ * inline lambda that lizard counts as a CC decision point.
+ */
+function hasPendingVulnerabilities(scanResult: ScanResultJson): boolean {
+  return Object.values(scanResult.ecosystems).some(
+    (e) => e.breaking > 0 || e.manual > 0,
   );
-  if (isErr(sweepResult)) {
-    const sweepErr = sweepResult.error;
-    if (sweepErr.kind === 'primary') {
-      // Preserve partial warnings from secondary engines that ran before primary failed
-      result.warnings = sweepErr.failure.partialWarnings;
-      // Re-throw the original cause — preserves the error the orchestrator's callers expect
-      throw sweepErr.failure.cause instanceof Error
-        ? sweepErr.failure.cause
-        : new Error(String(sweepErr.failure.cause));
-    }
-    // kind === 'secondary': re-throw as-is
-    throw sweepErr.error;
-  }
-  engineEntries = sweepResult.value.engineEntries;
-  warnings = sweepResult.value.warnings;
-  result.warnings = warnings;
+}
 
-  // Aggregate: primary engine result drives Gate A; secondary results go into engineResults
-  const aggregated = aggregateScanResults(engineEntries, warnings, primaryEngineId);
-  result.aggregated = aggregated;
+interface EcosystemLoopParams {
+  config: ProjectConfig;
+  options: OrchestratorOptions;
+  ecosystemRegistry: EcosystemRegistry;
+  runner: CommandRunner;
+  scanResult: ScanResultJson;
+  preRunSnapshots: Map<string, string>;
+  result: OrchestratorResult;
+}
 
-  // Gate A always uses the primary engine result
-  const scanResult = aggregated.primary;
-  result.scan = scanResult;
+/**
+ * Iterates over config.ecosystems entries and runs runEcosystemFix for each.
+ *
+ * Processes entries independently (not unique plugins) to support monorepo
+ * configurations where the same plugin id appears at multiple paths.
+ * Stops early and sets result.overallStatus = 'error' on the first error.
+ */
+async function runEcosystemLoop(params: EcosystemLoopParams): Promise<void> {
+  const { config, options, ecosystemRegistry, runner, scanResult, preRunSnapshots, result } = params;
 
-  // Gate A validation
-  const gateA = validateGateA(scanResult);
-  if (!gateA.valid) {
-    throw new GateValidationError(
-      `Gate A validation failed: ${gateA.errors.join(", ")}`,
-      "A",
-      gateA.errors,
-    );
-  }
-
-  // Build a summary log using registered ecosystem results
-  const ecosystemSummaryParts = Object.entries(scanResult.ecosystems).map(
-    ([id, e]) =>
-      `${e.vulnerabilities_total} ${id} vulns (${e.auto_safe} auto-safe, ${e.breaking} breaking)`,
-  );
-  logger.info(
-    `Scan complete: ${ecosystemSummaryParts.join(", ") || "no vulnerabilities found"}`,
-  );
-
-  // Kill-switch: skip all automated fixes when KILL_SWITCH_VAR is set
-  if (process.env[KILL_SWITCH_VAR]) {
-    logger.warn(
-      `[${CLI_NAME}] ${KILL_SWITCH_VAR} is set — skipping all automated fixes. ` +
-      'Scan results are available but no files have been modified. ' +
-      `Unset ${KILL_SWITCH_VAR} to re-enable automated remediation.`,
-    );
-    result.hasPendingVulns = Object.values(scanResult.ecosystems).some(
-      (e) => e.breaking > 0 || e.manual > 0,
-    );
-    return result;
-  }
-
-  // Iterate over config.ecosystems entries (not unique plugins from registry).
-  // This ensures monorepo entries with the same plugin id at different paths
-  // are each processed independently.
   for (const ecoEntry of config.ecosystems) {
     const plugin = ecosystemRegistry.getAll().find((p) => p.id === ecoEntry.id);
     if (!plugin) continue;
@@ -338,75 +475,80 @@ export async function runOrchestrator(
       projectRoot: options.cwd,
     });
 
-    if (outcome.status === "skipped") continue;
-
-    // Read advisorResults from the outcome — advisors now run inside runEcosystemFix
-    // using effectiveRunner (container runner when Docker is configured).
-    if (outcome.advisorResults) {
-      result.advisorResults[entryKey] = outcome.advisorResults;
-    }
-
-    result.updates[ecosystemEntryKey(ecoEntry)] = outcome.updateResult;
-    if (outcome.status === "success" && outcome.residualVerification) {
-      // Re-key the residual verification summary from plugin.id (raw OSV ecosystem name)
-      // to entryKey so executive.ts lookup by eco.key (entryKey format) matches correctly.
-      const rv = outcome.residualVerification;
-      if (rv.status !== 'skipped' && rv.summary[plugin.id] !== undefined && entryKey !== plugin.id) {
-        const rekeyed = { ...rv.summary, [entryKey]: rv.summary[plugin.id] };
-        delete rekeyed[plugin.id];
-        result.residualVerification = { ...rv, summary: rekeyed };
-      } else {
-        result.residualVerification = rv;
-      }
-    }
-
-    if (outcome.status === "error") {
-      result.overallStatus = "error";
-      break;
-    }
+    // Read advisorResults BEFORE the skipped guard — advisors now run in both the
+    // fix path AND the skip path (using hostRunner when !hasUpdates). Storing them
+    // here ensures skipped-ecosystem advisor results are not silently discarded.
+    const shouldBreak = processEcosystemOutcome(outcome, ecoEntry, plugin, result);
+    if (shouldBreak) break;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export async function runOrchestrator(
+  runner: CommandRunner,
+  config: ProjectConfig,
+  options: OrchestratorOptions,
+): Promise<OrchestratorResult> {
+  const result: OrchestratorResult = {
+    scan: null,
+    updates: {},
+    overallStatus: "success",
+    hasPendingVulns: false,
+    warnings: [],
+    advisorResults: {},
+  };
+
+  const preRunSnapshots = await capturePreRunSnapshots(options.cwd);
+
+  // Scan — hard precondition for all update steps
+  if (!shouldRunPhase("scan", options)) {
+    logger.warn('Skipping scan phase — phases option does not include "scan"');
+    result.overallStatus = "skipped";
+    return result;
+  }
+
+  logger.phase('Vulnerability Scan');
+
+  const { ecosystemRegistry, engineRegistry, primaryEngineId } = setupEngineRegistry(options, config);
+  const ctx = await buildScanContext(runner, config, options, ecosystemRegistry);
+
+  // Run scan-phase engines via the Scanner Sweep module; collect results + warnings.
+  // Only engines with phase='scan' (or no phase, which defaults to 'scan') run here.
+  // Post-fix engines (e.g. SonarQube) run after ecosystem fixers complete.
+  const { scanResult, aggregated, engineEntries, warnings } = await executeScanPhase(
+    { ctx, engineRegistry, config, options, primaryEngineId },
+    result,
+  );
+  result.aggregated = aggregated;
+  result.scan = scanResult;
+  result.warnings = warnings;
+
+  // Kill-switch: skip all automated fixes when KILL_SWITCH_VAR is set
+  if (process.env[KILL_SWITCH_VAR]) {
+    logger.warn(
+      `[${CLI_NAME}] ${KILL_SWITCH_VAR} is set — skipping all automated fixes. ` +
+      'Scan results are available but no files have been modified. ' +
+      `Unset ${KILL_SWITCH_VAR} to re-enable automated remediation.`,
+    );
+    result.hasPendingVulns = hasPendingVulnerabilities(scanResult);
+    return result;
+  }
+
+  // Iterate over config.ecosystems entries (not unique plugins from registry).
+  // This ensures monorepo entries with the same plugin id at different paths
+  // are each processed independently.
+  await runEcosystemLoop({
+    config, options, ecosystemRegistry, runner, scanResult, preRunSnapshots, result,
+  });
 
   // Post-fix sweep: run engines that declared phase='post-fix' (e.g. SonarQube).
-  // These engines analyse the final state of the code after all fixers have run.
-  // Skip when the pipeline has already errored — no point analysing a broken state.
-  const postFixEngines = engineRegistry.getByPhase('post-fix');
-  if (postFixEngines.length > 0 && result.overallStatus !== 'error') {
-    logger.phase('Post-Fix Scan');
-    const postFixSweepResult = await executeScannerSweep(
-      postFixEngines,
-      ctx,
-      {
-        // Post-fix engines are all secondary — use a sentinel primary that won't match any
-        // engine in this sweep; failures are governed by resolveOnFailure only.
-        primaryEngineId: '__post-fix-no-primary__',
-        resolveOnFailure: (id) => resolveOnFailure(id, config),
-      },
-      listr2ScannerSweepRenderer(options.rendererType ?? 'default'),
-    );
-    if (isErr(postFixSweepResult)) {
-      const postFixErr = postFixSweepResult.error;
-      if (postFixErr.kind === 'primary') {
-        // No primary in the post-fix sweep — this path is unexpected, but guard defensively
-        result.warnings.push(...postFixErr.failure.partialWarnings);
-      } else {
-        // kind === 'secondary': re-throw as-is
-        throw postFixErr.error;
-      }
-    } else {
-      // Merge post-fix engine entries and warnings into the aggregated result
-      engineEntries.push(...postFixSweepResult.value.engineEntries);
-      result.warnings.push(...postFixSweepResult.value.warnings);
-      // Re-aggregate so the post-fix engine results appear in result.aggregated.engineResults
-      result.aggregated = aggregateScanResults(engineEntries, result.warnings, primaryEngineId);
-    }
-  }
+  await executePostFixSweep({
+    engineRegistry, ctx, config, options, engineEntries, result, primaryEngineId,
+  });
 
-  // Check if there are pending items (breaking or manual vulns still unresolved)
-  const hasPendingItems = Object.values(scanResult.ecosystems).some(
-    (e) => e.breaking > 0 || e.manual > 0,
-  );
-
-  result.hasPendingVulns = hasPendingItems;
-
+  result.hasPendingVulns = hasPendingVulnerabilities(scanResult);
   return result;
 }

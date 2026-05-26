@@ -116,7 +116,7 @@ describe('runOrchestrator — composer runtime phase 1', () => {
   it('runs composer env-check before update and fails early on env-check error', async () => {
     // Route ecosystem runtime through the host runner so calledCommands is populated.
     const runtimeSpy = vi.spyOn(ecosystemRuntime, 'resolveEcosystemRuntime')
-      .mockImplementation((_plugin, hostRunner) => Promise.resolve(hostRunner));
+      .mockImplementation((opts: any) => Promise.resolve(opts.hostRunner));
 
     const config = baseComposerConfig();
 
@@ -145,7 +145,7 @@ describe('runOrchestrator — composer runtime phase 1', () => {
 
   it('includes composer install detail in environment mismatch error message', async () => {
     const runtimeSpy = vi.spyOn(ecosystemRuntime, 'resolveEcosystemRuntime')
-      .mockImplementation((_plugin, hostRunner) => Promise.resolve(hostRunner));
+      .mockImplementation((opts: any) => Promise.resolve(opts.hostRunner));
 
     const config = baseComposerConfig();
     const runner = new MockCommandRunner({
@@ -169,7 +169,7 @@ describe('runOrchestrator — composer runtime phase 1', () => {
 
   it('dry-run skips composer diagnose and update mutation', async () => {
     const runtimeSpy = vi.spyOn(ecosystemRuntime, 'resolveEcosystemRuntime')
-      .mockImplementation((_plugin, hostRunner) => Promise.resolve(hostRunner));
+      .mockImplementation((opts: any) => Promise.resolve(opts.hostRunner));
 
     const config = baseComposerConfig();
     const runner = new MockCommandRunner(

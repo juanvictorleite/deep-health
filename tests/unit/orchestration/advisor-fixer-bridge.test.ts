@@ -26,7 +26,7 @@ vi.mock('@infra/utils/git-branch', () => ({
 
 // Identity passthrough for ecosystem runtime
 vi.mock('@infra/ecosystem-runtime', () => ({
-  resolveEcosystemRuntime: vi.fn(async (_plugin: unknown, hostRunner: unknown) => hostRunner),
+  resolveEcosystemRuntime: vi.fn(async (opts: any) => opts.hostRunner),
   resolveOsvRuntime: vi.fn((_config: unknown, _cwd: unknown, hostRunner: unknown) => hostRunner),
 }));
 
@@ -341,8 +341,14 @@ describe('runEcosystemFix — advisorResults threading (AC3)', () => {
     }
   });
 
-  it('does NOT run advisors for skipped ecosystems (no container spin-up overhead)', async () => {
-    // Ecosystem has no updates — should skip before advisors run
+  it('runs advisors via hostRunner even when ecosystem is skipped (no updates)', async () => {
+    // Ecosystem has no updates — advisors still run (via hostRunner, no container spin-up)
+    // so advisor data is available even for skipped ecosystems.
+    const advisorResults: AdvisorResult[] = [
+      makeAdvisorResult({ status: 'clean' }),
+    ];
+    vi.mocked(runAdvisors).mockResolvedValueOnce(advisorResults);
+
     const config = makeConfig({
       ecosystems: [{ id: 'npm', validationCommands: [], advisors: [{ name: 'audit', command: 'npm audit --json', format: 'json' }] }],
     });
@@ -351,16 +357,19 @@ describe('runEcosystemFix — advisorResults threading (AC3)', () => {
       plugin: makePlugin(),
       hostRunner: new MockRunner(),
       config,
-      scanResult: makeScan({ auto_safe: 0 }), // no updates
+      scanResult: makeScan({ auto_safe: 0 }), // no updates → skipped
       cwd: '/project',
       dryRun: false,
       authorizeBreaking: false,
       preRunSnapshots: undefined,
     });
 
-    // Should skip before advisors are called (AC4)
+    // Outcome is skipped but advisors ran and results are returned
     expect(outcome.status).toBe('skipped');
-    expect(runAdvisors).not.toHaveBeenCalled();
+    expect(runAdvisors).toHaveBeenCalledOnce();
+    if (outcome.status === 'skipped') {
+      expect(outcome.advisorResults).toEqual(advisorResults);
+    }
   });
 });
 

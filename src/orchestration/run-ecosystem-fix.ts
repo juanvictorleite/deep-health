@@ -2,13 +2,18 @@
  * runEcosystemFix — per-plugin fix flow extracted from the orchestrator loop.
  *
  * Responsible for:
- *   has-updates gate → effective runner resolution → advisor execution →
+ *   has-updates gate → advisor execution → effective runner resolution →
  *   OSV staging-fix → updater → breaking-install → OSV residual verification →
  *   ecosystem gate.
  *
- * Advisors run inside this function using effectiveRunner (the container runner
- * when Docker is configured), ensuring they execute with the same Node/Python
- * version as the fix phase and avoiding result divergence.
+ * Advisors run in both the skip path and the fix path:
+ *   - Skip path (!hasUpdates): advisors run via hostRunner (no container spin-up
+ *     needed — there is nothing to fix). Results are returned in the skipped outcome.
+ *   - Fix path (hasUpdates): advisors run via effectiveRunner (the container runner
+ *     when Docker is configured), ensuring they execute with the same Node/Python
+ *     version as the fix phase and avoiding result divergence.
+ *
+ * Advisors are informational only — never throws, never blocks the pipeline.
  *
  * NOT responsible for:
  *   - phase filtering (`shouldRunPhase`) — caller decides which plugins to run
@@ -20,9 +25,9 @@
  */
 
 import type { CommandRunner } from '@core/types/common';
-import type { ProjectConfig, FixerStrategyId, EcosystemConfig } from '@core/types/config';
+import type { ProjectConfig, FixerStrategyId, EcosystemConfig, ValidationCommandConfig } from '@core/types/config';
 import { ecosystemEntryKey } from '@core/types/config';
-import type { ScanResultJson } from '@core/types/scan';
+import type { ScanResultJson, EcosystemScanResult } from '@core/types/scan';
 import type { OsvJsonOutput } from '@modules/scanner/osv-engine';
 import type { UpdateResultJson } from '@core/types/update';
 import type { ResidualVerification, AdvisorResult } from '@core/types/report';
@@ -67,116 +72,78 @@ export interface RunEcosystemFixParams {
 }
 
 export type RunEcosystemFixOutcome =
-  | { status: 'skipped'; reason: 'no-updates' }
+  | { status: 'skipped'; reason: 'no-updates'; advisorResults?: AdvisorResult[] }
   | { status: 'success'; updateResult: UpdateResultJson; residualVerification?: ResidualVerification; advisorResults?: AdvisorResult[] }
   | { status: 'error'; updateResult: UpdateResultJson; advisorResults?: AdvisorResult[] };
 
-export async function runEcosystemFix(
-  params: RunEcosystemFixParams,
-): Promise<RunEcosystemFixOutcome> {
-  const {
-    plugin,
-    hostRunner,
-    config,
-    scanResult,
-    cwd,
-    dryRun,
-    authorizeBreaking,
-    preRunSnapshots,
-  } = params;
+// ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
 
-  // Resolve per-ecosystem config entry: use the passed entry directly when
-  // available (fast path from orchestrator), otherwise fall back to a search.
-  const ecoEntry: EcosystemConfig =
-    params.ecoEntry ?? config.ecosystems.find((e) => e.id === plugin.id) ?? { id: plugin.id };
-
-  const validationCommands =
-    ecoEntry.validationCommands ?? plugin.defaultValidationCommands;
-
-  const fixerStrategy: FixerStrategyId = plugin.resolveEffectiveFixer
-    ? await plugin.resolveEffectiveFixer(config, cwd)
-    : (ecoEntry.fixer ?? (plugin.supportedFixers[0] ?? 'osv') as FixerStrategyId);
-
-  // Use ecosystemEntryKey(ecoEntry) for lookup — in N-scan mode results are keyed by entryKey
-  // (e.g. 'npm', 'npm:frontend', 'npm:api'), not bare plugin.id.
-  const entryKey = ecosystemEntryKey(ecoEntry);
-  const ecosystemResult = scanResult.ecosystems[entryKey] ?? scanResult.ecosystems[plugin.id];
-  const hasUpdates =
-    ecosystemResult &&
-    (ecosystemResult.auto_safe > 0 ||
-      (authorizeBreaking && ecosystemResult.breaking > 0));
-
-  if (!hasUpdates) {
-    logger.skip(`Skipping ${plugin.name} — no auto-safe vulnerabilities`);
-    return { status: 'skipped', reason: 'no-updates' };
-  }
-
-  logger.phase(plugin.id);
-
-  // Resolve effective runner via the ecosystem runtime module
-  // Pass the per-ecosystem inline runner config from ecosystems[].runner (if any).
-  // projectRoot is passed so buildProjectImage resolves Dockerfile/context paths
-  // from the project root, while cwd (ecosystemCwd) is kept for container mounts.
-  const effectiveRunner: CommandRunner = plugin.runtimeSpec
-    ? await resolveEcosystemRuntime({ plugin, hostRunner, config, cwd, runnerConfig: ecoEntry.runner, projectRoot: params.projectRoot })
-    : hostRunner;
-
-  // Run advisors using effectiveRunner so they execute in the same container
-  // as the fix phase (when Docker is configured). Informational only — never throws,
-  // never blocks the pipeline.
-  let advisorResults: AdvisorResult[] | undefined;
-  const advisors = ecoEntry.advisors ?? plugin.defaultAdvisors;
-  if (advisors.length > 0) {
-    logger.tagged(plugin.id, 'Advisor Step', `Running advisors for ${plugin.name}...`);
-    advisorResults = await runAdvisors(effectiveRunner, cwd, plugin.id, advisors);
-  }
-
-  // OSV staging-apply (generic, driven by plugin.osvFixSpec)
-  let preFixBackups: Map<string, string> | undefined;
-  let osvFixOutcome:
-    | {
-        applied: boolean;
-        packagesUpdated: Array<{
-          name: string;
-          versionFrom: string;
-          versionTo: string;
-        }>;
+/**
+ * Derives the lockfile override path for OSV staging-apply.
+ *
+ * Priority order:
+ *   1. config.scan.paths (explicit config) — takes precedence.
+ *   2. ecoEntry.path (monorepo subdirectory path) — fallback.
+ *   3. Returns undefined → caller falls back to plugin.osvFixSpec.fixLockfile default.
+ *
+ * Note: lizard counts ?? and || as decision points so this helper is intentionally
+ * kept focused on the path-resolution logic only to stay within CC ≤ 10.
+ */
+function resolveFixLockfilePath(
+  config: ProjectConfig,
+  ecoEntry: EcosystemConfig,
+  plugin: EcosystemPlugin,
+): string | undefined {
+  const scanPaths = config.scan?.paths;
+  if (scanPaths && scanPaths.length > 0) {
+    const pluginLockfile = plugin.osvFixSpec!.fixLockfile;
+    for (const p of scanPaths) {
+      if (p.endsWith('/')) {
+        return `${p}${pluginLockfile}`;
       }
-    | undefined;
+      if (p.endsWith(`/${pluginLockfile}`) || p === pluginLockfile) {
+        return p;
+      }
+    }
+    logger.tagged('osv', 'OSV fix', `scan.paths is configured but no entry matches "${pluginLockfile}". ` +
+      `Falling back to default fix lockfile path.`, 'warn');
+    return undefined;
+  }
+  if (ecoEntry.path) {
+    return join(ecoEntry.path, plugin.osvFixSpec!.fixLockfile);
+  }
+  return undefined;
+}
+
+interface OsvStagingPhaseParams {
+  plugin: EcosystemPlugin;
+  fixerStrategy: FixerStrategyId;
+  config: ProjectConfig;
+  ecoEntry: EcosystemConfig;
+  cwd: string;
+  dryRun: boolean;
+}
+
+/**
+ * Executes the OSV staging-apply phase when the fixer strategy is 'osv' or
+ * 'osv-then-audit' and the plugin declares an osvFixSpec.
+ *
+ * Returns the pre-fix backups map and the apply outcome, both of which are
+ * forwarded to the updater so it can restore files on error and record
+ * which packages were updated by the OSV fixer.
+ */
+async function executeOsvStagingPhase(
+  params: OsvStagingPhaseParams,
+): Promise<{ preFixBackups: Map<string, string> | undefined; osvFixOutcome: { applied: boolean; packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }> } | undefined }> {
+  const { plugin, fixerStrategy, config, ecoEntry, cwd, dryRun } = params;
 
   if (
     (fixerStrategy === 'osv' || fixerStrategy === 'osv-then-audit') &&
     plugin.osvFixSpec
   ) {
-    // Derive the fix lockfile path from either:
-    //   1. scan.paths (explicit config — takes precedence)
-    //   2. ecoEntry.path (monorepo subdirectory path from config.ecosystems[].path)
-    //   3. plugin default (osvFixSpec.fixLockfile) — fallback
-    let fixLockfileOverride: string | undefined;
-    const scanPaths = config.scan?.paths;
-    if (scanPaths && scanPaths.length > 0) {
-      // scan.paths is explicitly configured — derive fix lockfile from the first
-      // matching path entry.
-      const pluginLockfile = plugin.osvFixSpec.fixLockfile;
-      for (const p of scanPaths) {
-        if (p.endsWith('/')) {
-          // directory entry — construct the full path
-          fixLockfileOverride = `${p}${pluginLockfile}`;
-          break;
-        } else if (p.endsWith(`/${pluginLockfile}`) || p === pluginLockfile) {
-          // explicit file path matching the plugin's lockfile
-          fixLockfileOverride = p;
-          break;
-        }
-      }
-      if (!fixLockfileOverride) {
-        logger.tagged('osv', 'OSV fix', `scan.paths is configured but no entry matches "${pluginLockfile}". ` +
-          `Falling back to default fix lockfile path.`, 'warn');
-      }
-    } else if (ecoEntry.path) {
-      // No scan.paths configured — derive fix lockfile from the ecosystem entry path.
-      fixLockfileOverride = join(ecoEntry.path, plugin.osvFixSpec.fixLockfile);
-    }
+    const fixLockfileOverride = resolveFixLockfilePath(config, ecoEntry, plugin);
 
     setProgressSink(makeProgressSink());
     let fixResult: Awaited<ReturnType<typeof applyOsvFixViaStaging>>;
@@ -191,42 +158,45 @@ export async function runEcosystemFix(
     } finally {
       setProgressSink(null);
     }
-    preFixBackups = fixResult.backups;
-    osvFixOutcome = {
-      applied: fixResult.applied,
-      packagesUpdated: fixResult.packagesUpdated,
+    return {
+      preFixBackups: fixResult.backups,
+      osvFixOutcome: {
+        applied: fixResult.applied,
+        packagesUpdated: fixResult.packagesUpdated,
+      },
     };
   }
 
-  // Dry-run planned-changes preview
-  if (dryRun) {
-    logger.header(plugin.id, 'Dry-run preview');
-    logDryRunPreview(plugin.id, ecosystemResult, authorizeBreaking);
-  }
+  return { preFixBackups: undefined, osvFixOutcome: undefined };
+}
 
-  logger.tagged(plugin.id, 'fixer', `Strategy: ${fixerStrategy} (config: ${ecoEntry.fixer ?? 'undefined'}, supportedFixers[0]: ${plugin.supportedFixers[0] ?? 'undefined'}, hasResolveEffectiveFixer: ${!!plugin.resolveEffectiveFixer})`);
-  setProgressSink(makeProgressSink());
-  let updateResult: Awaited<ReturnType<typeof plugin.runUpdater>>;
-  try {
-    updateResult = await plugin.runUpdater({
-      runner: effectiveRunner,
-      config,
-      scanResult,
-      cwd,
-      authorizeBreaking,
-      validationCommands,
-      fixerStrategy,
-      preFixBackups,
-      osvFixOutcome,
-      preRunSnapshots:
-        preRunSnapshots && preRunSnapshots.size > 0 ? preRunSnapshots : undefined,
-      advisorResults,
-    });
-  } finally {
-    setProgressSink(null);
-  }
+interface BreakingInstallParams {
+  plugin: EcosystemPlugin;
+  effectiveRunner: CommandRunner;
+  cwd: string;
+  scanResult: ScanResultJson;
+  dryRun: boolean;
+  fixerStrategy: FixerStrategyId;
+  authorizeBreaking: boolean;
+  updateResult: UpdateResultJson;
+  advisorResults: AdvisorResult[] | undefined;
+}
 
-  // === Post-updater: Breaking packages install (generic, via plugin hook) ===
+/**
+ * Runs the plugin's installBreakingPackages hook when it exists, breaking
+ * installs are authorized, and the updater did not already error.
+ *
+ * Returns an error outcome if the install fails, otherwise returns undefined
+ * to indicate the caller should continue normally.
+ */
+async function executeBreakingInstall(
+  params: BreakingInstallParams,
+): Promise<RunEcosystemFixOutcome | undefined> {
+  const {
+    plugin, effectiveRunner, cwd, scanResult, dryRun,
+    fixerStrategy, authorizeBreaking, updateResult, advisorResults,
+  } = params;
+
   if (
     plugin.installBreakingPackages &&
     authorizeBreaking &&
@@ -240,7 +210,6 @@ export async function runEcosystemFix(
       fixerStrategy,
     });
     if (breakRes?.status === 'error') {
-      // Mirror legacy short-circuit: skip residual verify and gate validation.
       return {
         status: 'error',
         updateResult: {
@@ -252,28 +221,259 @@ export async function runEcosystemFix(
       };
     }
   }
+  return undefined;
+}
 
-  // === Post-updater: OSV residual verification (driven by plugin.postUpdateOsvVerify) ===
-  let residualVerification: ResidualVerification | undefined;
+interface ResolveAdvisorsParams {
+  ecoEntry: EcosystemConfig;
+  plugin: EcosystemPlugin;
+  runner: CommandRunner;
+  cwd: string;
+  nonfatal: boolean;
+}
+
+/**
+ * Resolves and runs advisors for the given ecosystem entry and plugin.
+ *
+ * Uses ecoEntry.advisors if configured, otherwise falls back to
+ * plugin.defaultAdvisors. When `nonfatal` is true, errors are swallowed
+ * (used in the skip path where there is nothing to fix).
+ */
+async function resolveAdvisors(
+  params: ResolveAdvisorsParams,
+): Promise<AdvisorResult[] | undefined> {
+  const { ecoEntry, plugin, runner, cwd, nonfatal } = params;
+  const advisors = ecoEntry.advisors ?? plugin.defaultAdvisors;
+  if (advisors.length === 0) return undefined;
+
+  logger.tagged(plugin.id, 'Advisor Step', `Running advisors for ${plugin.name}...`);
+  if (nonfatal) {
+    try {
+      return await runAdvisors(runner, cwd, plugin.id, advisors);
+    } catch {
+      return undefined;
+    }
+  }
+  return runAdvisors(runner, cwd, plugin.id, advisors);
+}
+
+type OsvPackageEntry = {
+  package?: { name?: string; version?: string; ecosystem?: string };
+  vulnerabilities?: { id?: string }[];
+};
+
+/**
+ * Accumulates vulnerability counts from a single osv-scanner result entry
+ * into the running summary map.
+ *
+ * Extracted from buildVerificationSummary to avoid nested-loop ?? chains
+ * inflating CC beyond the ≤ 10 helper budget.
+ */
+function accumulatePackageCounts(
+  summary: Record<string, number>,
+  packages: OsvPackageEntry[],
+): void {
+  for (const pkg of packages) {
+    const eco = pkg.package?.ecosystem?.toLowerCase() ?? 'unknown';
+    const existing = summary[eco] ?? 0;
+    const count = pkg.vulnerabilities?.length ?? 0;
+    summary[eco] = existing + count;
+  }
+}
+
+/**
+ * Builds the per-ecosystem vulnerability count summary from raw osv-scanner JSON output.
+ *
+ * Iterates over results → packages → vulnerabilities and accumulates counts keyed
+ * by lowercased ecosystem name. Pure data transformation — no I/O.
+ * Delegates inner ?? chain to accumulatePackageCounts to stay within CC ≤ 10.
+ */
+function buildVerificationSummary(data: OsvJsonOutput): Record<string, number> {
+  const summary: Record<string, number> = {};
+  for (const result of data.results ?? []) {
+    accumulatePackageCounts(summary, result.packages ?? []);
+  }
+  return summary;
+}
+
+interface EcosystemFixContext {
+  ecoEntry: EcosystemConfig;
+  validationCommands: ValidationCommandConfig[] | undefined;
+  fixerStrategy: FixerStrategyId;
+  entryKey: string;
+  ecosystemResult: ScanResultJson['ecosystems'][string] | undefined;
+  hasUpdates: boolean;
+}
+
+/**
+ * Resolves the effective fixer strategy for a plugin.
+ *
+ * Priority: plugin.resolveEffectiveFixer > ecoEntry.fixer > plugin.supportedFixers[0] > 'osv'.
+ * Extracted to isolate the async branch and ?? chain from the parent context resolver.
+ */
+async function resolveFixerStrategy(
+  plugin: EcosystemPlugin,
+  config: ProjectConfig,
+  cwd: string,
+  ecoEntry: EcosystemConfig,
+): Promise<FixerStrategyId> {
+  if (plugin.resolveEffectiveFixer) {
+    return plugin.resolveEffectiveFixer(config, cwd);
+  }
+  const configured = ecoEntry.fixer;
+  if (configured) return configured;
+  const first = plugin.supportedFixers[0];
+  return (first ?? 'osv') as FixerStrategyId;
+}
+
+/**
+ * Evaluates whether there are auto-safe or authorized breaking updates to process.
+ *
+ * Returns true when ecosystemResult exists and auto_safe > 0, or when
+ * authorizeBreaking is true and breaking > 0.
+ */
+function checkHasUpdates(
+  ecosystemResult: ScanResultJson['ecosystems'][string] | undefined,
+  authorizeBreaking: boolean,
+): boolean {
+  if (!ecosystemResult) return false;
+  if (ecosystemResult.auto_safe > 0) return true;
+  return authorizeBreaking && ecosystemResult.breaking > 0;
+}
+
+/**
+ * Resolves all derived context values needed to drive the ecosystem fix flow.
+ *
+ * Delegates ?? / ?. / && / || decision logic to focused sub-helpers
+ * (resolveFixerStrategy, checkHasUpdates) to keep this function's CC ≤ 10.
+ */
+async function resolveEcosystemFixContext(
+  params: RunEcosystemFixParams,
+): Promise<EcosystemFixContext> {
+  const { plugin, config, scanResult, cwd, authorizeBreaking } = params;
+
+  const ecoEntry: EcosystemConfig =
+    params.ecoEntry ?? config.ecosystems.find((e) => e.id === plugin.id) ?? { id: plugin.id };
+
+  const validationCommands =
+    ecoEntry.validationCommands ?? plugin.defaultValidationCommands;
+
+  const fixerStrategy = await resolveFixerStrategy(plugin, config, cwd, ecoEntry);
+
+  const entryKey = ecosystemEntryKey(ecoEntry);
+  const ecosystemResult = scanResult.ecosystems[entryKey] ?? scanResult.ecosystems[plugin.id];
+
+  const hasUpdates = checkHasUpdates(ecosystemResult, authorizeBreaking);
+
+  return { ecoEntry, validationCommands, fixerStrategy, entryKey, ecosystemResult, hasUpdates };
+}
+
+interface RunUpdaterParams {
+  plugin: EcosystemPlugin;
+  effectiveRunner: CommandRunner;
+  config: ProjectConfig;
+  scanResult: ScanResultJson;
+  cwd: string;
+  authorizeBreaking: boolean;
+  validationCommands: ValidationCommandConfig[] | undefined;
+  fixerStrategy: FixerStrategyId;
+  preFixBackups: Map<string, string> | undefined;
+  osvFixOutcome: { applied: boolean; packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }> } | undefined;
+  preRunSnapshots: Map<string, string> | undefined;
+  advisorResults: AdvisorResult[] | undefined;
+  ecoEntry: EcosystemConfig;
+  ecosystemResult: EcosystemScanResult | undefined;
+  dryRun: boolean;
+}
+
+/**
+ * Runs the plugin updater and returns the update result.
+ *
+ * Logs the dry-run preview before calling the updater when dryRun is true.
+ * Wraps the updater call with a progress sink.
+ */
+async function runPluginUpdater(
+  params: RunUpdaterParams,
+): Promise<Awaited<ReturnType<EcosystemPlugin['runUpdater']>>> {
+  const {
+    plugin, effectiveRunner, config, scanResult, cwd, authorizeBreaking,
+    validationCommands, fixerStrategy, preFixBackups, osvFixOutcome,
+    preRunSnapshots, advisorResults, ecoEntry, ecosystemResult, dryRun,
+  } = params;
+
+  if (dryRun && ecosystemResult) {
+    logger.header(plugin.id, 'Dry-run preview');
+    logDryRunPreview(plugin.id, ecosystemResult, authorizeBreaking);
+  }
+
+  logger.tagged(plugin.id, 'fixer', `Strategy: ${fixerStrategy} (config: ${ecoEntry.fixer ?? 'undefined'}, supportedFixers[0]: ${plugin.supportedFixers[0] ?? 'undefined'}, hasResolveEffectiveFixer: ${!!plugin.resolveEffectiveFixer})`);
+  setProgressSink(makeProgressSink());
+  try {
+    return await plugin.runUpdater({
+      runner: effectiveRunner,
+      config,
+      scanResult,
+      cwd,
+      authorizeBreaking,
+      validationCommands,
+      fixerStrategy,
+      preFixBackups,
+      osvFixOutcome,
+      preRunSnapshots: preRunSnapshots && preRunSnapshots.size > 0 ? preRunSnapshots : undefined,
+      advisorResults,
+    });
+  } finally {
+    setProgressSink(null);
+  }
+}
+
+interface OsvVerifyParams {
+  plugin: EcosystemPlugin;
+  config: ProjectConfig;
+  cwd: string;
+  hostRunner: CommandRunner;
+  fixerStrategy: FixerStrategyId;
+  updateResult: UpdateResultJson;
+  dryRun: boolean;
+}
+
+/**
+ * Conditionally runs OSV residual verification after the updater completes.
+ *
+ * Runs only when the update succeeded and the plugin's postUpdateOsvVerify
+ * policy allows it ('always' or 'osv-strategy-only' when fixerStrategy === 'osv').
+ * Returns undefined when verification is not applicable or was skipped.
+ */
+async function maybeRunOsvVerification(
+  params: OsvVerifyParams,
+): Promise<ResidualVerification | undefined> {
+  const { plugin, config, cwd, hostRunner, fixerStrategy, updateResult, dryRun } = params;
+
   const shouldOsvVerify =
     updateResult.status !== 'error' &&
     (plugin.postUpdateOsvVerify === 'always' ||
-      (plugin.postUpdateOsvVerify === 'osv-strategy-only' &&
-        fixerStrategy === 'osv'));
+      (plugin.postUpdateOsvVerify === 'osv-strategy-only' && fixerStrategy === 'osv'));
 
-  if (shouldOsvVerify) {
-    const osvVerifyRunner = resolveOsvRuntime(config, cwd, hostRunner);
-    const verifyScanArgs = plugin.buildScanArgs();
-    const verifyCmd = `osv-scanner ${verifyScanArgs.join(' ')} --format json`;
-    residualVerification = await runOsvResidualVerification(
-      osvVerifyRunner,
-      cwd,
-      dryRun,
-      verifyCmd,
-    );
-  }
+  if (!shouldOsvVerify) return undefined;
 
-  // Generic gate validation for this ecosystem
+  const osvVerifyRunner = resolveOsvRuntime(config, cwd, hostRunner);
+  const verifyScanArgs = plugin.buildScanArgs();
+  const verifyCmd = `osv-scanner ${verifyScanArgs.join(' ')} --format json`;
+  return runOsvResidualVerification(osvVerifyRunner, cwd, dryRun, verifyCmd);
+}
+
+/**
+ * Validates the ecosystem gate and returns a final RunEcosystemFixOutcome.
+ *
+ * Throws GateValidationError when gate validation fails.
+ * Returns error or success outcome based on updateResult.status.
+ */
+function finalizeEcosystemOutcome(
+  plugin: EcosystemPlugin,
+  updateResult: UpdateResultJson,
+  residualVerification: ResidualVerification | undefined,
+  advisorResults: AdvisorResult[] | undefined,
+): RunEcosystemFixOutcome {
   const gate = validateEcosystemGate(plugin.id, updateResult);
   if (!gate.valid) {
     throw new GateValidationError(
@@ -291,8 +491,74 @@ export async function runEcosystemFix(
   logger.info(
     `${plugin.name} update complete: ${updateResult.packages_updated.length} packages updated`,
   );
-
   return { status: 'success', updateResult, residualVerification, advisorResults };
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export async function runEcosystemFix(
+  params: RunEcosystemFixParams,
+): Promise<RunEcosystemFixOutcome> {
+  const { plugin, hostRunner, config, scanResult, cwd, dryRun, authorizeBreaking, preRunSnapshots } = params;
+
+  // Resolve all derived context: ecoEntry, fixerStrategy, hasUpdates gate, etc.
+  const { ecoEntry, validationCommands, fixerStrategy, ecosystemResult, hasUpdates } =
+    await resolveEcosystemFixContext(params);
+
+  if (!hasUpdates) {
+    // Run advisors via hostRunner before skipping — no container resolution needed
+    // when there is nothing to fix, but advisor data is still valuable (informational only,
+    // never throws, never blocks pipeline).
+    const skipAdvisorResults = await resolveAdvisors({
+      ecoEntry, plugin, runner: hostRunner, cwd, nonfatal: true,
+    });
+    logger.skip(`Skipping ${plugin.name} — no auto-safe vulnerabilities`);
+    return { status: 'skipped', reason: 'no-updates', advisorResults: skipAdvisorResults };
+  }
+
+  logger.phase(plugin.id);
+
+  // Resolve effective runner via the ecosystem runtime module
+  // Pass the per-ecosystem inline runner config from ecosystems[].runner (if any).
+  // projectRoot is passed so buildProjectImage resolves Dockerfile/context paths
+  // from the project root, while cwd (ecosystemCwd) is kept for container mounts.
+  const effectiveRunner: CommandRunner = plugin.runtimeSpec
+    ? await resolveEcosystemRuntime({ plugin, hostRunner, config, cwd, runnerConfig: ecoEntry.runner, projectRoot: params.projectRoot })
+    : hostRunner;
+
+  // Run advisors using effectiveRunner so they execute in the same container
+  // as the fix phase (when Docker is configured). Informational only — never throws,
+  // never blocks the pipeline.
+  const advisorResults = await resolveAdvisors({
+    ecoEntry, plugin, runner: effectiveRunner, cwd, nonfatal: false,
+  });
+
+  // OSV staging-apply (generic, driven by plugin.osvFixSpec)
+  const { preFixBackups, osvFixOutcome } = await executeOsvStagingPhase({
+    plugin, fixerStrategy, config, ecoEntry, cwd, dryRun,
+  });
+
+  const updateResult = await runPluginUpdater({
+    plugin, effectiveRunner, config, scanResult, cwd, authorizeBreaking,
+    validationCommands, fixerStrategy, preFixBackups, osvFixOutcome,
+    preRunSnapshots, advisorResults, ecoEntry, ecosystemResult, dryRun,
+  });
+
+  // === Post-updater: Breaking packages install (generic, via plugin hook) ===
+  const breakingError = await executeBreakingInstall({
+    plugin, effectiveRunner, cwd, scanResult, dryRun,
+    fixerStrategy, authorizeBreaking, updateResult, advisorResults,
+  });
+  if (breakingError) return breakingError;
+
+  // === Post-updater: OSV residual verification (driven by plugin.postUpdateOsvVerify) ===
+  const residualVerification = await maybeRunOsvVerification({
+    plugin, config, cwd, hostRunner, fixerStrategy, updateResult, dryRun,
+  });
+
+  return finalizeEcosystemOutcome(plugin, updateResult, residualVerification, advisorResults);
 }
 
 /**
@@ -326,15 +592,7 @@ async function runOsvResidualVerification(
       return { status: 'skipped' };
     }
 
-    // Count vulnerabilities per ecosystem from the raw osv-scanner output
-    const summary: Record<string, number> = {};
-    for (const result of data.results ?? []) {
-      for (const pkg of result.packages ?? []) {
-        const eco = pkg.package?.ecosystem?.toLowerCase() ?? 'unknown';
-        summary[eco] = (summary[eco] ?? 0) + (pkg.vulnerabilities?.length ?? 0);
-      }
-    }
-
+    const summary = buildVerificationSummary(data);
     const hasResidual = Object.values(summary).some((n) => n > 0);
     if (hasResidual) {
       logger.tagged('osv', 'OSV verify', 'Residual CVEs detected after update — see summary for details', 'warn');

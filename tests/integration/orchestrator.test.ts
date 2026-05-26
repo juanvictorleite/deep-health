@@ -40,7 +40,7 @@ vi.mock('@infra/ecosystem-runtime', async () => {
   return {
     ...actual,
     resolveEcosystemRuntime: vi.fn(
-      async (_plugin: unknown, hostRunner: unknown) => hostRunner,
+      async (opts: any) => opts.hostRunner,
     ),
   };
 });

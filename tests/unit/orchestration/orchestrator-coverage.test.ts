@@ -35,7 +35,7 @@ vi.mock('@infra/ecosystem-runtime', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@infra/ecosystem-runtime')>();
   return {
     ...actual,
-    resolveEcosystemRuntime: vi.fn().mockImplementation((_plugin: unknown, hostRunner: unknown) => Promise.resolve(hostRunner)),
+    resolveEcosystemRuntime: vi.fn().mockImplementation((opts: any) => Promise.resolve(opts.hostRunner)),
     resolveOsvRuntime: vi.fn().mockReturnValue({
       run: vi.fn().mockResolvedValue({
         stdout: JSON.stringify({ results: [] }),
