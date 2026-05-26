@@ -12,6 +12,8 @@ export interface NpmAuditFixerOptions {
   cwd: string;
   scanResult: ScanResultJson;
   authorizeBreaking: boolean;
+  /** The ecosystem key used to look up scan results (e.g. "npm", "npm:web"). Defaults to "npm". */
+  ecosystemKey?: string;
 }
 
 export interface NpmAuditFixerResult {
@@ -77,7 +79,7 @@ function isUpgraded(
 export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmAuditFixerResult> {
   const { runner, cwd, scanResult, authorizeBreaking } = opts;
 
-  const npmEcosystem = scanResult.ecosystems['npm'] ?? emptyEcosystem();
+  const npmEcosystem = scanResult.ecosystems[opts.ecosystemKey ?? 'npm'] ?? emptyEcosystem();
 
   // ── Pre-fix lockfile snapshot ─────────────────────────────────────────────
   let preLockfileContent: string;

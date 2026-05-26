@@ -1759,7 +1759,7 @@ describe('runComposerUpdater — OSV-first-wins in derivePackagesUpdated', () =>
 
     const result = await runComposerUpdater(
       runner, baseConfig(), scan, '/tmp/project',
-      false, [], undefined, osvFixOutcome,
+      false, [], undefined, undefined, osvFixOutcome,
     );
 
     expect(result.status).toBe('success');
@@ -1803,7 +1803,7 @@ describe('runComposerUpdater — OSV-first-wins in derivePackagesUpdated', () =>
 
     const result = await runComposerUpdater(
       runner, baseConfig(), scan, '/tmp/project',
-      false, [], undefined, osvFixOutcome,
+      false, [], undefined, undefined, osvFixOutcome,
     );
 
     expect(result.status).toBe('success');
@@ -1875,7 +1875,7 @@ describe('runComposerUpdater — OSV-first-wins in derivePackagesUpdated', () =>
 
     const result = await runComposerUpdater(
       runner, baseConfig(), scan, '/tmp/project',
-      false, [], undefined, osvFixOutcome,
+      false, [], undefined, undefined, osvFixOutcome,
     );
 
     expect(result.status).toBe('success');

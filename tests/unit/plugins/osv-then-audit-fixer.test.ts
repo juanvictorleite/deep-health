@@ -73,9 +73,11 @@ function makeRunner(overrides: Partial<CommandRunner> & { dryRun?: boolean } = {
 /**
  * Build a ScanResultJson for npm with the given packages.
  * `autoSafePkgs`: array of { pkg, version } for auto_safe vulnerabilities.
+ * `key`: ecosystem key to use (default: 'npm').
  */
 function buildScan(
   autoSafePkgs: { pkg: string; version: string }[] = [],
+  key = 'npm',
 ): ScanResultJson {
   const auto_safe_packages = autoSafePkgs.map((p) => `${p.pkg}@${p.version}`);
   const vulnerabilities = autoSafePkgs.map((p) => ({
@@ -95,7 +97,7 @@ function buildScan(
     status: 'success',
     environment: 'local',
     ecosystems: {
-      npm: {
+      [key]: {
         vulnerabilities_total: vulnerabilities.length,
         auto_safe: autoSafePkgs.length,
         breaking: 0,
@@ -863,6 +865,76 @@ describe('applyOsvThenAuditFix — package absent from pre-audit lockfile (L43)'
     });
     // versionsBefore.get('newpkg') = undefined → isUpgraded(undefined, '1.2.0') → return true
     expect(result.packagesUpdated.some((p) => p.startsWith('newpkg@'))).toBe(true);
+  });
+});
+
+// ─── monorepo ecosystem key (npm:web) ─────────────────────────────────────────
+
+describe('applyOsvThenAuditFix — monorepo ecosystem key', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns correct packagesUpdated when ecosystemKey is "npm:web" (monorepo workspace config v2)', async () => {
+    const runner = makeRunner();
+
+    const postOsvLockfile = buildLockfile([
+      { name: 'lodash', version: '4.17.20' },
+      { name: 'axios', version: '1.6.0' },
+    ]);
+    const postAuditLockfile = buildLockfile([
+      { name: 'lodash', version: '4.17.21' },
+      { name: 'axios', version: '1.7.0' },
+    ]);
+
+    mockReadFile
+      .mockResolvedValueOnce(postOsvLockfile)
+      .mockResolvedValueOnce('{"name":"sample"}')
+      .mockResolvedValueOnce(postAuditLockfile);
+
+    // Scan uses 'npm:web' as the ecosystem key (monorepo config v2)
+    const scan = buildScan(
+      [
+        { pkg: 'lodash', version: '4.17.21' },
+        { pkg: 'axios', version: '1.7.0' },
+      ],
+      'npm:web',
+    );
+
+    const result = await applyOsvThenAuditFix({
+      runner,
+      cwd: '/project',
+      scanResult: scan,
+      authorizeBreaking: false,
+      ecosystemKey: 'npm:web',
+    });
+
+    expect(result.breakingInstallError).toBeNull();
+    expect(result.packagesUpdated).toHaveLength(2);
+    expect(result.packagesUpdated).toContain('lodash@4.17.21');
+    expect(result.packagesUpdated).toContain('axios@1.7.0');
+  });
+
+  it('falls back to "npm" key when ecosystemKey is not provided (backward compat)', async () => {
+    const runner = makeRunner();
+
+    const postOsvLockfile = buildLockfile([{ name: 'ms', version: '2.0.0' }]);
+    const postAuditLockfile = buildLockfile([{ name: 'ms', version: '2.1.0' }]);
+
+    mockReadFile
+      .mockResolvedValueOnce(postOsvLockfile)
+      .mockResolvedValueOnce('{"name":"sample"}')
+      .mockResolvedValueOnce(postAuditLockfile);
+
+    const scan = buildScan([{ pkg: 'ms', version: '2.1.0' }]); // stored under default 'npm'
+
+    const result = await applyOsvThenAuditFix({
+      runner,
+      cwd: '/project',
+      scanResult: scan,
+      authorizeBreaking: false,
+      // no ecosystemKey — should fall back to 'npm'
+    });
+
+    expect(result.packagesUpdated).toContain('ms@2.1.0');
   });
 });
 

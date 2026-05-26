@@ -62,10 +62,12 @@ function makeRunner(overrides: Partial<CommandRunner> & { dryRun?: boolean } = {
  * Build a ScanResultJson for npm with the given packages.
  * `autoSafePkgs`: array of { pkg, version } for auto_safe vulnerabilities.
  * `breakingPkgs`: array of { pkg, safeVersion } for breaking vulnerabilities.
+ * `key`: ecosystem key to use (default: 'npm').
  */
 function buildScan(
   autoSafePkgs: { pkg: string; version: string }[] = [],
   breakingPkgs: { pkg: string; safeVersion: string }[] = [],
+  key = 'npm',
 ): ScanResultJson {
   const auto_safe_packages = autoSafePkgs.map((p) => `${p.pkg}@${p.version}`);
   const breaking_packages = breakingPkgs.map((p) => `${p.pkg}@${p.safeVersion}`);
@@ -99,7 +101,7 @@ function buildScan(
     status: 'success',
     environment: 'local',
     ecosystems: {
-      npm: {
+      [key]: {
         vulnerabilities_total: vulnerabilities.length,
         auto_safe: autoSafePkgs.length,
         breaking: breakingPkgs.length,
@@ -1228,6 +1230,100 @@ describe('applyNpmAuditFix — protected-constraint packages skipped with warnin
     // breakingPkgs is empty → L182 branch fires → early return
     expect(result.packagesUpdated).toHaveLength(0);
     expect(result.breakingInstallError).toBeNull();
+  });
+});
+
+// ─── monorepo ecosystem key (npm:web) ─────────────────────────────────────────
+
+describe('applyNpmAuditFix — monorepo ecosystem key', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns correct packagesUpdated when ecosystemKey is "npm:web" (monorepo workspace config v2)', async () => {
+    const runner = makeRunner();
+
+    const preLockfile = buildLockfile([
+      { name: 'lodash', version: '4.17.20' },
+      { name: 'axios', version: '1.6.0' },
+    ]);
+    const postLockfile = buildLockfile([
+      { name: 'lodash', version: '4.17.21' },
+      { name: 'axios', version: '1.7.0' },
+    ]);
+
+    mockReadFile
+      .mockResolvedValueOnce(preLockfile)
+      .mockResolvedValueOnce(postLockfile);
+
+    // Scan uses 'npm:web' as the ecosystem key (monorepo config v2)
+    const scan = buildScan(
+      [
+        { pkg: 'lodash', version: '4.17.21' },
+        { pkg: 'axios', version: '1.7.0' },
+      ],
+      [],
+      'npm:web',
+    );
+
+    const result = await applyNpmAuditFix({
+      runner,
+      cwd: '/project',
+      scanResult: scan,
+      authorizeBreaking: false,
+      ecosystemKey: 'npm:web',
+    });
+
+    expect(result.breakingInstallError).toBeNull();
+    expect(result.packagesUpdated).toHaveLength(2);
+    expect(result.packagesUpdated).toContain('lodash@4.17.21');
+    expect(result.packagesUpdated).toContain('axios@1.7.0');
+  });
+
+  it('returns empty packagesUpdated when ecosystemKey is "npm:web" but scan only has "npm" key (wrong key)', async () => {
+    const runner = makeRunner();
+
+    const preLockfile = buildLockfile([{ name: 'lodash', version: '4.17.20' }]);
+    const postLockfile = buildLockfile([{ name: 'lodash', version: '4.17.21' }]);
+
+    mockReadFile
+      .mockResolvedValueOnce(preLockfile)
+      .mockResolvedValueOnce(postLockfile);
+
+    // Scan uses the default 'npm' key but caller provides 'npm:web' — ecosystem not found
+    const scan = buildScan([{ pkg: 'lodash', version: '4.17.21' }]); // stored under 'npm'
+
+    const result = await applyNpmAuditFix({
+      runner,
+      cwd: '/project',
+      scanResult: scan,
+      authorizeBreaking: false,
+      ecosystemKey: 'npm:web', // wrong key → emptyEcosystem() → no packages
+    });
+
+    // emptyEcosystem() has auto_safe_packages=[] so nothing is verified
+    expect(result.packagesUpdated).toHaveLength(0);
+  });
+
+  it('falls back to "npm" key when ecosystemKey is not provided (backward compat)', async () => {
+    const runner = makeRunner();
+
+    const preLockfile = buildLockfile([{ name: 'ms', version: '2.0.0' }]);
+    const postLockfile = buildLockfile([{ name: 'ms', version: '2.1.0' }]);
+
+    mockReadFile
+      .mockResolvedValueOnce(preLockfile)
+      .mockResolvedValueOnce(postLockfile);
+
+    const scan = buildScan([{ pkg: 'ms', version: '2.1.0' }]); // stored under default 'npm'
+
+    const result = await applyNpmAuditFix({
+      runner,
+      cwd: '/project',
+      scanResult: scan,
+      authorizeBreaking: false,
+      // no ecosystemKey — should fall back to 'npm'
+    });
+
+    expect(result.packagesUpdated).toContain('ms@2.1.0');
   });
 });
 

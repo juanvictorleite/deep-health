@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig, ValidationCommandConfig, FixerStrategyId } from '@core/types/config';
+import type { AdvisorResult } from '@core/types/report';
 import type { UpdateResultJson } from '@core/types/update';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
@@ -126,12 +127,16 @@ export async function runComposerUpdater(
   authorizeBreaking = false,
   validationCommands: ValidationCommandConfig[] = [],
   fixerStrategy: FixerStrategyId | undefined = undefined,
+  preFixBackups?: Map<string, string>,
   osvFixOutcome?: OsvFixOutcome,
+  preRunSnapshots?: Map<string, string>,
+  _advisorResults?: AdvisorResult[],
+  ecosystemKey = 'composer',
 ): Promise<UpdateResultJson> {
   logger.info('Running Composer safe updates...');
 
   const automationArgs = buildComposerAutomationArgs(runner, config);
-  const composerEcosystem = scanResult.ecosystems['composer'] ?? emptyEcosystem();
+  const composerEcosystem = scanResult.ecosystems[ecosystemKey] ?? emptyEcosystem();
 
   const autoSafePackageNames = extractPackageNames(composerEcosystem.auto_safe_packages);
   const breakingPackageNames = authorizeBreaking
@@ -148,7 +153,7 @@ export async function runComposerUpdater(
   return runUpdaterLifecycle<ComposerFixerResult>(
     {
       agentName: 'composer-safe-update',
-      ecosystemKey: 'composer',
+      ecosystemKey,
       backupPaths: COMPOSER_FILES,
       bootstrapSpec: {
         binary: 'composer',
@@ -343,6 +348,7 @@ export async function runComposerUpdater(
         }));
       },
     },
-    { runner, cwd, scanResult, ecosystemId: 'composer', validationCommands, authorizeBreaking },
+    { runner, cwd, scanResult, ecosystemId: ecosystemKey, validationCommands, authorizeBreaking },
+    { preFixBackups, preRunSnapshots },
   );
 }

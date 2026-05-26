@@ -70,7 +70,7 @@ function isUpgraded(
  */
 export async function applyOsvThenAuditFix(opts: FixerCallOptions): Promise<FixerCallResult> {
   const { runner, cwd, scanResult } = opts;
-  const npmEcosystem = scanResult.ecosystems['npm'] ?? emptyEcosystem();
+  const npmEcosystem = scanResult.ecosystems[opts.ecosystemKey ?? 'npm'] ?? emptyEcosystem();
 
   // ── Snapshot pós-OSV (estado atual quando o fixer é chamado) ────────────────
   let postOsvContent: string;

@@ -384,6 +384,7 @@ interface RunUpdaterParams {
   ecoEntry: EcosystemConfig;
   ecosystemResult: EcosystemScanResult | undefined;
   dryRun: boolean;
+  entryKey: string;
 }
 
 /**
@@ -398,7 +399,7 @@ async function runPluginUpdater(
   const {
     plugin, effectiveRunner, config, scanResult, cwd, authorizeBreaking,
     validationCommands, fixerStrategy, preFixBackups, osvFixOutcome,
-    preRunSnapshots, advisorResults, ecoEntry, ecosystemResult, dryRun,
+    preRunSnapshots, advisorResults, ecoEntry, ecosystemResult, dryRun, entryKey,
   } = params;
 
   if (dryRun && ecosystemResult) {
@@ -421,6 +422,7 @@ async function runPluginUpdater(
       osvFixOutcome,
       preRunSnapshots: preRunSnapshots && preRunSnapshots.size > 0 ? preRunSnapshots : undefined,
       advisorResults,
+      ecosystemKey: entryKey,
     });
   } finally {
     setProgressSink(null);
@@ -504,7 +506,7 @@ export async function runEcosystemFix(
   const { plugin, hostRunner, config, scanResult, cwd, dryRun, authorizeBreaking, preRunSnapshots } = params;
 
   // Resolve all derived context: ecoEntry, fixerStrategy, hasUpdates gate, etc.
-  const { ecoEntry, validationCommands, fixerStrategy, ecosystemResult, hasUpdates } =
+  const { ecoEntry, validationCommands, fixerStrategy, entryKey, ecosystemResult, hasUpdates } =
     await resolveEcosystemFixContext(params);
 
   if (!hasUpdates) {
@@ -543,7 +545,7 @@ export async function runEcosystemFix(
   const updateResult = await runPluginUpdater({
     plugin, effectiveRunner, config, scanResult, cwd, authorizeBreaking,
     validationCommands, fixerStrategy, preFixBackups, osvFixOutcome,
-    preRunSnapshots, advisorResults, ecoEntry, ecosystemResult, dryRun,
+    preRunSnapshots, advisorResults, ecoEntry, ecosystemResult, dryRun, entryKey,
   });
 
   // === Post-updater: Breaking packages install (generic, via plugin hook) ===

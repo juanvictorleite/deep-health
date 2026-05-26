@@ -65,6 +65,11 @@ export interface FixerCallOptions {
    */
   osvFixOutcome?: OsvFixOutcome;
   /**
+   * The ecosystem key used to look up scan results (e.g. "npm", "npm:web").
+   * Defaults to "npm" when not provided.
+   */
+  ecosystemKey?: string;
+  /**
    * Structured advisor findings for this ecosystem, flat-mapped from all advisor results.
    * Passed through by the updater so fixers CAN consume advisor data in the future.
    * Present only when the upstream advisor produced structured JSON findings.

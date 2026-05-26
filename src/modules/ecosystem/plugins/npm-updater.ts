@@ -32,6 +32,7 @@ export async function runNpmUpdater(
   osvFixOutcome?: OsvFixOutcome,
   preRunSnapshots?: Map<string, string>,
   advisorResults?: AdvisorResult[],
+  ecosystemKey = 'npm',
 ): Promise<UpdateResultJson> {
   logger.info('Running npm safe updates...');
   const fixerFn = FIXER_MAP[fixerStrategy];
@@ -68,13 +69,13 @@ export async function runNpmUpdater(
     return await runUpdaterLifecycle(
       {
         agentName: 'npm-safe-update',
-        ecosystemKey: 'npm',
+        ecosystemKey,
         backupPaths: NPM_FILES,
         bootstrapSpec: { binary: 'npm', args: ['ci'], label: 'npm ci (revert)' },
 
         async applyFix(ctx) {
           await checkCurrentState(ctx.runner, ctx.cwd);
-          const fixerResult = await fixerFn({ runner: ctx.runner, cwd: ctx.cwd, scanResult: ctx.scanResult, authorizeBreaking: ctx.authorizeBreaking, osvFixOutcome, advisorFindings: resolvedAdvisorFindings });
+          const fixerResult = await fixerFn({ runner: ctx.runner, cwd: ctx.cwd, scanResult: ctx.scanResult, authorizeBreaking: ctx.authorizeBreaking, osvFixOutcome, advisorFindings: resolvedAdvisorFindings, ecosystemKey });
           if (fixerResult.breakingInstallError) {
             return { ok: false, error: fixerResult.breakingInstallError, validationStatus: 'fail' };
           }
@@ -124,7 +125,7 @@ export async function runNpmUpdater(
 
           // Build a set of OSV-known package names so we can exclude them.
           // Only truly additional findings (not already tracked by OSV) are included.
-          const npmEcosystem = ctx.scanResult.ecosystems['npm'];
+          const npmEcosystem = ctx.scanResult.ecosystems[ctx.ecosystemId];
           const osvKnownPackages = new Set(
             (npmEcosystem?.vulnerabilities ?? []).map((v) => v.package),
           );
@@ -134,7 +135,7 @@ export async function runNpmUpdater(
             if (!fixedPackages.has(finding.package)) continue;
             if (osvKnownPackages.has(finding.package)) continue;
             findings.push({
-              ecosystem: 'npm',
+              ecosystem: ctx.ecosystemId,
               package: finding.package,
               advisoryId: '',
               title: finding.title,
@@ -147,7 +148,7 @@ export async function runNpmUpdater(
           return findings.length > 0 ? findings : undefined;
         },
       },
-      { runner, cwd, scanResult, ecosystemId: 'npm', validationCommands, authorizeBreaking },
+      { runner, cwd, scanResult, ecosystemId: ecosystemKey, validationCommands, authorizeBreaking },
       { preFixBackups: mergedBackups, preRunSnapshots, failIfAllSkipped: true },
     );
   } catch (err) {
