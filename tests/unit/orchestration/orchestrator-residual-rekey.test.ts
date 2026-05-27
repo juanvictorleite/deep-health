@@ -20,9 +20,13 @@ vi.mock('@infra/utils/git-branch', () => ({
   detectGitBranch: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock('@orchestration/run-ecosystem-fix', () => ({
-  runEcosystemFix: vi.fn(),
-}));
+vi.mock('@orchestration/run-ecosystem-fix', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@orchestration/run-ecosystem-fix')>();
+  return {
+    ...actual,
+    runEcosystemFix: vi.fn(),
+  };
+});
 
 vi.mock('@modules/advisor/index.js', () => ({
   runAdvisors: vi.fn().mockResolvedValue([]),
@@ -160,6 +164,7 @@ describe('orchestrator — residualVerification re-keying (AC1)', () => {
       cwd: '/project',
       dryRun: false,
       verbose: false,
+      rendererType: 'verbose',
       registry: makeEcosystemRegistry(plugin),
       scannerRegistry: makeScannerRegistry(JSON.stringify(scanResult)),
     });
@@ -188,6 +193,7 @@ describe('orchestrator — residualVerification re-keying (AC1)', () => {
       cwd: '/project',
       dryRun: false,
       verbose: false,
+      rendererType: 'verbose',
       registry: makeEcosystemRegistry(plugin),
       scannerRegistry: makeScannerRegistry(JSON.stringify(scanResult)),
     });
@@ -217,6 +223,7 @@ describe('orchestrator — residualVerification re-keying (AC1)', () => {
       cwd: '/project',
       dryRun: false,
       verbose: false,
+      rendererType: 'verbose',
       registry: makeEcosystemRegistry(plugin),
       scannerRegistry: makeScannerRegistry(JSON.stringify(scanResult)),
     });
@@ -242,6 +249,7 @@ describe('orchestrator — residualVerification re-keying (AC1)', () => {
       cwd: '/project',
       dryRun: false,
       verbose: false,
+      rendererType: 'verbose',
       registry: makeEcosystemRegistry(plugin),
       scannerRegistry: makeScannerRegistry(JSON.stringify(scanResult)),
     });

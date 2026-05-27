@@ -124,7 +124,7 @@ function resolveFixLockfilePath(
   return undefined;
 }
 
-interface OsvStagingPhaseParams {
+export interface OsvStagingPhaseParams {
   plugin: EcosystemPlugin;
   fixerStrategy: FixerStrategyId;
   config: ProjectConfig;
@@ -137,12 +137,13 @@ interface OsvStagingPhaseParams {
 /**
  * Executes the OSV staging-apply phase when the fixer strategy is 'osv' or
  * 'osv-then-audit' and the plugin declares an osvFixSpec.
+ * @public exported for subtask renderer
  *
  * Returns the pre-fix backups map and the apply outcome, both of which are
  * forwarded to the updater so it can restore files on error and record
  * which packages were updated by the OSV fixer.
  */
-async function executeOsvStagingPhase(
+export async function executeOsvStagingPhase(
   params: OsvStagingPhaseParams,
 ): Promise<{ preFixBackups: Map<string, string> | undefined; osvFixOutcome: { applied: boolean; packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }> } | undefined }> {
   const { plugin, fixerStrategy, config, ecoEntry, cwd, dryRun, verbose } = params;
@@ -182,7 +183,7 @@ async function executeOsvStagingPhase(
   return { preFixBackups: undefined, osvFixOutcome: undefined };
 }
 
-interface BreakingInstallParams {
+export interface BreakingInstallParams {
   plugin: EcosystemPlugin;
   effectiveRunner: CommandRunner;
   cwd: string;
@@ -202,7 +203,7 @@ interface BreakingInstallParams {
  * Returns an error outcome if the install fails, otherwise returns undefined
  * to indicate the caller should continue normally.
  */
-async function executeBreakingInstall(
+export async function executeBreakingInstall(
   params: BreakingInstallParams,
 ): Promise<RunEcosystemFixOutcome | undefined> {
   const {
@@ -238,7 +239,7 @@ async function executeBreakingInstall(
   return undefined;
 }
 
-interface ResolveAdvisorsParams {
+export interface ResolveAdvisorsParams {
   ecoEntry: EcosystemConfig;
   plugin: EcosystemPlugin;
   runner: CommandRunner;
@@ -253,7 +254,7 @@ interface ResolveAdvisorsParams {
  * plugin.defaultAdvisors. When `nonfatal` is true, errors are swallowed
  * (used in the skip path where there is nothing to fix).
  */
-async function resolveAdvisors(
+export async function resolveAdvisors(
   params: ResolveAdvisorsParams,
 ): Promise<AdvisorResult[] | undefined> {
   const { ecoEntry, plugin, runner, cwd, nonfatal } = params;
@@ -310,7 +311,7 @@ function buildVerificationSummary(data: OsvJsonOutput): Record<string, number> {
   return summary;
 }
 
-interface EcosystemFixContext {
+export interface EcosystemFixContext {
   ecoEntry: EcosystemConfig;
   validationCommands: ValidationCommandConfig[] | undefined;
   fixerStrategy: FixerStrategyId;
@@ -361,7 +362,7 @@ function checkHasUpdates(
  * Delegates ?? / ?. / && / || decision logic to focused sub-helpers
  * (resolveFixerStrategy, checkHasUpdates) to keep this function's CC ≤ 10.
  */
-async function resolveEcosystemFixContext(
+export async function resolveEcosystemFixContext(
   params: RunEcosystemFixParams,
 ): Promise<EcosystemFixContext> {
   const { plugin, config, scanResult, cwd, authorizeBreaking } = params;
@@ -382,7 +383,7 @@ async function resolveEcosystemFixContext(
   return { ecoEntry, validationCommands, fixerStrategy, entryKey, ecosystemResult, hasUpdates };
 }
 
-interface RunUpdaterParams {
+export interface RunUpdaterParams {
   plugin: EcosystemPlugin;
   effectiveRunner: CommandRunner;
   config: ProjectConfig;
@@ -408,7 +409,7 @@ interface RunUpdaterParams {
  * Logs the dry-run preview before calling the updater when dryRun is true.
  * Wraps the updater call with a progress sink.
  */
-async function runPluginUpdater(
+export async function runPluginUpdater(
   params: RunUpdaterParams,
 ): Promise<Awaited<ReturnType<EcosystemPlugin['runUpdater']>>> {
   const {
@@ -448,7 +449,7 @@ async function runPluginUpdater(
   }
 }
 
-interface OsvVerifyParams {
+export interface OsvVerifyParams {
   plugin: EcosystemPlugin;
   config: ProjectConfig;
   cwd: string;
@@ -465,7 +466,7 @@ interface OsvVerifyParams {
  * policy allows it ('always' or 'osv-strategy-only' when fixerStrategy === 'osv').
  * Returns undefined when verification is not applicable or was skipped.
  */
-async function maybeRunOsvVerification(
+export async function maybeRunOsvVerification(
   params: OsvVerifyParams,
 ): Promise<ResidualVerification | undefined> {
   const { plugin, config, cwd, hostRunner, fixerStrategy, updateResult, dryRun } = params;
@@ -489,7 +490,7 @@ async function maybeRunOsvVerification(
  * Throws GateValidationError when gate validation fails.
  * Returns error or success outcome based on updateResult.status.
  */
-function finalizeEcosystemOutcome(
+export function finalizeEcosystemOutcome(
   plugin: EcosystemPlugin,
   updateResult: UpdateResultJson,
   residualVerification: ResidualVerification | undefined,

@@ -12,7 +12,7 @@ import { GateValidationError } from "@core/errors";
 import { logger } from "@infra/utils/logger";
 import { detectGitBranch } from "@infra/utils/git-branch";
 import type { RendererType } from "@app/progress-reporter";
-import { buildEcosystemFixTaskList } from "@app/progress-reporter";
+import { buildEcosystemFixTaskList, buildEcosystemFixSubtasks } from "@app/progress-reporter";
 import { badge } from "@infra/utils/ui";
 // Ecosystem registry — plugins are registered via modules/ecosystem/index.ts side-effects
 import { EcosystemRegistry, defaultRegistry } from "@modules/ecosystem/index";
@@ -31,10 +31,20 @@ import type { AggregatedScanResult } from "@modules/scanner/index";
 import { CLI_NAME, KILL_SWITCH_VAR } from "@infra/brand";
 import { readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { runEcosystemFix } from "./run-ecosystem-fix";
+import {
+  runEcosystemFix,
+  resolveEcosystemFixContext,
+  resolveAdvisors,
+  executeOsvStagingPhase,
+  runPluginUpdater,
+  executeBreakingInstall,
+  maybeRunOsvVerification,
+  finalizeEcosystemOutcome,
+} from "./run-ecosystem-fix";
 import { ecosystemEntryKey } from "@core/types/config";
 import type { EcosystemPlugin } from "@modules/ecosystem/types";
 import type { EcosystemConfig } from "@core/types/config";
+import type { EcosystemFixStepFns } from "@app/progress-reporter";
 
 export interface OrchestratorOptions {
   configPath: string;
@@ -516,11 +526,21 @@ async function runEcosystemLoop(params: EcosystemLoopParams): Promise<void> {
   // shouldBreak is shared state across tasks; subsequent tasks check it via skip().
   let shouldBreak = false;
 
+  const steps: EcosystemFixStepFns = {
+    resolveContext: (p) => resolveEcosystemFixContext(p as Parameters<typeof resolveEcosystemFixContext>[0]),
+    resolveAdvisors,
+    executeOsvStagingPhase,
+    runPluginUpdater,
+    executeBreakingInstall,
+    maybeRunOsvVerification,
+    finalizeOutcome: finalizeEcosystemOutcome,
+  };
+
   const taskEntries = activeEntries.map(({ plugin, ecoEntry, ecosystemCwd, authorizeBreaking }) => ({
     title: `${badge(plugin.id)} ${plugin.name}`,
-    run: async () => {
-      if (shouldBreak) return;
-      const outcome = await runEcosystemFix({
+    buildSubtasks: () => {
+      if (shouldBreak) return [];
+      return buildEcosystemFixSubtasks({
         plugin,
         ecoEntry,
         hostRunner: runner,
@@ -532,10 +552,12 @@ async function runEcosystemLoop(params: EcosystemLoopParams): Promise<void> {
         preRunSnapshots,
         projectRoot: options.cwd,
         verbose: false,
+        steps,
+        onOutcome: (outcome) => {
+          const broke = processEcosystemOutcome(outcome as Awaited<ReturnType<typeof runEcosystemFix>>, ecoEntry, plugin, result);
+          if (broke) shouldBreak = true;
+        },
       });
-
-      const broke = processEcosystemOutcome(outcome, ecoEntry, plugin, result);
-      if (broke) shouldBreak = true;
     },
   }));
 

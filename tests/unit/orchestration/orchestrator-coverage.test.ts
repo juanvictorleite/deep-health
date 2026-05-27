@@ -977,7 +977,9 @@ describe('orchestrator — post-fix phase: SonarQube runs after ecosystem fixers
       scan: postFixScanSpy,
     };
 
-    // Directly mock runEcosystemFix to return status: 'error' without triggering Gate validation
+    // Directly mock runEcosystemFix to return status: 'error' without triggering Gate validation.
+    // rendererType: 'verbose' ensures the verbose code path calls runEcosystemFix directly so the
+    // spy fires (in default mode the orchestrator uses the subtask path which bypasses runEcosystemFix).
     const runEcosystemFixSpy = vi.spyOn(runEcosystemFixModule, 'runEcosystemFix').mockResolvedValue({
       status: 'error',
       updateResult: {
@@ -1005,6 +1007,7 @@ describe('orchestrator — post-fix phase: SonarQube runs after ecosystem fixers
       cwd: '/project',
       dryRun: false,
       verbose: false,
+      rendererType: 'verbose',
       scannerRegistry: reg,
     });
 

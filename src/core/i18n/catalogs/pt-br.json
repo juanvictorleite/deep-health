@@ -285,5 +285,11 @@
   "(set)": "(definido)",
   "Hint": "Dica",
   "{{passed}}/{{total}} required checks passed": "{{passed}}/{{total}} verificações obrigatórias aprovadas",
-  "{{warnings}} optional check(s) have warnings": "{{warnings}} verificação(ões) opcional(is) com avisos"
+  "{{warnings}} optional check(s) have warnings": "{{warnings}} verificação(ões) opcional(is) com avisos",
+
+  "Docker runtime": "Runtime Docker",
+  "Advisors": "Advisors",
+  "OSV fix": "Correção OSV",
+  "Ecosystem fixer": "Corretor do ecossistema",
+  "Verification": "Verificação"
 }
