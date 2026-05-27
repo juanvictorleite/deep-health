@@ -180,6 +180,7 @@ interface BreakingInstallParams {
   authorizeBreaking: boolean;
   updateResult: UpdateResultJson;
   advisorResults: AdvisorResult[] | undefined;
+  entryKey: string;
 }
 
 /**
@@ -194,7 +195,7 @@ async function executeBreakingInstall(
 ): Promise<RunEcosystemFixOutcome | undefined> {
   const {
     plugin, effectiveRunner, cwd, scanResult, dryRun,
-    fixerStrategy, authorizeBreaking, updateResult, advisorResults,
+    fixerStrategy, authorizeBreaking, updateResult, advisorResults, entryKey,
   } = params;
 
   if (
@@ -208,6 +209,7 @@ async function executeBreakingInstall(
       scanResult,
       dryRun,
       fixerStrategy,
+      ecosystemKey: entryKey,
     });
     if (breakRes?.status === 'error') {
       return {
@@ -551,7 +553,7 @@ export async function runEcosystemFix(
   // === Post-updater: Breaking packages install (generic, via plugin hook) ===
   const breakingError = await executeBreakingInstall({
     plugin, effectiveRunner, cwd, scanResult, dryRun,
-    fixerStrategy, authorizeBreaking, updateResult, advisorResults,
+    fixerStrategy, authorizeBreaking, updateResult, advisorResults, entryKey,
   });
   if (breakingError) return breakingError;
 

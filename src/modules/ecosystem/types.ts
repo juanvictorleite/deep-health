@@ -145,6 +145,7 @@ export interface EcosystemPlugin {
     scanResult: ScanResultJson;
     dryRun: boolean;
     fixerStrategy: string;
+    ecosystemKey?: string;
   }): Promise<{ status: 'success' | 'error'; error?: string } | null>;
 
   /**

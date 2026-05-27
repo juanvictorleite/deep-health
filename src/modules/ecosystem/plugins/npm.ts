@@ -177,11 +177,12 @@ export const npmPlugin: EcosystemPlugin = {
     scanResult: ScanResultJson;
     dryRun: boolean;
     fixerStrategy: string;
+    ecosystemKey?: string;
   }): Promise<{ status: 'success' | 'error'; error?: string } | null> {
     // Only applies for osv strategy
     if (args.fixerStrategy !== 'osv') return null;
 
-    const ecosystemResult = args.scanResult.ecosystems['npm'] ?? emptyEcosystem();
+    const ecosystemResult = args.scanResult.ecosystems[args.ecosystemKey ?? 'npm'] ?? emptyEcosystem();
     const skippedProtected = ecosystemResult.vulnerabilities
       .filter((v) => v.classification === 'breaking' && v.breakingReason === 'protected-constraint');
     if (skippedProtected.length > 0) {
