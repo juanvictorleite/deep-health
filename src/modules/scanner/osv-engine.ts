@@ -16,6 +16,7 @@ import {
 import { classifyPackage } from '@core/policy/safe-update';
 import { enrichWithReachability, type ReachabilityAdapter } from '@core/policy/reachability';
 import { NpmReachabilityAdapter } from '@modules/ecosystem/plugins/npm-reachability';
+import { PipReachabilityAdapter } from '@modules/ecosystem/plugins/pip-reachability';
 import { getPlatformInstallHint } from '@infra/utils/platform';
 import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
 import semver from 'semver';
@@ -403,6 +404,7 @@ export class OsvScannerEngine implements ScannerEngine {
 
       const adapters = new Map<string, ReachabilityAdapter>([
         ['npm', new NpmReachabilityAdapter()],
+        ['pip', new PipReachabilityAdapter()],
       ]);
 
       // Ecosystem resolution uses config.ecosystems[] declaratively.
