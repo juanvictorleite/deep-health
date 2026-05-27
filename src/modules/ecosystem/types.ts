@@ -102,6 +102,13 @@ export interface EcosystemPlugin {
   /** Additional args for `osv-scanner` (ex: ['--lockfile', 'composer.lock']) */
   buildScanArgs(): string[];
 
+  /**
+   * Optional async hook called before buildScanArgs() in the per-entry scan loop.
+   * Allows the plugin to inspect the entry directory and cache state used by buildScanArgs().
+   * When absent, buildScanArgs() is called directly (no change for plugins that don't need it).
+   */
+  prepareScan?(entryCwd: string): Promise<void>;
+
   /** Protected packages for this ecosystem in the project config */
   getProtectedPackages(config: ProjectConfig): ProtectedPackage[];
 

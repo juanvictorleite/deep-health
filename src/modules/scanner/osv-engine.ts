@@ -429,6 +429,12 @@ export class OsvScannerEngine implements ScannerEngine {
         if (!plugin) continue;
 
         const entryKey = ecosystemEntryKey(entry);
+        const entryCwd = entry.path ? join(cwd, entry.path) : cwd;
+
+        // Allow plugin to inspect entry directory before buildScanArgs (e.g. pip tooling detection).
+        if (plugin.prepareScan) {
+          await plugin.prepareScan(entryCwd);
+        }
 
         // Build lockfile args from plugin defaults, then rewrite them to be path-aware.
         // When entry.path is set (monorepo), prepend it to each --lockfile arg so
@@ -480,7 +486,6 @@ export class OsvScannerEngine implements ScannerEngine {
             })),
           };
           if (adapters.size > 0) {
-            const entryCwd = entry.path ? join(cwd, entry.path) : cwd;
             const enriched = await enrichWithReachability(
               { [entryKey]: rekeyedData },
               adapters,
