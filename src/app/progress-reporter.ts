@@ -43,7 +43,9 @@ export function buildScanTaskList(
 
   return new Listr(tasks, {
     renderer: rendererType,
-    rendererOptions: rendererType === 'default' ? { collapseSubtasks: false } : undefined,
+    rendererOptions: rendererType === 'default'
+      ? { collapseSubtasks: false, timer: { condition: true, field: 'Timer' } }
+      : undefined,
     concurrent: false,
   });
 }
@@ -62,7 +64,9 @@ export function buildFixTaskList(
 
   return new Listr(tasks, {
     renderer: rendererType,
-    rendererOptions: rendererType === 'default' ? { collapseSubtasks: false } : undefined,
+    rendererOptions: rendererType === 'default'
+      ? { collapseSubtasks: false, timer: { condition: true, field: 'Timer' } }
+      : undefined,
     concurrent: false,
   });
 }

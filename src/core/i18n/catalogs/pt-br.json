@@ -250,5 +250,12 @@
   "Breaking-change updates were skipped:": "Atualizações disruptivas foram ignoradas:",
   "  {{pluginName}} ({{entryKey}}): {{count}} package(s)": "  {{pluginName}} ({{entryKey}}): {{count}} pacote(s)",
   "    - {{pkg}}": "    - {{pkg}}",
-  "  To authorize: {{cliName}} fix --authorize-breaking {{entryKeys}}": "  Para autorizar: {{cliName}} fix --authorize-breaking {{entryKeys}}"
+  "  To authorize: {{cliName}} fix --authorize-breaking {{entryKeys}}": "  Para autorizar: {{cliName}} fix --authorize-breaking {{entryKeys}}",
+
+  "No vulnerabilities found — project is clean.": "Nenhuma vulnerabilidade encontrada — o projeto está seguro.",
+  "{{total}} vulnerabilities across {{count}} ecosystem(s).": "{{total}} vulnerabilidade(s) em {{count}} ecossistema(s).",
+  "Total": "Total",
+  "Auto-safe": "Auto-seguro",
+  "Breaking": "Crítico",
+  "Manual": "Manual"
 }
