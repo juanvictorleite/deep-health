@@ -257,5 +257,18 @@
   "Total": "Total",
   "Auto-safe": "Auto-seguro",
   "Breaking": "Crítico",
-  "Manual": "Manual"
+  "Manual": "Manual",
+
+  "Get started:  {{cliName}} init": "Primeiros passos:  {{cliName}} init",
+  "Learn more:   {{cliName}} --help": "Saiba mais:   {{cliName}} --help",
+  "Scan validation": "Validação de varredura",
+  "Ecosystem {{gate}} validation": "Validação do ecossistema {{gate}}",
+  "This usually means the scanner produced unexpected output.": "Geralmente isso indica que o scanner produziu saída inesperada.",
+  "Try: {{cliName}} scan --verbose": "Tente: {{cliName}} scan --verbose",
+  "Or:  {{cliName}} fix --dry-run": "Ou:  {{cliName}} fix --dry-run",
+  "This may indicate the Docker container ran out of memory.": "Isso pode indicar que o container Docker ficou sem memória.",
+  "Try increasing Docker memory limits in Docker Desktop settings.": "Tente aumentar os limites de memória do Docker nas configurações do Docker Desktop.",
+  "Try running only specific phases:": "Tente executar apenas fases específicas:",
+  "  {{cliName}} fix --phases scan": "  {{cliName}} fix --phases scan",
+  "Run with --verbose for more details: {{cliName}} --verbose": "Execute com --verbose para mais detalhes: {{cliName}} --verbose"
 }
