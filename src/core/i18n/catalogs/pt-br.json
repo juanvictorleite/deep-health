@@ -273,7 +273,6 @@
   "Run with --verbose for more details: {{cliName}} --verbose": "Execute com --verbose para mais detalhes: {{cliName}} --verbose",
 
   "Node.js": "Node.js",
-  "Docker": "Docker",
   "OSV Scanner": "OSV Scanner",
   "gh CLI": "gh CLI",
   "Config file": "Arquivo de configuração",
