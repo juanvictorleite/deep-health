@@ -15,6 +15,7 @@ import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
 import { formatCliError } from '@app/diagnostics';
 import { dim } from '@infra/utils/ui';
 import { runCloudSetup } from '@app/commands/cloud-setup';
+import { runDoctorCommand } from '@app/commands/doctor';
 import { runInitCommand } from '@app/commands/init';
 import { createRunContext } from '@app/run-context';
 import { runScanCommand, type ScanCommandOptions } from '@app/commands/scan';
@@ -142,6 +143,27 @@ commonOptions(
     createRunContext(opts).then((ctx) => runExecutiveReportCommand(ctx, opts)),
   );
 });
+
+// doctor command
+program
+  .command('doctor')
+  .description('Check environment dependencies and configuration')
+  .option('--cwd <path>', 'Working directory', process.cwd())
+  .option(
+    '-c, --config <path>',
+    'Path to config file',
+    DEFAULT_CONFIG_PATH,
+  )
+  .action(async (opts: { cwd: string; config: string }) => {
+    try {
+      const exitCode = await runDoctorCommand(opts);
+      process.exit(exitCode);
+    } catch (err) {
+      const { message, exitCode } = formatCliError(err);
+      process.stderr.write(`${message}\n`);
+      process.exit(exitCode);
+    }
+  });
 
 // cloud-setup command
 program

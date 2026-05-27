@@ -237,6 +237,7 @@
   "Failed to create branch \"{{branchName}}\": {{detail}}": "Falha ao criar o branch \"{{branchName}}\": {{detail}}",
   "git commit failed: {{detail}}": "git commit falhou: {{detail}}",
 
+<<<<<<< HEAD
   "Pipeline completed with errors.": "Pipeline concluído com erros.",
   "Fix pipeline completed — vulnerabilities remain.": "Pipeline de correção concluído — vulnerabilidades pendentes.",
   "Fix pipeline completed successfully.": "Pipeline de correção concluído com sucesso.",
@@ -270,5 +271,21 @@
   "Try increasing Docker memory limits in Docker Desktop settings.": "Tente aumentar os limites de memória do Docker nas configurações do Docker Desktop.",
   "Try running only specific phases:": "Tente executar apenas fases específicas:",
   "  {{cliName}} fix --phases scan": "  {{cliName}} fix --phases scan",
-  "Run with --verbose for more details: {{cliName}} --verbose": "Execute com --verbose para mais detalhes: {{cliName}} --verbose"
+  "Run with --verbose for more details: {{cliName}} --verbose": "Execute com --verbose para mais detalhes: {{cliName}} --verbose",
+
+  "Node.js": "Node.js",
+  "Docker": "Docker",
+  "OSV Scanner": "OSV Scanner",
+  "gh CLI": "gh CLI",
+  "Config file": "Arquivo de configuração",
+  "SonarQube token": "Token SonarQube",
+  "Start the Docker daemon and try again.": "Inicie o daemon do Docker e tente novamente.",
+  "Install osv-scanner: https://google.github.io/osv-scanner/": "Instale o osv-scanner: https://google.github.io/osv-scanner/",
+  "Install gh CLI to enable --open-pr: https://cli.github.com/": "Instale o gh CLI para usar --open-pr: https://cli.github.com/",
+  "Run \"security-scan init\" to generate a config file, or pass --config <path>.": "Execute \"security-scan init\" para gerar um arquivo de configuração, ou informe --config <caminho>.",
+  "Set SONAR_TOKEN env var to enable SonarQube scanning.": "Defina a variável SONAR_TOKEN para habilitar o scanner SonarQube.",
+  "(set)": "(definido)",
+  "Hint": "Dica",
+  "{{passed}}/{{total}} required checks passed": "{{passed}}/{{total}} verificações obrigatórias aprovadas",
+  "{{warnings}} optional check(s) have warnings": "{{warnings}} verificação(ões) opcional(is) com avisos"
 }
