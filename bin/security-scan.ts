@@ -13,6 +13,7 @@ if (nodeMajor < 24) {
 import { Command } from 'commander';
 import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
 import { formatCliError } from '@app/diagnostics';
+import { dim } from '@infra/utils/ui';
 import { runCloudSetup } from '@app/commands/cloud-setup';
 import { runInitCommand } from '@app/commands/init';
 import { createRunContext } from '@app/run-context';
@@ -178,6 +179,12 @@ async function runCliAction(fn: () => Promise<number>): Promise<void> {
   } catch (err) {
     const result = formatCliError(err);
     process.stderr.write(`${result.message}\n`);
+    if (result.hints && result.hints.length > 0) {
+      process.stderr.write('\n');
+      for (const hint of result.hints) {
+        process.stderr.write(`${dim(hint)}\n`);
+      }
+    }
     exitCode = result.exitCode;
   }
 
