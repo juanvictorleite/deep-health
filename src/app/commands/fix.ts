@@ -14,6 +14,7 @@ import { detectGitBranch } from "@infra/utils/git-branch";
 import type { CommandRunner } from "@core/types/common";
 import { CLI_NAME, DEFAULT_BRANCH_PREFIX } from "@infra/brand";
 import { __ } from "@core/i18n";
+import { formatFixSummary, formatBreakingWarning } from "@app/fix-summary";
 
 export interface FixCommandOptions {
   config: string;
@@ -88,6 +89,7 @@ async function runFixPipeline(
   // Uses result.scan (the canonical before-fix snapshot from the orchestrator's Gate A scan).
   // Iterates config.ecosystems entries so the lookup key matches the per-entry scan result.
   if (result.scan) {
+    const breakingEntries = [];
     for (const ecoEntry of config.ecosystems) {
       const plugin = defaultRegistry.get(ecoEntry.id);
       if (!plugin) continue;
@@ -95,14 +97,12 @@ async function runFixPipeline(
       const breaking = result.scan.ecosystems[entryKey]?.breaking ?? 0;
       // Accept both bare plugin id AND entryKey for authorization
       if (breaking > 0 && !authorizedIds.has(ecoEntry.id) && !authorizedIds.has(entryKey)) {
-        const pkgs = (
-          result.scan.ecosystems[entryKey]?.breaking_packages ?? []
-        ).join(", ");
-        process.stderr.write(
-          `[${CLI_NAME}] Breaking-change updates skipped for ${plugin.name} (${entryKey}) (${breaking} package(s): ${pkgs || "unknown"}).\n` +
-          `  To authorize: ${CLI_NAME} fix --authorize-breaking ${ecoEntry.id}\n`,
-        );
+        const packages = result.scan.ecosystems[entryKey]?.breaking_packages ?? [];
+        breakingEntries.push({ pluginName: plugin.name, entryKey, count: breaking, packages });
       }
+    }
+    if (breakingEntries.length > 0) {
+      process.stderr.write(formatBreakingWarning(breakingEntries));
     }
   }
 
@@ -116,6 +116,7 @@ async function runFixPipeline(
     await writeOutput(JSON.stringify(result, null, 2), opts.output);
   }
 
+  let reportGenerated = false;
   if (!opts.noReport && markdownEnabled && result.scan) {
     const artifactCode = await generateAndSaveReportArtifacts({
       runner,
@@ -131,6 +132,7 @@ async function runFixPipeline(
       splitReports: opts.splitReports,
     });
     if (artifactCode !== 0) return artifactCode;
+    reportGenerated = true;
   }
 
   // Fase 6: write audit trail
@@ -145,6 +147,19 @@ async function runFixPipeline(
     overall_status: result.overallStatus,
     has_pending_vulns: result.hasPendingVulns,
   }, reportsDir);
+
+  const safeTimestamp = auditTimestamp.replace(/:/g, '-');
+  const auditTrailPath = `${reportsDir}/runs/${safeTimestamp}.json`;
+
+  const summary = formatFixSummary({
+    scanResult: result.scan,
+    updates: result.updates,
+    hasPendingVulns: result.hasPendingVulns,
+    overallStatus: result.overallStatus,
+    reportPath: reportGenerated ? reportsDir : undefined,
+    auditTrailPath,
+  });
+  process.stdout.write(summary);
 
   if (result.overallStatus === "error") return 1; // real crash/failure
   if (result.hasPendingVulns) return 1;           // scan clean-exit, vulns remain

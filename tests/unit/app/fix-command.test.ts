@@ -358,10 +358,13 @@ describe('runFixCommand', () => {
 
     // Warning should reference the breaking packages from result.scan
     expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining('Breaking-change updates skipped for'),
+      expect.stringContaining('Breaking-change updates were skipped:'),
     );
     expect(stderrSpy).toHaveBeenCalledWith(
-      expect.stringContaining('lodash, express'),
+      expect.stringContaining('lodash'),
+    );
+    expect(stderrSpy).toHaveBeenCalledWith(
+      expect.stringContaining('express'),
     );
 
     // runScanner must NOT have been called (no standalone pre-scan)
@@ -538,5 +541,112 @@ describe('runFixCommand', () => {
     const [calledCwd, calledRecord] = vi.mocked(writeAuditTrail).mock.calls[0];
     expect(calledCwd).toBe('/repo');
     expect(calledRecord.dry_run).toBe(true);
+  });
+
+  it('includes reportsDir as reportPath in summary when markdown report is generated', async () => {
+    // Verifies that formatFixSummary receives reportPath = reportsDir when artifacts are saved.
+    vi.mocked(runOrchestrator).mockResolvedValue({
+      scan: scanResult,
+      updates: {},
+      overallStatus: 'success',
+      warnings: [],
+      aggregated: undefined,
+      advisorResults: {},
+    });
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const ctx: RunContext = {
+      config: configWithOutputs,
+      runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
+    };
+
+    await runFixCommand(ctx, {
+      config: 'security-scan.config.json',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: false,
+      noReport: false,
+    });
+
+    // resolveReportsDir mock returns '/abs/reports'; summary must include the Report: line
+    const writtenOutput = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(writtenOutput).toContain('Report: /abs/reports');
+
+    stdoutSpy.mockRestore();
+  });
+
+  it('omits reportPath from summary when noReport=true', async () => {
+    // When noReport=true, report artifacts are skipped and the summary must NOT include a Report: line.
+    vi.mocked(runOrchestrator).mockResolvedValue({
+      scan: scanResult,
+      updates: {},
+      overallStatus: 'success',
+      warnings: [],
+      aggregated: undefined,
+      advisorResults: {},
+    });
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const ctx: RunContext = {
+      config: configWithOutputs,
+      runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
+    };
+
+    await runFixCommand(ctx, {
+      config: 'security-scan.config.json',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: false,
+      noReport: true,
+    });
+
+    const writtenOutput = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(writtenOutput).not.toContain('Report:');
+
+    stdoutSpy.mockRestore();
+  });
+
+  it('omits reportPath from summary when markdown format is not enabled', async () => {
+    // When markdown is not in outputs.formats, no report artifacts are generated
+    // and the summary must NOT include a Report: line.
+    vi.mocked(runOrchestrator).mockResolvedValue({
+      scan: scanResult,
+      updates: {},
+      overallStatus: 'success',
+      warnings: [],
+      aggregated: undefined,
+      advisorResults: {},
+    });
+
+    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+
+    const ctx: RunContext = {
+      config: {
+        ...configWithOutputs,
+        outputs: { formats: [], dir: '.security-scan/reports' },
+      },
+      runner: { environment: 'local', run: vi.fn(), runArgs: vi.fn() },
+    };
+
+    await runFixCommand(ctx, {
+      config: 'security-scan.config.json',
+      cwd: '/repo',
+      dryRun: false,
+      verbose: false,
+      quiet: false,
+      json: false,
+      noReport: false,
+    });
+
+    const writtenOutput = stdoutSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(writtenOutput).not.toContain('Report:');
+
+    stdoutSpy.mockRestore();
   });
 });

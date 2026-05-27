@@ -235,5 +235,20 @@
   "SonarQube provisioner: service did not become ready within {{timeoutMs}}ms{{dockerLogsTail}}": "SonarQube provisioner: o serviço não ficou pronto em {{timeoutMs}}ms{{dockerLogsTail}}",
   "SonarQube provisioner: provision() must be called before waitReady()": "SonarQube provisioner: provision() deve ser chamado antes de waitReady()",
   "Failed to create branch \"{{branchName}}\": {{detail}}": "Falha ao criar o branch \"{{branchName}}\": {{detail}}",
-  "git commit failed: {{detail}}": "git commit falhou: {{detail}}"
+  "git commit failed: {{detail}}": "git commit falhou: {{detail}}",
+
+  "Pipeline completed with errors.": "Pipeline concluído com erros.",
+  "Fix pipeline completed — vulnerabilities remain.": "Pipeline de correção concluído — vulnerabilidades pendentes.",
+  "Fix pipeline completed successfully.": "Pipeline de correção concluído com sucesso.",
+  "  ✔ Scanned: {{count}} vulnerabilities found": "  ✔ Varredura: {{count}} vulnerabilidade(s) encontrada(s)",
+  "  ✔ Fixed: {{count}} package(s)": "  ✔ Corrigido: {{count}} pacote(s)",
+  "  ⚠ Remaining: vulnerabilities still pending (manual or breaking)": "  ⚠ Pendentes: vulnerabilidades aguardando ação (manual ou disruptiva)",
+  "  ✔ Remaining: 0": "  ✔ Pendentes: 0",
+  "  ✔ Report: {{path}}": "  ✔ Relatório: {{path}}",
+  "  ✔ Audit trail: {{path}}": "  ✔ Trilha de auditoria: {{path}}",
+
+  "Breaking-change updates were skipped:": "Atualizações disruptivas foram ignoradas:",
+  "  {{pluginName}} ({{entryKey}}): {{count}} package(s)": "  {{pluginName}} ({{entryKey}}): {{count}} pacote(s)",
+  "    - {{pkg}}": "    - {{pkg}}",
+  "  To authorize: {{cliName}} fix --authorize-breaking {{entryKeys}}": "  Para autorizar: {{cliName}} fix --authorize-breaking {{entryKeys}}"
 }
