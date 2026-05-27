@@ -353,15 +353,15 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
           })),
         ];
 
-        // 'None' sentinel is the FIRST choice, never pre-checked
+        // 'None' sentinel is the LAST choice, never pre-checked
         const allChoices = [
+          ...scriptChoices,
           {
             name: __('None — skip validation'),
             value: NONE_SENTINEL,
             checked: false,
             description: __('Do not run any validation commands after fixing'),
           },
-          ...scriptChoices,
         ];
 
         const selected = await checkboxPrompt(
@@ -369,13 +369,17 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
           allChoices,
         );
 
-        // If '__none__' selected (or nothing selected), skip validation entirely
-        if (!selected.includes(NONE_SENTINEL) && selected.length > 0) {
-          for (const raw of selected) {
+        logger.debug(`Validation checkbox result: [${selected.join(', ')}]`);
+
+        // Filter out the sentinel first; real script selections take priority over __none__
+        const scripts = selected.filter((v) => v !== NONE_SENTINEL);
+        if (scripts.length > 0) {
+          for (const raw of scripts) {
             const parsed = JSON.parse(raw) as { name: string; command: string };
             validationCommands.push(parsed);
           }
         }
+        // else: skip validation (either __none__ only, or empty selection)
       } else {
         // No scripts detected — fall back to the original confirm-each flow
         for (const defaultCmd of plugin.defaultValidationCommands) {

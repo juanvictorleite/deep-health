@@ -1448,9 +1448,9 @@ describe('runInitCommand — script detection flow (interactive)', () => {
       output: 'security-scan.config.json',
     });
 
-    // First choice is the 'None' sentinel, then scripts in alphabetical order
-    expect(capturedChoices[0]!.value).toBe('__none__');
-    const scriptChoices = capturedChoices.slice(1);
+    // Last choice is the 'None' sentinel, scripts before it are in alphabetical order
+    expect(capturedChoices[capturedChoices.length - 1]!.value).toBe('__none__');
+    const scriptChoices = capturedChoices.slice(0, -1);
     const scriptNames = scriptChoices.map((c) => {
       // Extract script name from "name (command)" format
       return c.name.split(' (')[0]!;
@@ -1511,7 +1511,7 @@ describe('runInitCommand — script detection flow (interactive)', () => {
     expect(buildChoice?.checked).toBe(true);
   });
 
-  it("'None' option is the FIRST choice in the scripts checkbox (AC5)", async () => {
+  it("'None' option is the LAST choice in the scripts checkbox (AC5)", async () => {
     mockDetectProjectScripts.mockImplementation(async (_cwd, ecosystemId) => {
       if (ecosystemId === 'npm') {
         return [
@@ -1538,14 +1538,15 @@ describe('runInitCommand — script detection flow (interactive)', () => {
     await runInitCommand({
       cwd: '/repo',
       force: true,
-      projectName: 'None First Project',
+      projectName: 'None Last Project',
       client: 'Client',
       output: 'security-scan.config.json',
     });
 
-    expect(capturedChoices[0]!.value).toBe('__none__');
-    expect(capturedChoices[0]!.name).toMatch(/None|Nenhum/i);
-    expect(capturedChoices[0]!.checked).toBe(false);
+    const noneChoice = capturedChoices[capturedChoices.length - 1]!;
+    expect(noneChoice.value).toBe('__none__');
+    expect(noneChoice.name).toMatch(/None|Nenhum/i);
+    expect(noneChoice.checked).toBe(false);
   });
 
   it("selecting only '__none__' yields empty validationCommands (AC5)", async () => {
@@ -1612,6 +1613,41 @@ describe('runInitCommand — script detection flow (interactive)', () => {
     const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
     const npmEntry = call.ecosystemConfigs?.find((e) => e.id === 'npm');
     expect(npmEntry?.validationCommands).toEqual([]);
+  });
+
+  it("selecting '__none__' AND a real script uses the script, not discards it (AC4)", async () => {
+    mockDetectProjectScripts.mockImplementation(async (_cwd, ecosystemId) => {
+      if (ecosystemId === 'npm') {
+        return [
+          { name: 'build', command: 'npm run build', recommended: true },
+        ];
+      }
+      return [];
+    });
+
+    const buildValue = JSON.stringify({ name: 'build', command: 'npm run build' });
+    mockCheckbox
+      .mockImplementationOnce(async () => ['npm'])
+      .mockImplementationOnce(async () => [buildValue, '__none__']); // both sentinel and real script
+    mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
+      if (msg.includes('Language') || msg.includes('Idioma')) return 'en';
+      return choices[0].value;
+    });
+    mockConfirm.mockResolvedValue(false);
+    mockPrompt.mockImplementation(async (_q: string, def?: string) => def ?? '');
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      projectName: 'Mixed Selection Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const call = vi.mocked(generateConfigJson).mock.calls[0]![0];
+    const npmEntry = call.ecosystemConfigs?.find((e) => e.id === 'npm');
+    // real script should be used, __none__ should be ignored
+    expect(npmEntry?.validationCommands).toEqual([{ name: 'build', command: 'npm run build' }]);
   });
 });
 
