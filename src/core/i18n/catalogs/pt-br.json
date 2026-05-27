@@ -235,5 +235,21 @@
   "SonarQube provisioner: service did not become ready within {{timeoutMs}}ms{{dockerLogsTail}}": "SonarQube provisioner: o serviço não ficou pronto em {{timeoutMs}}ms{{dockerLogsTail}}",
   "SonarQube provisioner: provision() must be called before waitReady()": "SonarQube provisioner: provision() deve ser chamado antes de waitReady()",
   "Failed to create branch \"{{branchName}}\": {{detail}}": "Falha ao criar o branch \"{{branchName}}\": {{detail}}",
-  "git commit failed: {{detail}}": "git commit falhou: {{detail}}"
+  "git commit failed: {{detail}}": "git commit falhou: {{detail}}",
+
+  "Node.js": "Node.js",
+  "Docker": "Docker",
+  "OSV Scanner": "OSV Scanner",
+  "gh CLI": "gh CLI",
+  "Config file": "Arquivo de configuração",
+  "SonarQube token": "Token SonarQube",
+  "Start the Docker daemon and try again.": "Inicie o daemon do Docker e tente novamente.",
+  "Install osv-scanner: https://google.github.io/osv-scanner/": "Instale o osv-scanner: https://google.github.io/osv-scanner/",
+  "Install gh CLI to enable --open-pr: https://cli.github.com/": "Instale o gh CLI para usar --open-pr: https://cli.github.com/",
+  "Run \"security-scan init\" to generate a config file, or pass --config <path>.": "Execute \"security-scan init\" para gerar um arquivo de configuração, ou informe --config <caminho>.",
+  "Set SONAR_TOKEN env var to enable SonarQube scanning.": "Defina a variável SONAR_TOKEN para habilitar o scanner SonarQube.",
+  "(set)": "(definido)",
+  "Hint": "Dica",
+  "{{passed}}/{{total}} required checks passed": "{{passed}}/{{total}} verificações obrigatórias aprovadas",
+  "{{warnings}} optional check(s) have warnings": "{{warnings}} verificação(ões) opcional(is) com avisos"
 }
