@@ -14,6 +14,8 @@ import {
   resolveScanPathArgs,
 } from '@infra/utils/osv-commands';
 import { classifyPackage } from '@core/policy/safe-update';
+import { enrichWithReachability, type ReachabilityAdapter } from '@core/policy/reachability';
+import { NpmReachabilityAdapter } from '@modules/ecosystem/plugins/npm-reachability';
 import { getPlatformInstallHint } from '@infra/utils/platform';
 import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
 import semver from 'semver';
@@ -399,6 +401,10 @@ export class OsvScannerEngine implements ScannerEngine {
       // (e.g. 'npm', 'npm:frontend', 'npm:api') with no cross-entry collision.
       const mergedEcosystems: Record<string, EcosystemScanResult> = {};
 
+      const adapters = new Map<string, ReachabilityAdapter>([
+        ['npm', new NpmReachabilityAdapter()],
+      ]);
+
       // Ecosystem resolution uses config.ecosystems[] declaratively.
       // Use getAll().find() so the logic works with both real and test-mocked registries
       // (some test registries implement getAll() but not get()).
@@ -471,7 +477,17 @@ export class OsvScannerEngine implements ScannerEngine {
               ecosystem: entryKey,
             })),
           };
-          mergedEcosystems[entryKey] = rekeyedData;
+          if (adapters.size > 0) {
+            const entryCwd = entry.path ? join(cwd, entry.path) : cwd;
+            const enriched = await enrichWithReachability(
+              { [entryKey]: rekeyedData },
+              adapters,
+              entryCwd,
+            );
+            mergedEcosystems[entryKey] = enriched[entryKey] ?? rekeyedData;
+          } else {
+            mergedEcosystems[entryKey] = rekeyedData;
+          }
         }
       }
 

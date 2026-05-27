@@ -157,6 +157,106 @@ export function collectRootNpmLockfileVersions(
 }
 
 /**
+ * Collect parent-level constraints from an npm package-lock.json string.
+ *
+ * Returns a Map where:
+ *   outer key = dependency name (e.g. "cookie")
+ *   inner key = parent package name (e.g. "cookies-next")
+ *   value     = constraint string the parent declares (e.g. "<0.7.0")
+ *
+ * Supports v1 (requires field), v2/v3 (packages[].dependencies field).
+ * Returns an empty Map on parse error or missing sections.
+ */
+type ConstraintAdder = (depName: string, parentName: string, constraint: string) => void;
+
+function resolveV2ParentName(pathKey: string): string | undefined {
+  const marker = 'node_modules/';
+  const idx = pathKey.lastIndexOf(marker);
+  if (idx < 0) return undefined;
+  const name = pathKey.slice(idx + marker.length);
+  return name || undefined;
+}
+
+function addStringConstraints(
+  deps: Record<string, unknown>,
+  parentName: string,
+  addConstraint: ConstraintAdder,
+): void {
+  for (const [depName, constraint] of Object.entries(deps)) {
+    if (typeof constraint === 'string') {
+      addConstraint(depName, parentName, constraint);
+    }
+  }
+}
+
+function collectConstraintsFromV2Packages(
+  pkgs: Record<string, unknown>,
+  addConstraint: ConstraintAdder,
+): void {
+  for (const [pathKey, val] of Object.entries(pkgs)) {
+    if (pathKey === '' || !val || typeof val !== 'object') continue;
+    const entry = val as Record<string, unknown>;
+    const deps = entry['dependencies'];
+    if (!deps || typeof deps !== 'object' || Array.isArray(deps)) continue;
+    const parentName = resolveV2ParentName(pathKey);
+    if (!parentName) continue;
+    addStringConstraints(deps as Record<string, unknown>, parentName, addConstraint);
+  }
+}
+
+function addV1Requires(
+  entry: Record<string, unknown>,
+  name: string,
+  addConstraint: ConstraintAdder,
+): void {
+  const requires = entry['requires'];
+  if (!requires || typeof requires !== 'object' || Array.isArray(requires)) return;
+  addStringConstraints(requires as Record<string, unknown>, name, addConstraint);
+}
+
+function collectConstraintsFromV1Deps(deps: unknown, addConstraint: ConstraintAdder): void {
+  if (!deps || typeof deps !== 'object' || Array.isArray(deps)) return;
+  for (const [name, val] of Object.entries(deps as Record<string, unknown>)) {
+    if (!val || typeof val !== 'object') continue;
+    const entry = val as Record<string, unknown>;
+    addV1Requires(entry, name, addConstraint);
+    collectConstraintsFromV1Deps(entry['dependencies'], addConstraint);
+  }
+}
+
+export function collectNpmLockfileConstraints(
+  content: string,
+): Map<string, Map<string, string>> {
+  const out = new Map<string, Map<string, string>>();
+
+  const addConstraint: ConstraintAdder = (depName, parentName, constraint) => {
+    if (!depName || !parentName || !constraint) return;
+    const inner = out.get(depName) ?? new Map<string, string>();
+    inner.set(parentName, constraint);
+    out.set(depName, inner);
+  };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return out;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return out;
+
+  const root = parsed as Record<string, unknown>;
+
+  const pkgs = root['packages'];
+  if (pkgs && typeof pkgs === 'object' && !Array.isArray(pkgs)) {
+    collectConstraintsFromV2Packages(pkgs as Record<string, unknown>, addConstraint);
+    return out;
+  }
+
+  collectConstraintsFromV1Deps(root['dependencies'], addConstraint);
+  return out;
+}
+
+/**
  * Diff root-level package versions between two lockfile contents.
  *
  * Returns only packages whose root-level version changed. Packages present in only
