@@ -237,7 +237,6 @@
   "Failed to create branch \"{{branchName}}\": {{detail}}": "Falha ao criar o branch \"{{branchName}}\": {{detail}}",
   "git commit failed: {{detail}}": "git commit falhou: {{detail}}",
 
-<<<<<<< HEAD
   "Pipeline completed with errors.": "Pipeline concluído com erros.",
   "Fix pipeline completed — vulnerabilities remain.": "Pipeline de correção concluído — vulnerabilidades pendentes.",
   "Fix pipeline completed successfully.": "Pipeline de correção concluído com sucesso.",
