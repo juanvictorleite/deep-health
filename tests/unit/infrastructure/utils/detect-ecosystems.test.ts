@@ -26,15 +26,15 @@ async function touch(filePath: string): Promise<void> {
 
 // ── Minimal plugin stubs ──────────────────────────────────────────────────────
 // EcosystemPlugin has many required fields for runtime logic (runners, advisors, etc.)
-// but discoverProject only reads `id` and `lockfiles`. Cast via unknown to keep tests lean.
+// but discoverProject only reads `id`, `manifest`, and `lockfile`. Cast via unknown to keep tests lean.
 
-function makePlugin(id: string, lockfiles: string[]): EcosystemPlugin {
-  return { id, lockfiles } as unknown as EcosystemPlugin;
+function makePlugin(id: string, manifest: string, lockfile?: string): EcosystemPlugin {
+  return { id, manifest, lockfile } as unknown as EcosystemPlugin;
 }
 
-const npmPlugin = makePlugin('npm', ['package-lock.json', 'yarn.lock']);
-const composerPlugin = makePlugin('composer', ['composer.lock']);
-const pipPlugin = makePlugin('pip', ['requirements.txt', 'Pipfile.lock']);
+const npmPlugin = makePlugin('npm', 'package.json', 'package-lock.json');
+const composerPlugin = makePlugin('composer', 'composer.json', 'composer.lock');
+const pipPlugin = makePlugin('pip', 'requirements.txt');
 
 const allPlugins: EcosystemPlugin[] = [npmPlugin, composerPlugin, pipPlugin];
 
@@ -254,22 +254,21 @@ describe('discoverProject', () => {
     expect(ids).toEqual(['composer', 'npm', 'pip']);
   });
 
-  it('only matches first lockfile per plugin per directory (not duplicates)', async () => {
-    // Both package-lock.json and yarn.lock are in npmPlugin.lockfiles
+  it('only matches one entry per plugin per directory', async () => {
+    // npm has lockfile: 'package-lock.json' — only one match per directory
     await touch(join(cwd, 'package-lock.json'));
-    await touch(join(cwd, 'yarn.lock'));
 
     const result = await discoverProject(cwd, allPlugins);
 
-    // Should report npm once, not twice
+    // Should report npm exactly once
     const npmMatches = result.ecosystems.filter((e) => e.pluginId === 'npm');
     expect(npmMatches).toHaveLength(1);
   });
 
-  it('handles plugins with empty lockfiles array gracefully', async () => {
-    const emptyPlugin = makePlugin('empty', []);
+  it('handles plugins with only a manifest (no lockfile) gracefully', async () => {
+    const manifestOnlyPlugin = makePlugin('manifest-only', 'some-manifest.txt');
 
-    const result = await discoverProject(cwd, [emptyPlugin]);
+    const result = await discoverProject(cwd, [manifestOnlyPlugin]);
 
     expect(result.ecosystems).toHaveLength(0);
   });
@@ -282,6 +281,37 @@ describe('discoverProject', () => {
     await expect(discoverProject(cwd, allPlugins)).resolves.not.toThrow();
     const result = await discoverProject(cwd, allPlugins);
     expect(result.ecosystems[0].path).toBe('valid');
+  });
+
+  // AC5 — lockfile-required vs manifest-only discovery behaviour
+  it('does NOT discover npm when only package.json is present (no package-lock.json)', async () => {
+    await touch(join(cwd, 'package.json'));
+
+    const result = await discoverProject(cwd, allPlugins);
+
+    const npmMatches = result.ecosystems.filter((e) => e.pluginId === 'npm');
+    expect(npmMatches).toHaveLength(0);
+  });
+
+  it('discovers npm when package-lock.json is present (lockfile required)', async () => {
+    await touch(join(cwd, 'package.json'));
+    await touch(join(cwd, 'package-lock.json'));
+
+    const result = await discoverProject(cwd, allPlugins);
+
+    const npmMatches = result.ecosystems.filter((e) => e.pluginId === 'npm');
+    expect(npmMatches).toHaveLength(1);
+    expect(npmMatches[0].lockfile).toBe('package-lock.json');
+  });
+
+  it('discovers pip when only requirements.txt is present (no lockfile required)', async () => {
+    await touch(join(cwd, 'requirements.txt'));
+
+    const result = await discoverProject(cwd, allPlugins);
+
+    const pipMatches = result.ecosystems.filter((e) => e.pluginId === 'pip');
+    expect(pipMatches).toHaveLength(1);
+    expect(pipMatches[0].lockfile).toBe('requirements.txt');
   });
 });
 

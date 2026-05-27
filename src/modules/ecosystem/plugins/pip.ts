@@ -57,7 +57,7 @@ function parsePythonConstraint(constraint: string): string | undefined {
 export const pipPlugin: EcosystemPlugin = {
   id: 'pip',
   name: 'pip',
-  lockfiles: ['requirements.txt'],
+  manifest: 'requirements.txt',
   osvEcosystems: ['PyPI'],
 
   /** Label used in executive report evidence tables */

@@ -56,8 +56,15 @@ export interface EcosystemPlugin {
   /** Human-readable name for logs and reports */
   readonly name: string;
 
-  /** Lock/manifest files to copy before updating */
-  readonly lockfiles: string[];
+  /** The manifest file for this ecosystem (e.g. 'package.json', 'composer.json', 'requirements.txt') */
+  readonly manifest: string;
+
+  /**
+   * The lock file for this ecosystem (e.g. 'package-lock.json', 'composer.lock').
+   * When defined, discovery requires this file to be present.
+   * When undefined, the ecosystem is discovered by manifest presence alone (e.g. pip).
+   */
+  readonly lockfile?: string;
 
   /**
    * Ecosystem strings returned by OSV in the JSON output,

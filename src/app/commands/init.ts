@@ -199,7 +199,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       selectedDiscoveries = allPlugins.map((p) => ({
         pluginId: p.id,
         path: '',
-        lockfile: p.lockfiles?.[0] ?? '',
+        lockfile: p.lockfile ?? p.manifest ?? '',
         suggestedLabel: undefined,
       }));
     }
@@ -239,7 +239,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
         .map((v): DiscoveredEcosystem | undefined => {
           const p = pluginMap.get(v);
           if (!p) return undefined;
-          return { pluginId: p.id, path: '', lockfile: p.lockfiles?.[0] ?? '', suggestedLabel: undefined };
+          return { pluginId: p.id, path: '', lockfile: p.lockfile ?? p.manifest ?? '', suggestedLabel: undefined };
         })
         .filter((e): e is DiscoveredEcosystem => e !== undefined);
     }

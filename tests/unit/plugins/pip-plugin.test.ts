@@ -197,8 +197,8 @@ describe('pipPlugin shape', () => {
     expect(pipPlugin.postUpdateOsvVerify).toBe('always');
   });
 
-  it('has lockfiles requirements.txt', () => {
-    expect(pipPlugin.lockfiles).toContain('requirements.txt');
+  it('has manifest requirements.txt', () => {
+    expect(pipPlugin.manifest).toBe('requirements.txt');
   });
 
   it('has defaultAdvisors including pip-audit', () => {

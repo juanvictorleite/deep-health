@@ -118,8 +118,13 @@ function classifyEntries(
 }
 
 /**
- * Matches discovered files against plugin lockfile patterns.
+ * Matches discovered files against plugin manifest/lockfile patterns.
  * Pushes matching DiscoveredEcosystem entries into result.
+ *
+ * When `plugin.lockfile` is defined, the ecosystem is only discovered when the
+ * lockfile is present (e.g. npm requires package-lock.json, not just package.json).
+ * When `plugin.lockfile` is undefined, the ecosystem is discovered by manifest
+ * presence alone (e.g. pip only needs requirements.txt).
  */
 function matchPluginLockfiles(
   fileNames: Set<string>,
@@ -128,16 +133,24 @@ function matchPluginLockfiles(
   result: DiscoveryResult,
 ): void {
   for (const plugin of plugins) {
-    for (const lockfile of plugin.lockfiles ?? []) {
-      if (fileNames.has(lockfile)) {
+    if (plugin.lockfile !== undefined) {
+      // Ecosystem requires a lockfile: only match when the lockfile is present
+      if (fileNames.has(plugin.lockfile)) {
         result.ecosystems.push({
           pluginId: plugin.id,
           path: relDir,
-          lockfile,
+          lockfile: plugin.lockfile,
           suggestedLabel: deriveSuggestedLabel(relDir),
         });
-        break; // one match per plugin per directory is enough
       }
+    } else if (fileNames.has(plugin.manifest)) {
+      // No lockfile concept: match by manifest presence alone
+      result.ecosystems.push({
+        pluginId: plugin.id,
+        path: relDir,
+        lockfile: plugin.manifest,
+        suggestedLabel: deriveSuggestedLabel(relDir),
+      });
     }
   }
 }

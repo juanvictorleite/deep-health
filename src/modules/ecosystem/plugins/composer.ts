@@ -48,7 +48,8 @@ function parseComposerPhpConstraint(constraint: string): string | undefined {
 export const composerPlugin: EcosystemPlugin = {
   id: 'composer',
   name: 'Composer',
-  lockfiles: ['composer.json', 'composer.lock'],
+  manifest: 'composer.json',
+  lockfile: 'composer.lock',
   // OSV returns 'packagist' for PHP packages; include 'composer' as fallback
   osvEcosystems: ['packagist', 'composer'],
 

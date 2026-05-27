@@ -83,7 +83,8 @@ function parseEnginesNodeRange(range: string): string | undefined {
 export const npmPlugin: EcosystemPlugin = {
   id: 'npm',
   name: 'npm',
-  lockfiles: ['package.json', 'package-lock.json'],
+  manifest: 'package.json',
+  lockfile: 'package-lock.json',
   osvEcosystems: ['npm'],
 
   /** Label used in executive report evidence tables */
