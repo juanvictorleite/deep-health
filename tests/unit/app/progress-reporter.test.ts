@@ -84,6 +84,21 @@ describe('buildScanTaskList()', () => {
     const engines = [makeMockEngine('osv', 'OSV Scanner')];
     expect(() => buildScanTaskList(engines, ctx, config, 'verbose')).not.toThrow();
   });
+
+  it('includes timer config in rendererOptions for default renderer', () => {
+    const engines = [makeMockEngine('osv', 'OSV Scanner')];
+    const list = buildScanTaskList(engines, ctx, config, 'default');
+    const opts = (list as unknown as { options: { rendererOptions?: { timer?: unknown } } }).options;
+    expect(opts.rendererOptions?.timer).toBeDefined();
+    expect(opts.rendererOptions?.timer).toMatchObject({ condition: true, field: 'Timer' });
+  });
+
+  it('does not set rendererOptions for silent renderer', () => {
+    const engines = [makeMockEngine('osv', 'OSV Scanner')];
+    const list = buildScanTaskList(engines, ctx, config, 'silent');
+    const opts = (list as unknown as { options: { rendererOptions?: unknown } }).options;
+    expect(opts.rendererOptions).toBeUndefined();
+  });
 });
 
 // ─── buildFixTaskList() ───────────────────────────────────────────────────────
@@ -110,5 +125,20 @@ describe('buildFixTaskList()', () => {
     const list = buildFixTaskList('label', steps, 'silent');
     const tasks = (list as unknown as { tasks: Array<{ title: string }> }).tasks;
     expect(tasks[0].title).toBe('Revert lock file');
+  });
+
+  it('includes timer config in rendererOptions for default renderer', () => {
+    const steps = [{ title: 'Install deps', task: vi.fn().mockResolvedValue(undefined) }];
+    const list = buildFixTaskList('label', steps, 'default');
+    const opts = (list as unknown as { options: { rendererOptions?: { timer?: unknown } } }).options;
+    expect(opts.rendererOptions?.timer).toBeDefined();
+    expect(opts.rendererOptions?.timer).toMatchObject({ condition: true, field: 'Timer' });
+  });
+
+  it('does not set rendererOptions for silent renderer', () => {
+    const steps = [{ title: 'Install deps', task: vi.fn().mockResolvedValue(undefined) }];
+    const list = buildFixTaskList('label', steps, 'silent');
+    const opts = (list as unknown as { options: { rendererOptions?: unknown } }).options;
+    expect(opts.rendererOptions).toBeUndefined();
   });
 });

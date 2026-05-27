@@ -235,5 +235,12 @@
   "SonarQube provisioner: service did not become ready within {{timeoutMs}}ms{{dockerLogsTail}}": "SonarQube provisioner: o serviço não ficou pronto em {{timeoutMs}}ms{{dockerLogsTail}}",
   "SonarQube provisioner: provision() must be called before waitReady()": "SonarQube provisioner: provision() deve ser chamado antes de waitReady()",
   "Failed to create branch \"{{branchName}}\": {{detail}}": "Falha ao criar o branch \"{{branchName}}\": {{detail}}",
-  "git commit failed: {{detail}}": "git commit falhou: {{detail}}"
+  "git commit failed: {{detail}}": "git commit falhou: {{detail}}",
+
+  "No vulnerabilities found — project is clean.": "Nenhuma vulnerabilidade encontrada — o projeto está seguro.",
+  "{{total}} vulnerabilities across {{count}} ecosystem(s).": "{{total}} vulnerabilidade(s) em {{count}} ecossistema(s).",
+  "Total": "Total",
+  "Auto-safe": "Auto-seguro",
+  "Breaking": "Crítico",
+  "Manual": "Manual"
 }
