@@ -24,6 +24,11 @@ import {
   runExecutiveReportCommand,
   type ExecutiveReportCommandOptions,
 } from '@app/commands/executive-report';
+import {
+  generateBashCompletion,
+  generateZshCompletion,
+  generateFishCompletion,
+} from '@app/completions';
 import pkg from '../package.json' with { type: 'json' };
 import { CLI_NAME, DEFAULT_BRANCH_PREFIX } from '@infra/brand';
 
@@ -67,6 +72,8 @@ program
   .option('--cwd <path>', 'Working directory', process.cwd())
   .option('--output <path>', 'Output path (default: ./project-config.yml)')
   .option('--force', 'Overwrite existing file', false)
+  .option('--non-interactive', 'Skip interactive prompts (for CI/scripting)', false)
+  .option('--json', 'Output structured JSON result (requires --non-interactive)', false)
   .action(async (opts) => {
     try {
       await runInitCommand(opts);
@@ -163,6 +170,30 @@ program
       process.stderr.write(`${message}\n`);
       process.exit(exitCode);
     }
+  });
+
+// completion command — no commonOptions; produces shell completion scripts
+program
+  .command('completion')
+  .description('Generate shell completion scripts for bash, zsh, or fish')
+  .argument('[shell]', 'Shell to generate completion for (bash, zsh, fish)')
+  .action((shell: string | undefined) => {
+    const validShells = ['bash', 'zsh', 'fish'];
+    if (!shell || !validShells.includes(shell)) {
+      process.stdout.write(`Usage: ${CLI_NAME} completion <bash|zsh|fish>\n`);
+      process.stdout.write(`Example: ${CLI_NAME} completion bash >> ~/.bashrc\n`);
+      process.exit(1);
+    }
+
+    let script: string;
+    if (shell === 'bash') {
+      script = generateBashCompletion(CLI_NAME);
+    } else if (shell === 'zsh') {
+      script = generateZshCompletion(CLI_NAME);
+    } else {
+      script = generateFishCompletion(CLI_NAME);
+    }
+    process.stdout.write(script);
   });
 
 // cloud-setup command

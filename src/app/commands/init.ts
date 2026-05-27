@@ -26,6 +26,16 @@ export interface InitCommandOptions {
   force: boolean;
   /** Skip interactive prompts — used in tests and CI. */
   nonInteractive?: boolean;
+  /** Output structured JSON result instead of human-readable messages. Requires nonInteractive. */
+  json?: boolean;
+}
+
+/** Structured result emitted when --json is active. */
+export interface InitCommandJsonResult {
+  configPath: string;
+  schemaPath: string;
+  sonarPropertiesCreated: boolean;
+  ecosystems: string[];
 }
 
 /**
@@ -126,6 +136,14 @@ function printDiscoverySummary(discoveries: DiscoveredEcosystem[]): void {
  * Also prompts for OSV/SonarQube scanner config and outputs settings.
  */
 export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
+  // --json requires --non-interactive to be safe and parseable
+  if (opts.json && !opts.nonInteractive) {
+    throw new ConfigLoadError(
+      'The --json flag requires --non-interactive. Interactive mode cannot be combined with --json.',
+      '',
+    );
+  }
+
   const outputPath = opts.output
     ? resolve(opts.cwd, opts.output)
     : resolve(opts.cwd, DEFAULT_CONFIG_PATH);
@@ -634,7 +652,11 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
 
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, json, 'utf-8');
-  process.stdout.write(__('Created: {{path}}\n', { path: outputPath }));
+  if (!opts.json) {
+    process.stdout.write(__('Created: {{path}}\n', { path: outputPath }));
+  } else {
+    process.stderr.write(`Created: ${outputPath}\n`);
+  }
 
   // Write the JSON Schema file so IDEs can provide autocomplete and validation.
   const schemaDir = resolve(opts.cwd, DEFAULT_AUDIT_SUBDIR);
@@ -642,7 +664,11 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
   await mkdir(schemaDir, { recursive: true });
   const schema = generateJsonSchema();
   await writeFile(schemaOutputPath, JSON.stringify(schema, null, 2), 'utf-8');
-  process.stdout.write(__('Created: {{path}}\n', { path: schemaOutputPath }));
+  if (!opts.json) {
+    process.stdout.write(__('Created: {{path}}\n', { path: schemaOutputPath }));
+  } else {
+    process.stderr.write(`Created: ${schemaOutputPath}\n`);
+  }
 
   // When SonarQube is enabled, make sure the project has a sonar-project.properties.
   // That file is SonarQube's convention for project-level analysis config (sources,
@@ -655,10 +681,27 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     });
     if (status === 'created') {
       sonarPropsCreated = true;
-      process.stdout.write(__('Created: {{path}}\n', { path: resolve(opts.cwd, 'sonar-project.properties') }));
-    } else {
+      if (!opts.json) {
+        process.stdout.write(__('Created: {{path}}\n', { path: resolve(opts.cwd, 'sonar-project.properties') }));
+      } else {
+        process.stderr.write(`Created: ${resolve(opts.cwd, 'sonar-project.properties')}\n`);
+      }
+    } else if (!opts.json) {
       process.stdout.write(__('Found existing sonar-project.properties (not overwritten)\n'));
     }
+  }
+
+  if (opts.json) {
+    // Structured JSON output for CI consumers — all human-readable messages suppressed from stdout
+    const ecosystemIds = [...new Set(selectedDiscoveries.map((e) => e.pluginId))];
+    const result: InitCommandJsonResult = {
+      configPath: outputPath,
+      schemaPath: schemaOutputPath,
+      sonarPropertiesCreated: sonarPropsCreated,
+      ecosystems: ecosystemIds,
+    };
+    process.stdout.write(JSON.stringify(result, null, 2) + '\n');
+    return;
   }
 
   process.stdout.write(__('\nNext steps:\n'));
