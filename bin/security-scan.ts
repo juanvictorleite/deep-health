@@ -39,7 +39,7 @@ const commonOptions = (cmd: Command) =>
   cmd
     .option(
       '-c, --config <path>',
-      'Path to project-config.yml',
+      'Path to security-scan.config.json',
       DEFAULT_CONFIG_PATH,
     )
     .option('--cwd <path>', 'Working directory', process.cwd())
@@ -60,7 +60,7 @@ const commonOptions = (cmd: Command) =>
 // Update this command only when new ecosystems need first-class `init` UX.
 program
   .command('init')
-  .description('Generate a project-config.yml template in the current project')
+  .description('Initialize project configuration (interactive setup)')
   .option('--project-name <name>', 'Project name')
   .option('--client <name>', 'Client name')
   .option('--cwd <path>', 'Working directory', process.cwd())
@@ -78,7 +78,7 @@ program
 
 // scan command
 commonOptions(
-  program.command('scan').description('Run vulnerability scan only (Phase 1)'),
+  program.command('scan').description('Scan for known vulnerabilities (CVEs)'),
 ).action(async (opts: ScanCommandOptions) => {
   await runCliAction(() =>
     createRunContext(opts).then((ctx) => runScanCommand(ctx, opts)),
@@ -160,6 +160,20 @@ program
       runCloudSetup({ configPath: opts.config, cwd: opts.cwd }),
     );
   });
+
+program.addHelpText(
+  'after',
+  [
+    '',
+    'Examples:',
+    `  ${CLI_NAME} init                              # Interactive project setup`,
+    `  ${CLI_NAME} scan --cwd ./my-project           # Scan for CVEs`,
+    `  ${CLI_NAME} fix --cwd ./my-project            # Scan + fix + report`,
+    `  ${CLI_NAME} fix --authorize-breaking composer # Allow breaking changes for composer`,
+    `  ${CLI_NAME} fix --open-pr                     # Fix and open a GitHub PR`,
+    `  ${CLI_NAME} doctor                            # Check environment prerequisites`,
+  ].join('\n'),
+);
 
 /**
  * Shared error/exit wrapper for all main CLI actions.

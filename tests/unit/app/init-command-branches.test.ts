@@ -13,6 +13,13 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
 }));
 
+// Treat all tests in this suite as interactive so the TTY guard never fires.
+vi.mock('@infra/utils/tty', () => ({
+  isCI: vi.fn(() => false),
+  isInteractive: vi.fn(() => true),
+  assertInteractive: vi.fn(),
+}));
+
 vi.mock('@infra/config/generator', () => ({
   generateConfigJson: vi.fn(() => '{"project":{"name":"demo"}}'),
 }));

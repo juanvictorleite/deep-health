@@ -6,6 +6,7 @@ import { generateJsonSchema } from '@infra/config/schema-export';
 import { writeSonarPropertiesTemplateIfMissing } from './sonar-properties-template';
 import { prompt } from '@infra/utils/prompt';
 import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
+import { isInteractive } from '@infra/utils/tty';
 import { discoverProject, type DiscoveredEcosystem, type DiscoveredDockerfile } from '@infra/utils/detect-ecosystems';
 import { detectProjectScripts } from '@infra/utils/detect-scripts';
 import { defaultRegistry } from '@modules/ecosystem/index';
@@ -144,6 +145,17 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
       // File doesn't exist — proceed
     }
+  }
+
+  // ─── TTY guard — must come before any interactive prompts ────────────────────
+  // If the caller did not pass --non-interactive and there is no TTY, bail out
+  // with a helpful error instead of hanging waiting for input.
+
+  if (!opts.nonInteractive && !isInteractive()) {
+    process.stderr.write(
+      `Interactive prompt required but no TTY detected. Running in CI? Use: ${CLI_NAME} init --non-interactive\n`,
+    );
+    process.exit(1);
   }
 
   // ─── Language selection (FIRST interactive question) ─────────────────────────
