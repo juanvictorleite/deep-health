@@ -9,7 +9,7 @@
  *   AC5 — EcosystemConfigEntry path/label emitted in JSON
  *   AC6 — inferVersion and detectProjectScripts use discovery path
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('node:fs/promises', () => ({
   writeFile: vi.fn(),
@@ -1094,5 +1094,196 @@ describe('init command — discovery summary display', () => {
     const infoMessages = mockLoggerInfo.mock.calls.map((args) => String(args[0]));
     const hasSummary = infoMessages.some((m) => m.toLowerCase().includes('ecosystem'));
     expect(hasSummary).toBe(true);
+  });
+});
+
+// ─── AC3/AC4: --json flag ─────────────────────────────────────────────────────
+
+describe('init command — --json flag', () => {
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDiscoverProject.mockResolvedValue({ ecosystems: [npmRootDiscovery], dockerfiles: [] });
+    setupNonInteractiveMocks();
+    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('outputs valid JSON to stdout when --json and --non-interactive are both set', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      json: true,
+      projectName: 'My Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    // Collect all stdout writes
+    const stdoutOutput = stdoutSpy.mock.calls
+      .map((args) => String(args[0]))
+      .join('');
+
+    const parsed = JSON.parse(stdoutOutput) as Record<string, unknown>;
+    expect(parsed).toHaveProperty('configPath');
+    expect(parsed).toHaveProperty('schemaPath');
+    expect(parsed).toHaveProperty('sonarPropertiesCreated');
+    expect(parsed).toHaveProperty('ecosystems');
+    expect(Array.isArray(parsed['ecosystems'])).toBe(true);
+  });
+
+  it('JSON result contains configPath ending with the output filename', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      json: true,
+      projectName: 'My Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const stdoutOutput = stdoutSpy.mock.calls
+      .map((args) => String(args[0]))
+      .join('');
+    const parsed = JSON.parse(stdoutOutput) as { configPath: string };
+    expect(parsed.configPath).toContain('security-scan.config.json');
+  });
+
+  it('JSON result contains schemaPath ending with config-schema.json', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      json: true,
+      projectName: 'My Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const stdoutOutput = stdoutSpy.mock.calls
+      .map((args) => String(args[0]))
+      .join('');
+    const parsed = JSON.parse(stdoutOutput) as { schemaPath: string };
+    expect(parsed.schemaPath).toContain('config-schema.json');
+  });
+
+  it('JSON result has sonarPropertiesCreated: false when SonarQube is not enabled', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      json: true,
+      projectName: 'My Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const stdoutOutput = stdoutSpy.mock.calls
+      .map((args) => String(args[0]))
+      .join('');
+    const parsed = JSON.parse(stdoutOutput) as { sonarPropertiesCreated: boolean };
+    expect(parsed.sonarPropertiesCreated).toBe(false);
+  });
+
+  it('JSON result includes discovered ecosystem plugin ids', async () => {
+    mockDiscoverProject.mockResolvedValue({
+      ecosystems: [npmRootDiscovery],
+      dockerfiles: [],
+    });
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      json: true,
+      projectName: 'My Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const stdoutOutput = stdoutSpy.mock.calls
+      .map((args) => String(args[0]))
+      .join('');
+    const parsed = JSON.parse(stdoutOutput) as { ecosystems: string[] };
+    expect(parsed.ecosystems).toContain('npm');
+  });
+
+  it('informational "Created:" messages go to stderr, not stdout, when --json is active', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      json: true,
+      projectName: 'My Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    // All stderr writes should contain "Created:" messages
+    const stderrOutput = stderrSpy.mock.calls
+      .map((args) => String(args[0]))
+      .join('');
+    expect(stderrOutput).toContain('Created:');
+
+    // stdout should contain only valid JSON (no "Created:" in stdout)
+    const stdoutOutput = stdoutSpy.mock.calls
+      .map((args) => String(args[0]))
+      .join('');
+    // Parse succeeds — no "Created:" mixed in
+    expect(() => JSON.parse(stdoutOutput)).not.toThrow();
+    expect(stdoutOutput).not.toContain('Created:');
+  });
+
+  it('does not write Next steps to stdout when --json is active', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      json: true,
+      projectName: 'My Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const stdoutOutput = stdoutSpy.mock.calls
+      .map((args) => String(args[0]))
+      .join('');
+    expect(stdoutOutput).not.toContain('Next steps');
+  });
+
+  it('throws an error when --json is used without --non-interactive', async () => {
+    await expect(
+      runInitCommand({
+        cwd: '/repo',
+        force: true,
+        json: true,
+        nonInteractive: false,
+        projectName: 'My Project',
+        client: 'Client',
+        output: 'security-scan.config.json',
+      }),
+    ).rejects.toThrow('--json flag requires --non-interactive');
+  });
+
+  it('throws an error when --json is used with nonInteractive undefined', async () => {
+    await expect(
+      runInitCommand({
+        cwd: '/repo',
+        force: true,
+        json: true,
+        projectName: 'My Project',
+        client: 'Client',
+        output: 'security-scan.config.json',
+      }),
+    ).rejects.toThrow('--json flag requires --non-interactive');
   });
 });
