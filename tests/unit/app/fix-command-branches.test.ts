@@ -183,7 +183,7 @@ describe('runFixCommand() — breaking packages warning branch (lines 92-109)', 
       noReport: true,
     });
 
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('Breaking-change updates skipped'));
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('Breaking-change updates were skipped:'));
     stderrSpy.mockRestore();
   });
 });
@@ -283,7 +283,7 @@ describe('runFixCommand() — branch coverage top-up', () => {
     expect(code).toBe(0);
   });
 
-  it('uses "unknown" when breaking_packages is empty array (line 95 || branch)', async () => {
+  it('emits breaking warning with ecosystem name when breaking_packages is empty array', async () => {
     vi.mocked(runScanner).mockResolvedValue(scanResult);
     vi.mocked(runOrchestrator).mockResolvedValue({
       scan: {
@@ -319,7 +319,8 @@ describe('runFixCommand() — branch coverage top-up', () => {
       json: false,
       noReport: true,
     });
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('unknown'));
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('Breaking-change updates were skipped:'));
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('npm (npm): 1 package(s)'));
     stderrSpy.mockRestore();
   });
 
