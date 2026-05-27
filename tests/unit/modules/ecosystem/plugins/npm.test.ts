@@ -12,14 +12,12 @@ vi.mock('@modules/ecosystem/utils/lockfile-utils', () => ({
 
 import { npmPlugin } from '@modules/ecosystem/plugins/npm';
 import { readNpmLockfileVersion } from '@modules/ecosystem/utils/lockfile-utils';
-import type { ProjectConfig } from '@core/types/config';
+import type { ProjectConfig, EcosystemConfig } from '@core/types/config';
 
-function makeConfig(fixer?: string): ProjectConfig {
+function makeConfig(): ProjectConfig {
   return {
     project: { name: 'Test', client: 'Test' },
-    ecosystems: fixer !== undefined
-      ? [{ id: 'npm', fixer, validationCommands: [], advisors: [] }]
-      : [{ id: 'npm', validationCommands: [], advisors: [] }],
+    ecosystems: [{ id: 'npm', validationCommands: [], advisors: [] }],
     protected_packages: { npm: [], composer: [], pip: [] },
     safe_update_policy: {
       allow_patch_and_minor_within_constraints: true,
@@ -30,6 +28,12 @@ function makeConfig(fixer?: string): ProjectConfig {
   } as ProjectConfig;
 }
 
+function makeEcoEntry(fixer?: string): EcosystemConfig {
+  return fixer !== undefined
+    ? { id: 'npm', fixer, validationCommands: [], advisors: [] } as EcosystemConfig
+    : { id: 'npm', validationCommands: [], advisors: [] } as EcosystemConfig;
+}
+
 describe('npmPlugin.resolveEffectiveFixer', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -38,7 +42,7 @@ describe('npmPlugin.resolveEffectiveFixer', () => {
   it('(a) lockfileVersion=2 + configured strategy osv → returns osv unchanged', async () => {
     vi.mocked(readNpmLockfileVersion).mockResolvedValue(2);
 
-    const result = await npmPlugin.resolveEffectiveFixer!(makeConfig('osv'), '/project');
+    const result = await npmPlugin.resolveEffectiveFixer!(makeConfig(), '/project', makeEcoEntry('osv'));
 
     expect(readNpmLockfileVersion).toHaveBeenCalledWith('/project');
     expect(result).toBe('osv');
@@ -47,7 +51,7 @@ describe('npmPlugin.resolveEffectiveFixer', () => {
   it('(a) lockfileVersion=2 + configured strategy osv-then-audit → returns osv-then-audit unchanged', async () => {
     vi.mocked(readNpmLockfileVersion).mockResolvedValue(2);
 
-    const result = await npmPlugin.resolveEffectiveFixer!(makeConfig('osv-then-audit'), '/project');
+    const result = await npmPlugin.resolveEffectiveFixer!(makeConfig(), '/project', makeEcoEntry('osv-then-audit'));
 
     expect(result).toBe('osv-then-audit');
   });
@@ -55,7 +59,7 @@ describe('npmPlugin.resolveEffectiveFixer', () => {
   it('(b) lockfileVersion=1 + strategy osv → returns npm-audit (demotion)', async () => {
     vi.mocked(readNpmLockfileVersion).mockResolvedValue(1);
 
-    const result = await npmPlugin.resolveEffectiveFixer!(makeConfig('osv'), '/project');
+    const result = await npmPlugin.resolveEffectiveFixer!(makeConfig(), '/project', makeEcoEntry('osv'));
 
     expect(readNpmLockfileVersion).toHaveBeenCalledWith('/project');
     expect(result).toBe('npm-audit');
@@ -64,13 +68,13 @@ describe('npmPlugin.resolveEffectiveFixer', () => {
   it('(c) lockfileVersion=1 + strategy osv-then-audit → returns npm-audit (demotion)', async () => {
     vi.mocked(readNpmLockfileVersion).mockResolvedValue(1);
 
-    const result = await npmPlugin.resolveEffectiveFixer!(makeConfig('osv-then-audit'), '/project');
+    const result = await npmPlugin.resolveEffectiveFixer!(makeConfig(), '/project', makeEcoEntry('osv-then-audit'));
 
     expect(result).toBe('npm-audit');
   });
 
   it('(d) strategy npm-audit → returns npm-audit without calling readNpmLockfileVersion', async () => {
-    const result = await npmPlugin.resolveEffectiveFixer!(makeConfig('npm-audit'), '/project');
+    const result = await npmPlugin.resolveEffectiveFixer!(makeConfig(), '/project', makeEcoEntry('npm-audit'));
 
     // readNpmLockfileVersion must NOT be called — no lockfile inspection needed
     expect(readNpmLockfileVersion).not.toHaveBeenCalled();
@@ -80,7 +84,7 @@ describe('npmPlugin.resolveEffectiveFixer', () => {
   it('(e) lockfileVersion=null (file missing) → returns original strategy unchanged', async () => {
     vi.mocked(readNpmLockfileVersion).mockResolvedValue(null);
 
-    const result = await npmPlugin.resolveEffectiveFixer!(makeConfig('osv'), '/project');
+    const result = await npmPlugin.resolveEffectiveFixer!(makeConfig(), '/project', makeEcoEntry('osv'));
 
     expect(readNpmLockfileVersion).toHaveBeenCalledWith('/project');
     expect(result).toBe('osv');
@@ -89,8 +93,8 @@ describe('npmPlugin.resolveEffectiveFixer', () => {
   it('no configured fixer → uses NPM_DEFAULT_FIXER (osv-then-audit) as default', async () => {
     vi.mocked(readNpmLockfileVersion).mockResolvedValue(2);
 
-    // Config has no fixer set for npm
-    const result = await npmPlugin.resolveEffectiveFixer!(makeConfig(), '/project');
+    // ecoEntry has no fixer set — plugin should fall back to NPM_DEFAULT_FIXER
+    const result = await npmPlugin.resolveEffectiveFixer!(makeConfig(), '/project', makeEcoEntry());
 
     // Default is NPM_DEFAULT_FIXER = 'osv-then-audit'; v2 lockfile so no demotion
     expect(result).toBe('osv-then-audit');
@@ -99,7 +103,7 @@ describe('npmPlugin.resolveEffectiveFixer', () => {
   it('no configured fixer + lockfileVersion=1 → demotes default osv-then-audit to npm-audit', async () => {
     vi.mocked(readNpmLockfileVersion).mockResolvedValue(1);
 
-    const result = await npmPlugin.resolveEffectiveFixer!(makeConfig(), '/project');
+    const result = await npmPlugin.resolveEffectiveFixer!(makeConfig(), '/project', makeEcoEntry());
 
     expect(result).toBe('npm-audit');
   });

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
-import type { ProjectConfig, ProtectedPackage, FixerStrategyId } from '@core/types/config';
+import type { ProjectConfig, ProtectedPackage, FixerStrategyId, EcosystemConfig } from '@core/types/config';
 import type { CommandRunner } from '@core/types/common';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
@@ -132,9 +132,8 @@ export const npmPlugin: EcosystemPlugin = {
    * Must not throw. Returns the original strategy when the lockfile is missing
    * or unreadable.
    */
-  async resolveEffectiveFixer(config: ProjectConfig, cwd: string): Promise<FixerStrategyId> {
-    const ecoConfigEntry = config.ecosystems.find((e) => e.id === 'npm');
-    const strategy: FixerStrategyId = (ecoConfigEntry?.fixer ?? NPM_DEFAULT_FIXER) as FixerStrategyId;
+  async resolveEffectiveFixer(_config: ProjectConfig, cwd: string, ecoEntry: EcosystemConfig): Promise<FixerStrategyId> {
+    const strategy = (ecoEntry.fixer ?? NPM_DEFAULT_FIXER) as FixerStrategyId;
 
     if (strategy === 'osv' || strategy === 'osv-then-audit') {
       const lockVer = await readNpmLockfileVersion(cwd);

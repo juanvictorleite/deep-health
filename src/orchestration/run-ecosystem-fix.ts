@@ -320,7 +320,7 @@ async function resolveFixerStrategy(
   ecoEntry: EcosystemConfig,
 ): Promise<FixerStrategyId> {
   if (plugin.resolveEffectiveFixer) {
-    return plugin.resolveEffectiveFixer(config, cwd);
+    return plugin.resolveEffectiveFixer(config, cwd, ecoEntry);
   }
   const configured = ecoEntry.fixer;
   if (configured) return configured;

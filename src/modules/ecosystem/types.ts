@@ -1,5 +1,5 @@
 import type { CommandRunner } from '@core/types/common';
-import type { ProjectConfig, ProtectedPackage, FixerStrategyId, ValidationCommandConfig, AdvisorConfig } from '@core/types/config';
+import type { ProjectConfig, ProtectedPackage, FixerStrategyId, ValidationCommandConfig, AdvisorConfig, EcosystemConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
 import type { AdvisorResult } from '@core/types/report';
@@ -132,7 +132,7 @@ export interface EcosystemPlugin {
    * When absent, runEcosystemFix falls back to its own inline resolution:
    * `ecoConfigEntry?.fixer ?? (plugin.supportedFixers[0] ?? 'osv')`.
    */
-  resolveEffectiveFixer?(config: ProjectConfig, cwd: string): Promise<FixerStrategyId>;
+  resolveEffectiveFixer?(config: ProjectConfig, cwd: string, ecoEntry: EcosystemConfig): Promise<FixerStrategyId>;
 
   /**
    * Optional hook: install authorized breaking-change packages after the
