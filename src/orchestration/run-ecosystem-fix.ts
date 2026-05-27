@@ -25,6 +25,7 @@
  */
 
 import type { CommandRunner } from '@core/types/common';
+import { createQuietRunner } from '@infra/utils/quiet-runner';
 import type { ProjectConfig, FixerStrategyId, EcosystemConfig, ValidationCommandConfig } from '@core/types/config';
 import { ecosystemEntryKey } from '@core/types/config';
 import type { ScanResultJson, EcosystemScanResult } from '@core/types/scan';
@@ -69,6 +70,12 @@ export interface RunEcosystemFixParams {
    * commands run in the correct subdirectory. Defaults to cwd when absent.
    */
   projectRoot?: string;
+  /**
+   * When false (default mode), progress sink calls inside executeOsvStagingPhase
+   * and runPluginUpdater are suppressed — the listr2 task owns the sink.
+   * When true (verbose mode), behavior is identical to the current implementation.
+   */
+  verbose?: boolean;
 }
 
 export type RunEcosystemFixOutcome =
@@ -124,6 +131,7 @@ interface OsvStagingPhaseParams {
   ecoEntry: EcosystemConfig;
   cwd: string;
   dryRun: boolean;
+  verbose?: boolean;
 }
 
 /**
@@ -137,7 +145,7 @@ interface OsvStagingPhaseParams {
 async function executeOsvStagingPhase(
   params: OsvStagingPhaseParams,
 ): Promise<{ preFixBackups: Map<string, string> | undefined; osvFixOutcome: { applied: boolean; packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }> } | undefined }> {
-  const { plugin, fixerStrategy, config, ecoEntry, cwd, dryRun } = params;
+  const { plugin, fixerStrategy, config, ecoEntry, cwd, dryRun, verbose } = params;
 
   if (
     (fixerStrategy === 'osv' || fixerStrategy === 'osv-then-audit') &&
@@ -145,7 +153,9 @@ async function executeOsvStagingPhase(
   ) {
     const fixLockfileOverride = resolveFixLockfilePath(config, ecoEntry, plugin);
 
-    setProgressSink(makeProgressSink());
+    if (verbose !== false) {
+      setProgressSink(makeProgressSink());
+    }
     let fixResult: Awaited<ReturnType<typeof applyOsvFixViaStaging>>;
     try {
       fixResult = await applyOsvFixViaStaging({
@@ -156,7 +166,9 @@ async function executeOsvStagingPhase(
         dryRun,
       });
     } finally {
-      setProgressSink(null);
+      if (verbose !== false) {
+        setProgressSink(null);
+      }
     }
     return {
       preFixBackups: fixResult.backups,
@@ -387,6 +399,7 @@ interface RunUpdaterParams {
   ecosystemResult: EcosystemScanResult | undefined;
   dryRun: boolean;
   entryKey: string;
+  verbose?: boolean;
 }
 
 /**
@@ -401,7 +414,7 @@ async function runPluginUpdater(
   const {
     plugin, effectiveRunner, config, scanResult, cwd, authorizeBreaking,
     validationCommands, fixerStrategy, preFixBackups, osvFixOutcome,
-    preRunSnapshots, advisorResults, ecoEntry, ecosystemResult, dryRun, entryKey,
+    preRunSnapshots, advisorResults, ecoEntry, ecosystemResult, dryRun, entryKey, verbose,
   } = params;
 
   if (dryRun && ecosystemResult) {
@@ -410,7 +423,9 @@ async function runPluginUpdater(
   }
 
   logger.tagged(plugin.id, 'fixer', `Strategy: ${fixerStrategy} (config: ${ecoEntry.fixer ?? 'undefined'}, supportedFixers[0]: ${plugin.supportedFixers[0] ?? 'undefined'}, hasResolveEffectiveFixer: ${!!plugin.resolveEffectiveFixer})`);
-  setProgressSink(makeProgressSink());
+  if (verbose !== false) {
+    setProgressSink(makeProgressSink());
+  }
   try {
     return await plugin.runUpdater({
       runner: effectiveRunner,
@@ -427,7 +442,9 @@ async function runPluginUpdater(
       ecosystemKey: entryKey,
     });
   } finally {
-    setProgressSink(null);
+    if (verbose !== false) {
+      setProgressSink(null);
+    }
   }
 }
 
@@ -506,6 +523,7 @@ export async function runEcosystemFix(
   params: RunEcosystemFixParams,
 ): Promise<RunEcosystemFixOutcome> {
   const { plugin, hostRunner, config, scanResult, cwd, dryRun, authorizeBreaking, preRunSnapshots } = params;
+  const verbose = params.verbose;
 
   // Resolve all derived context: ecoEntry, fixerStrategy, hasUpdates gate, etc.
   const { ecoEntry, validationCommands, fixerStrategy, entryKey, ecosystemResult, hasUpdates } =
@@ -522,15 +540,24 @@ export async function runEcosystemFix(
     return { status: 'skipped', reason: 'no-updates', advisorResults: skipAdvisorResults };
   }
 
-  logger.phase(plugin.id);
+  // In verbose mode, emit the phase divider; in default mode the listr2 task title replaces it.
+  if (verbose !== false) {
+    logger.phase(plugin.id);
+  }
 
   // Resolve effective runner via the ecosystem runtime module
   // Pass the per-ecosystem inline runner config from ecosystems[].runner (if any).
   // projectRoot is passed so buildProjectImage resolves Dockerfile/context paths
   // from the project root, while cwd (ecosystemCwd) is kept for container mounts.
-  const effectiveRunner: CommandRunner = plugin.runtimeSpec
+  const resolvedRunner: CommandRunner = plugin.runtimeSpec
     ? await resolveEcosystemRuntime({ plugin, hostRunner, config, cwd, runnerConfig: ecoEntry.runner, projectRoot: params.projectRoot })
     : hostRunner;
+
+  // In default mode, wrap the resolved runner to suppress stream:true output so
+  // raw subprocess output does not bleed through the listr2 spinner display.
+  const effectiveRunner: CommandRunner = verbose === false
+    ? createQuietRunner(resolvedRunner)
+    : resolvedRunner;
 
   // Run advisors using effectiveRunner so they execute in the same container
   // as the fix phase (when Docker is configured). Informational only — never throws,
@@ -541,13 +568,13 @@ export async function runEcosystemFix(
 
   // OSV staging-apply (generic, driven by plugin.osvFixSpec)
   const { preFixBackups, osvFixOutcome } = await executeOsvStagingPhase({
-    plugin, fixerStrategy, config, ecoEntry, cwd, dryRun,
+    plugin, fixerStrategy, config, ecoEntry, cwd, dryRun, verbose,
   });
 
   const updateResult = await runPluginUpdater({
     plugin, effectiveRunner, config, scanResult, cwd, authorizeBreaking,
     validationCommands, fixerStrategy, preFixBackups, osvFixOutcome,
-    preRunSnapshots, advisorResults, ecoEntry, ecosystemResult, dryRun, entryKey,
+    preRunSnapshots, advisorResults, ecoEntry, ecosystemResult, dryRun, entryKey, verbose,
   });
 
   // === Post-updater: Breaking packages install (generic, via plugin hook) ===

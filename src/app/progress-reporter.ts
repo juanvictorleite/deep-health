@@ -70,3 +70,40 @@ export function buildFixTaskList(
     concurrent: false,
   });
 }
+
+// ─── Ecosystem fix task list ──────────────────────────────────────────────────
+
+/**
+ * Builds a Listr task list for the ecosystem fix loop.
+ *
+ * Each entry becomes one Listr task. The task wires setProgressSink to
+ * task.output so logger.tagged() output routes to the rolling last-line display
+ * under the spinner. The sink is cleared in finally so the global singleton
+ * is not left dangling between tasks.
+ */
+export function buildEcosystemFixTaskList(
+  entries: Array<{ title: string; run: () => Promise<void> }>,
+  rendererType: RendererType,
+): Listr<unknown, ListrRendererValue> {
+  const tasks = entries.map((entry) => ({
+    title: entry.title,
+    task: async (_: unknown, task: { output: string }) => {
+      setProgressSink((msg: string) => {
+        task.output = msg;
+      });
+      try {
+        await entry.run();
+      } finally {
+        setProgressSink(null);
+      }
+    },
+  }));
+
+  return new Listr(tasks, {
+    renderer: rendererType,
+    rendererOptions: rendererType === 'default'
+      ? { collapseSubtasks: false, timer: { condition: true, field: 'Timer' } }
+      : undefined,
+    concurrent: false,
+  });
+}

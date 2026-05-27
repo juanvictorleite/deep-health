@@ -12,6 +12,8 @@ import { GateValidationError } from "@core/errors";
 import { logger } from "@infra/utils/logger";
 import { detectGitBranch } from "@infra/utils/git-branch";
 import type { RendererType } from "@app/progress-reporter";
+import { buildEcosystemFixTaskList } from "@app/progress-reporter";
+import { badge } from "@infra/utils/ui";
 // Ecosystem registry — plugins are registered via modules/ecosystem/index.ts side-effects
 import { EcosystemRegistry, defaultRegistry } from "@modules/ecosystem/index";
 // Scanner registry — engines are bootstrapped lazily via bootstrapDefaultEngines()
@@ -426,17 +428,29 @@ interface EcosystemLoopParams {
   scanResult: ScanResultJson;
   preRunSnapshots: Map<string, string>;
   result: OrchestratorResult;
+  rendererType: RendererType;
 }
 
 /**
- * Iterates over config.ecosystems entries and runs runEcosystemFix for each.
- *
- * Processes entries independently (not unique plugins) to support monorepo
- * configurations where the same plugin id appears at multiple paths.
- * Stops early and sets result.overallStatus = 'error' on the first error.
+ * Builds the list of active ecosystem entries to process (respects phases filter).
+ * Returns { plugin, ecoEntry, ecosystemCwd, authorizeBreaking } for each active entry.
  */
-async function runEcosystemLoop(params: EcosystemLoopParams): Promise<void> {
-  const { config, options, ecosystemRegistry, runner, scanResult, preRunSnapshots, result } = params;
+function buildActiveEcosystemEntries(
+  config: ProjectConfig,
+  options: OrchestratorOptions,
+  ecosystemRegistry: EcosystemRegistry,
+): Array<{
+  plugin: EcosystemPlugin;
+  ecoEntry: EcosystemConfig;
+  ecosystemCwd: string;
+  authorizeBreaking: boolean;
+}> {
+  const entries: Array<{
+    plugin: EcosystemPlugin;
+    ecoEntry: EcosystemConfig;
+    ecosystemCwd: string;
+    authorizeBreaking: boolean;
+  }> = [];
 
   for (const ecoEntry of config.ecosystems) {
     const plugin = ecosystemRegistry.getAll().find((p) => p.id === ecoEntry.id);
@@ -444,43 +458,89 @@ async function runEcosystemLoop(params: EcosystemLoopParams): Promise<void> {
 
     const entryKey = ecosystemEntryKey(ecoEntry);
 
-    // shouldRunPhase: accepts BOTH bare plugin id AND entryKey.
-    // 'npm' runs all npm entries; 'npm:frontend' runs only that entry.
     if (options.phases && !shouldRunPhase(ecoEntry.id, options) && !shouldRunPhase(entryKey, options)) {
       logger.info(`Phase: Skipping ${plugin.name} (${entryKey}) — not in phases list`);
       continue;
     }
 
-    // Resolve the working directory for this ecosystem entry.
-    // When entry.path is present, resolve it relative to the project root so
-    // Docker volumes and runtime commands operate in the correct subdirectory.
     const ecosystemCwd = ecoEntry.path ? resolve(options.cwd, ecoEntry.path) : options.cwd;
-
-    // authorizeBreaking: accepts BOTH bare plugin id AND entryKey.
-    // { npm: true } authorizes all npm entries; { 'npm:frontend': true } authorizes only that entry.
     const authorizeBreaking =
       (options.authorizeBreaking?.[ecoEntry.id] ?? false) ||
       (options.authorizeBreaking?.[entryKey] ?? false);
 
-    const outcome = await runEcosystemFix({
-      plugin,
-      ecoEntry,
-      hostRunner: runner,
-      config,
-      scanResult,
-      cwd: ecosystemCwd,
-      dryRun: options.dryRun,
-      authorizeBreaking,
-      preRunSnapshots,
-      projectRoot: options.cwd,
-    });
-
-    // Read advisorResults BEFORE the skipped guard — advisors now run in both the
-    // fix path AND the skip path (using hostRunner when !hasUpdates). Storing them
-    // here ensures skipped-ecosystem advisor results are not silently discarded.
-    const shouldBreak = processEcosystemOutcome(outcome, ecoEntry, plugin, result);
-    if (shouldBreak) break;
+    entries.push({ plugin, ecoEntry, ecosystemCwd, authorizeBreaking });
   }
+
+  return entries;
+}
+
+/**
+ * Iterates over config.ecosystems entries and runs runEcosystemFix for each.
+ *
+ * In default (non-verbose) mode, wraps all entries in a listr2 task list so
+ * each ecosystem shows as a spinner with rolling output. In verbose mode, runs
+ * the loop directly preserving current behavior exactly.
+ *
+ * Processes entries independently (not unique plugins) to support monorepo
+ * configurations where the same plugin id appears at multiple paths.
+ * Stops early and sets result.overallStatus = 'error' on the first error.
+ */
+async function runEcosystemLoop(params: EcosystemLoopParams): Promise<void> {
+  const { config, options, ecosystemRegistry, runner, scanResult, preRunSnapshots, result, rendererType } = params;
+
+  const activeEntries = buildActiveEcosystemEntries(config, options, ecosystemRegistry);
+
+  if (rendererType === 'verbose') {
+    for (const { plugin, ecoEntry, ecosystemCwd, authorizeBreaking } of activeEntries) {
+      const outcome = await runEcosystemFix({
+        plugin,
+        ecoEntry,
+        hostRunner: runner,
+        config,
+        scanResult,
+        cwd: ecosystemCwd,
+        dryRun: options.dryRun,
+        authorizeBreaking,
+        preRunSnapshots,
+        projectRoot: options.cwd,
+        verbose: true,
+      });
+
+      const shouldBreak = processEcosystemOutcome(outcome, ecoEntry, plugin, result);
+      if (shouldBreak) break;
+    }
+    return;
+  }
+
+  // Default mode: wrap each ecosystem in a listr2 task with spinner + rolling output.
+  // shouldBreak is shared state across tasks; subsequent tasks check it via skip().
+  let shouldBreak = false;
+
+  const taskEntries = activeEntries.map(({ plugin, ecoEntry, ecosystemCwd, authorizeBreaking }) => ({
+    title: `${badge(plugin.id)} ${plugin.name}`,
+    run: async () => {
+      if (shouldBreak) return;
+      const outcome = await runEcosystemFix({
+        plugin,
+        ecoEntry,
+        hostRunner: runner,
+        config,
+        scanResult,
+        cwd: ecosystemCwd,
+        dryRun: options.dryRun,
+        authorizeBreaking,
+        preRunSnapshots,
+        projectRoot: options.cwd,
+        verbose: false,
+      });
+
+      const broke = processEcosystemOutcome(outcome, ecoEntry, plugin, result);
+      if (broke) shouldBreak = true;
+    },
+  }));
+
+  const taskList = buildEcosystemFixTaskList(taskEntries, rendererType);
+  await taskList.run();
 }
 
 // ---------------------------------------------------------------------------
@@ -542,6 +602,7 @@ export async function runOrchestrator(
   // are each processed independently.
   await runEcosystemLoop({
     config, options, ecosystemRegistry, runner, scanResult, preRunSnapshots, result,
+    rendererType: options.rendererType ?? 'default',
   });
 
   // Post-fix sweep: run engines that declared phase='post-fix' (e.g. SonarQube).

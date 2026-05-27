@@ -11,7 +11,7 @@ vi.mock('@infra/utils/logger', () => ({
 }));
 
 import { Listr } from 'listr2';
-import { selectRenderer, buildScanTaskList, buildFixTaskList } from '@app/progress-reporter';
+import { selectRenderer, buildScanTaskList, buildFixTaskList, buildEcosystemFixTaskList } from '@app/progress-reporter';
 import type { ScannerEngine, ScannerEngineContext } from '@modules/scanner/types';
 import type { ProjectConfig } from '@core/types/config';
 
@@ -140,5 +140,64 @@ describe('buildFixTaskList()', () => {
     const list = buildFixTaskList('label', steps, 'silent');
     const opts = (list as unknown as { options: { rendererOptions?: unknown } }).options;
     expect(opts.rendererOptions).toBeUndefined();
+  });
+});
+
+// ─── buildEcosystemFixTaskList() ──────────────────────────────────────────────
+
+describe('buildEcosystemFixTaskList()', () => {
+  it('returns a Listr instance', () => {
+    const entries = [{ title: '[NPM] npm', run: vi.fn().mockResolvedValue(undefined) }];
+    const list = buildEcosystemFixTaskList(entries, 'silent');
+    expect(list).toBeInstanceOf(Listr);
+  });
+
+  it('creates one task per entry', () => {
+    const entries = [
+      { title: '[NPM] npm', run: vi.fn().mockResolvedValue(undefined) },
+      { title: '[COMPOSER] Composer', run: vi.fn().mockResolvedValue(undefined) },
+      { title: '[PIP] pip', run: vi.fn().mockResolvedValue(undefined) },
+    ];
+    const list = buildEcosystemFixTaskList(entries, 'silent');
+    expect((list as unknown as { tasks: unknown[] }).tasks).toHaveLength(3);
+  });
+
+  it('preserves the entry title on each task', () => {
+    const entries = [{ title: '[NPM] npm', run: vi.fn().mockResolvedValue(undefined) }];
+    const list = buildEcosystemFixTaskList(entries, 'silent');
+    const tasks = (list as unknown as { tasks: Array<{ title: string }> }).tasks;
+    expect(tasks[0].title).toBe('[NPM] npm');
+  });
+
+  it('includes timer config in rendererOptions for default renderer', () => {
+    const entries = [{ title: '[NPM] npm', run: vi.fn().mockResolvedValue(undefined) }];
+    const list = buildEcosystemFixTaskList(entries, 'default');
+    const opts = (list as unknown as { options: { rendererOptions?: { timer?: unknown } } }).options;
+    expect(opts.rendererOptions?.timer).toBeDefined();
+    expect(opts.rendererOptions?.timer).toMatchObject({ condition: true, field: 'Timer' });
+  });
+
+  it('does not set rendererOptions for verbose renderer', () => {
+    const entries = [{ title: '[NPM] npm', run: vi.fn().mockResolvedValue(undefined) }];
+    const list = buildEcosystemFixTaskList(entries, 'verbose');
+    const opts = (list as unknown as { options: { rendererOptions?: unknown } }).options;
+    expect(opts.rendererOptions).toBeUndefined();
+  });
+
+  it('does not set rendererOptions for silent renderer', () => {
+    const entries = [{ title: '[NPM] npm', run: vi.fn().mockResolvedValue(undefined) }];
+    const list = buildEcosystemFixTaskList(entries, 'silent');
+    const opts = (list as unknown as { options: { rendererOptions?: unknown } }).options;
+    expect(opts.rendererOptions).toBeUndefined();
+  });
+
+  it('creates an empty task list when entries array is empty', () => {
+    const list = buildEcosystemFixTaskList([], 'silent');
+    expect((list as unknown as { tasks: unknown[] }).tasks).toHaveLength(0);
+  });
+
+  it('accepts verbose renderer without throwing', () => {
+    const entries = [{ title: '[NPM] npm', run: vi.fn().mockResolvedValue(undefined) }];
+    expect(() => buildEcosystemFixTaskList(entries, 'verbose')).not.toThrow();
   });
 });
