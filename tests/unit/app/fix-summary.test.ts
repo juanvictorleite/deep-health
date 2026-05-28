@@ -24,6 +24,18 @@ const baseScanResult = {
   error: null,
 };
 
+const blockedScanResult = {
+  $schema: 'osv-scan-result/v1' as const,
+  agent: 'osv-scanner' as const,
+  status: 'success' as const,
+  environment: 'local',
+  ecosystems: {
+    npm: { ...baseEcosystem, vulnerabilities_total: 5, auto_safe: 2, blocked: 2 },
+    pip: { ...baseEcosystem, vulnerabilities_total: 3, blocked: 1 },
+  },
+  error: null,
+};
+
 const baseUpdates = {
   npm: {
     $schema: 'osv-update-result/v1' as const,
@@ -167,6 +179,64 @@ describe('formatFixSummary()', () => {
 
     expect(output).not.toContain('Report:');
     expect(output).not.toContain('Audit trail:');
+  });
+
+  it('shows blocked count in remaining line when blockedCount > 0', () => {
+    const input: FixSummaryInput = {
+      scanResult: blockedScanResult,
+      updates: baseUpdates,
+      hasPendingVulns: true,
+      overallStatus: 'success',
+    };
+
+    const output = formatFixSummary(input);
+
+    // 2 (npm) + 1 (pip) = 3 blocked total
+    expect(output).toContain('3 blocked');
+    expect(output).toContain('rest manual or breaking');
+  });
+
+  it('uses old remaining message when blockedCount is 0', () => {
+    const input: FixSummaryInput = {
+      scanResult: baseScanResult,
+      updates: baseUpdates,
+      hasPendingVulns: true,
+      overallStatus: 'success',
+    };
+
+    const output = formatFixSummary(input);
+
+    expect(output).toContain('manual or breaking');
+    expect(output).not.toContain('blocked,');
+  });
+
+  it('sums blocked count across multiple ecosystems', () => {
+    const input: FixSummaryInput = {
+      scanResult: blockedScanResult,
+      updates: baseUpdates,
+      hasPendingVulns: true,
+      overallStatus: 'success',
+    };
+
+    const output = formatFixSummary(input);
+
+    // npm.blocked=2 + pip.blocked=1 = 3
+    expect(output).toContain('3 blocked');
+  });
+
+  it('handles null scanResult with 0 blocked count (no crash)', () => {
+    const input: FixSummaryInput = {
+      scanResult: null,
+      updates: {},
+      hasPendingVulns: true,
+      overallStatus: 'success',
+    };
+
+    const output = formatFixSummary(input);
+
+    // blockedCount is 0 when scanResult is null → use default message
+    expect(output).toContain('manual or breaking');
+    expect(output).not.toContain('blocked,');
   });
 });
 

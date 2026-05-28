@@ -1990,6 +1990,36 @@ describe('generateExecutiveReport() — blocked vulns section (AC1–AC5)', () =
     expect(buffer.length).toBeGreaterThan(0);
   });
 
+  // Refactor guard: blockedStatusOrNull extracted from computeEvidenceStatusPt (AC4 / Slice-6)
+  it('(AC4-refactor) reachable=false vuln still shows blocked status in evidence after refactor', () => {
+    // This test guards the zero-behavior-change guarantee of the blockedStatusOrNull extraction.
+    const scan = makeMixedScan([blockedVuln]);
+    const result = generateExecutiveReport({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+
+    // The evidence section (after section) must still show blocked status for reachable=false vulns
+    expect(result).toContain('blocked (constraint:');
+    const evidenceRows = result.split('\n').filter(
+      (l) => l.startsWith('|') && !l.includes('---') && l.includes('some-dep'),
+    );
+    expect(evidenceRows.length).toBeGreaterThanOrEqual(1);
+    const statusRow = evidenceRows.find((r) => r.includes('blocked'));
+    expect(statusRow).toBeDefined();
+  });
+
+  it('(AC4-refactor) reachable=undefined vuln does NOT show blocked status (falls through to pending)', () => {
+    // Guards that the refactor did not accidentally block vulns with reachable=undefined
+    const unreachableVuln = { ...pendingVuln };  // no reachable field
+    const scan = makeMixedScan([unreachableVuln]);
+    const result = generateExecutiveReport({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+
+    // blocked status must NOT appear for this package
+    const rows = result.split('\n').filter(
+      (l) => l.startsWith('|') && !l.includes('---') && l.includes('pending-dep'),
+    );
+    const blockedRow = rows.find((r) => r.includes('blocked (constraint:'));
+    expect(blockedRow).toBeUndefined();
+  });
+
   // Blocked section appears between fixed and pending in markdown output
   it('blocked section appears between fixed section and pending section in markdown', () => {
     const scan = makeMixedScan([fixedVuln, blockedVuln, pendingVuln]);

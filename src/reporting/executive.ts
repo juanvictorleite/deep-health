@@ -373,6 +373,13 @@ function buildAllVulnsBeforeRows(
   }));
 }
 
+/** Returns blocked_status string when v.reachable === false, null otherwise. */
+function blockedStatusOrNull(v: VulnerabilityEntry, locale: Locale): string | null {
+  if (v.reachable !== false) return null;
+  const blockedBy = v.blockedBy?.join(', ') ?? '—';
+  return locale.exec.blocked_status(blockedBy);
+}
+
 /** Compute the statusPt string for a single vuln row in an evidence section. */
 function computeEvidenceStatusPt(
   v: VulnerabilityEntry,
@@ -382,10 +389,8 @@ function computeEvidenceStatusPt(
   installedVersions: Map<string, string>,
   locale: Locale,
 ): string {
-  if (v.reachable === false) {
-    const blockedBy = v.blockedBy?.join(', ') ?? '—';
-    return locale.exec.blocked_status(blockedBy);
-  }
+  const blocked = blockedStatusOrNull(v, locale);
+  if (blocked) return blocked;
   if (!fixed) return pendingStatus(v, locale);
   const fixedVersionLabel = locale.exec.fixed_version(installedVersions.get(v.package) ?? v.safeVersion ?? '—');
   if (isUnverified && residualCount !== null && residualCount > 0) {

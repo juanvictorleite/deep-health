@@ -43,6 +43,13 @@ export function formatFixSummary(input: FixSummaryInput): string {
     0,
   );
 
+  const blockedCount = scanResult
+    ? Object.values(scanResult.ecosystems).reduce(
+        (sum, eco) => sum + (eco.blocked ?? 0),
+        0,
+      )
+    : 0;
+
   if (overallStatus === 'error') {
     lines.push(warn(__('Pipeline completed with errors.')));
   } else if (hasPendingVulns) {
@@ -53,9 +60,15 @@ export function formatFixSummary(input: FixSummaryInput): string {
     lines.push(
       success(__('  ✔ Fixed: {{count}} package(s)', { count: fixedCount })),
     );
-    lines.push(
-      warn(__('  ⚠ Remaining: vulnerabilities still pending (manual or breaking)')),
-    );
+    if (blockedCount > 0) {
+      lines.push(
+        warn(__('  ⚠ Remaining: vulnerabilities still pending ({{blocked}} blocked, rest manual or breaking)', { blocked: blockedCount })),
+      );
+    } else {
+      lines.push(
+        warn(__('  ⚠ Remaining: vulnerabilities still pending (manual or breaking)')),
+      );
+    }
   } else {
     lines.push(success(__('Fix pipeline completed successfully.')));
     lines.push(

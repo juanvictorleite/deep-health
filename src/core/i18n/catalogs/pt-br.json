@@ -248,6 +248,7 @@
   "  ✔ Scanned: {{count}} vulnerabilities found": "  ✔ Varredura: {{count}} vulnerabilidade(s) encontrada(s)",
   "  ✔ Fixed: {{count}} package(s)": "  ✔ Corrigido: {{count}} pacote(s)",
   "  ⚠ Remaining: vulnerabilities still pending (manual or breaking)": "  ⚠ Pendentes: vulnerabilidades aguardando ação (manual ou disruptiva)",
+  "  ⚠ Remaining: vulnerabilities still pending ({{blocked}} blocked, rest manual or breaking)": "  ⚠ Pendentes: vulnerabilidades aguardando ação ({{blocked}} bloqueada(s), restantes manual ou disruptivas)",
   "  ✔ Remaining: 0": "  ✔ Pendentes: 0",
   "  ✔ Report: {{path}}": "  ✔ Relatório: {{path}}",
   "  ✔ Audit trail: {{path}}": "  ✔ Trilha de auditoria: {{path}}",
@@ -261,6 +262,7 @@
   "{{total}} vulnerabilities across {{count}} ecosystem(s).": "{{total}} vulnerabilidade(s) em {{count}} ecossistema(s).",
   "Total": "Total",
   "Auto-safe": "Auto-seguro",
+  "Blocked": "Bloqueado",
   "Breaking": "Crítico",
   "Manual": "Manual",
 
@@ -293,7 +295,6 @@
   "{{warnings}} optional check(s) have warnings": "{{warnings}} verificação(ões) opcional(is) com avisos",
 
   "Docker runtime": "Runtime Docker",
-  "Advisors": "Advisors",
   "OSV fix": "Correção OSV",
   "Ecosystem fixer": "Corretor do ecossistema",
   "Verification": "Verificação"

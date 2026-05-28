@@ -69,6 +69,28 @@ const baseScan: ScanResultJson = {
   error: null,
 };
 
+const blockedScan: ScanResultJson = {
+  $schema: '',
+  status: 'success',
+  environment: 'local',
+  agent: 'osv-scanner',
+  ecosystems: {
+    npm: {
+      vulnerabilities_total: 3,
+      auto_safe: 1,
+      breaking: 1,
+      manual: 0,
+      blocked: 2,
+      blocked_packages: ['lodash', 'express'],
+      auto_safe_packages: [],
+      breaking_packages: [],
+      manual_packages: [],
+      vulnerabilities: [],
+    },
+  },
+  error: null,
+};
+
 const cleanScan: ScanResultJson = {
   $schema: '',
   status: 'success',
@@ -160,8 +182,27 @@ describe('formatScanSummary()', () => {
     expect(result).toContain('Ecosystem');
     expect(result).toContain('Total');
     expect(result).toContain('Auto-safe');
+    expect(result).toContain('Blocked');
     expect(result).toContain('Breaking');
     expect(result).toContain('Manual');
+  });
+
+  it('shows blocked count of 0 (dim) when blocked is undefined', () => {
+    const result = formatScanSummary(baseScan);
+    // baseScan has no blocked field — defaults to 0
+    expect(result).toContain('0');
+  });
+
+  it('shows blocked count when blocked > 0', () => {
+    const result = formatScanSummary(blockedScan);
+    expect(result).toContain('2');
+  });
+
+  it('uses warn styling for blocked > 0 (blocked column present in row)', () => {
+    const result = formatScanSummary(blockedScan);
+    // Since warn() is mocked as identity, the blocked count 2 should appear in output
+    expect(result).toContain('2');
+    expect(result).toContain('Blocked');
   });
 
   it('includes vulnerability counts', () => {
@@ -243,8 +284,28 @@ describe('formatScanSummaryMarkdown()', () => {
     const result = formatScanSummaryMarkdown(baseScan);
     expect(result).toContain('- Total: 2');
     expect(result).toContain('- Auto-safe: 1');
+    expect(result).toContain('- Blocked: 0');
     expect(result).toContain('- Breaking: 1');
     expect(result).toContain('- Manual: 0');
+  });
+
+  it('includes blocked line after auto-safe line', () => {
+    const result = formatScanSummaryMarkdown(baseScan);
+    const autoSafeIdx = result.indexOf('- Auto-safe:');
+    const blockedIdx = result.indexOf('- Blocked:');
+    const breakingIdx = result.indexOf('- Breaking:');
+    expect(autoSafeIdx).toBeLessThan(blockedIdx);
+    expect(blockedIdx).toBeLessThan(breakingIdx);
+  });
+
+  it('shows non-zero blocked count in markdown', () => {
+    const result = formatScanSummaryMarkdown(blockedScan);
+    expect(result).toContain('- Blocked: 2');
+  });
+
+  it('shows zero blocked count in markdown when eco has no blocked field', () => {
+    const result = formatScanSummaryMarkdown(baseScan);
+    expect(result).toContain('- Blocked: 0');
   });
 
   it('includes error warning when scan.error is set', () => {

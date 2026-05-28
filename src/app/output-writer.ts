@@ -1,7 +1,7 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import chalk from 'chalk';
-import type { ScanResultJson } from '@core/types/scan';
+import type { EcosystemScanResult, ScanResultJson } from '@core/types/scan';
 import { SCANNER_COLORS, warn, dim, success } from '@infra/utils/ui';
 import { __ } from '@core/i18n';
 
@@ -16,6 +16,42 @@ function padColumn(text: string, width: number, align: 'left' | 'right'): string
     return ' '.repeat(padding) + text;
   }
   return text + ' '.repeat(padding);
+}
+
+/**
+ * Format a count cell with optional warning coloring.
+ * When warnWhenPositive is true: positive counts are highlighted with warn(),
+ * zero counts are dimmed. When false: zero counts are dimmed, positive counts
+ * are plain.
+ */
+function formatCountCell(count: number, width: number, warnWhenPositive: boolean): string {
+  let formatted: string;
+  if (warnWhenPositive) {
+    formatted = count > 0 ? warn(String(count)) : dim(String(count));
+  } else {
+    formatted = count === 0 ? dim(String(count)) : String(count);
+  }
+  return padColumn(formatted, width, 'right');
+}
+
+/**
+ * Format a single ecosystem row for the scan summary table.
+ */
+function formatEcosystemRow(
+  id: string,
+  eco: EcosystemScanResult,
+  colWidths: Record<string, number>,
+): string {
+  const ecoColor = SCANNER_COLORS.get(id) ?? chalk.bold.white;
+  const ecoName = padColumn(ecoColor(id), colWidths.ecosystem, 'left');
+
+  const totalStr = formatCountCell(eco.vulnerabilities_total, colWidths.total, false);
+  const autoSafeStr = formatCountCell(eco.auto_safe, colWidths.autoSafe, false);
+  const blockedStr = formatCountCell(eco.blocked ?? 0, colWidths.blocked, true);
+  const breakingStr = formatCountCell(eco.breaking, colWidths.breaking, true);
+  const manualStr = formatCountCell(eco.manual, colWidths.manual, false);
+
+  return `${ecoName}  ${totalStr}  ${autoSafeStr}  ${blockedStr}  ${breakingStr}  ${manualStr}`;
 }
 
 // ─── Terminal-formatted summary (stdout) ──────────────────────────────────────
@@ -37,45 +73,22 @@ export function formatScanSummary(scan: ScanResultJson): string {
     lines.push(success(__('No vulnerabilities found — project is clean.')));
   } else {
     // Table header
-    const colWidths = { ecosystem: 14, total: 7, autoSafe: 10, breaking: 9, manual: 8 };
+    const colWidths = { ecosystem: 14, total: 7, autoSafe: 10, blocked: 9, breaking: 9, manual: 8 };
 
     const header = [
       padColumn(chalk.gray(__('Ecosystem')), colWidths.ecosystem, 'left'),
       padColumn(chalk.gray(__('Total')), colWidths.total, 'right'),
       padColumn(chalk.gray(__('Auto-safe')), colWidths.autoSafe, 'right'),
+      padColumn(chalk.gray(__('Blocked')), colWidths.blocked, 'right'),
       padColumn(chalk.gray(__('Breaking')), colWidths.breaking, 'right'),
       padColumn(chalk.gray(__('Manual')), colWidths.manual, 'right'),
     ].join('  ');
 
     lines.push(header);
-    lines.push(chalk.gray('─'.repeat(58)));
+    lines.push(chalk.gray('─'.repeat(69)));
 
     for (const [id, eco] of ecosystemEntries) {
-      const ecoColor = SCANNER_COLORS.get(id) ?? chalk.bold.white;
-      const ecoName = padColumn(ecoColor(id), colWidths.ecosystem, 'left');
-
-      const totalStr = padColumn(
-        eco.vulnerabilities_total === 0 ? dim(String(eco.vulnerabilities_total)) : String(eco.vulnerabilities_total),
-        colWidths.total,
-        'right',
-      );
-      const autoSafeStr = padColumn(
-        eco.auto_safe === 0 ? dim(String(eco.auto_safe)) : String(eco.auto_safe),
-        colWidths.autoSafe,
-        'right',
-      );
-      const breakingStr = padColumn(
-        eco.breaking > 0 ? warn(String(eco.breaking)) : dim(String(eco.breaking)),
-        colWidths.breaking,
-        'right',
-      );
-      const manualStr = padColumn(
-        eco.manual === 0 ? dim(String(eco.manual)) : String(eco.manual),
-        colWidths.manual,
-        'right',
-      );
-
-      lines.push(`${ecoName}  ${totalStr}  ${autoSafeStr}  ${breakingStr}  ${manualStr}`);
+      lines.push(formatEcosystemRow(id, eco, colWidths));
     }
 
     lines.push('');
@@ -114,6 +127,7 @@ export function formatScanSummaryMarkdown(scan: ScanResultJson): string {
       `### ${id}`,
       `- Total: ${eco.vulnerabilities_total}`,
       `- Auto-safe: ${eco.auto_safe}`,
+      `- Blocked: ${eco.blocked ?? 0}`,
       `- Breaking: ${eco.breaking}`,
       `- Manual: ${eco.manual}`,
       '',
