@@ -330,6 +330,34 @@ function buildPendingVulnRows(
   return dedupVulns(pendingOriginal).map((v) => mapPendingVulnRow(v, ecoEntries, locale));
 }
 
+/** Map a single AggregatedVulnEntry (reachable === false) to a blocked-vuln row object. */
+function mapBlockedVulnRow(
+  v: AggregatedVulnEntry,
+  ecoEntries: EcoEntry[],
+): Record<string, unknown> {
+  const reportLabel = resolveReportLabel(ecoEntries, v.ecosystem);
+  return {
+    ecoLabel: reportLabel,
+    ghsaLink: v.ghsaIds.length > 0 ? v.ghsaIds.map((id) => vulnLink(id)).join(', ') : '—',
+    ghsaId: v.ghsaIds.join(', '),
+    cvss: v.cvss,
+    package: v.package,
+    affectedVersions: escapeMdTableCell(v.affectedVersions.join(', ')),
+    blockReason: v.blockReason ?? 'Dependency constraint',
+    blockedBy: v.blockedBy?.join(', ') ?? '—',
+  };
+}
+
+/** Build the blockedVulns rows array (reachable === false entries). */
+function buildBlockedVulnRows(
+  allVulnsBefore: VulnerabilityEntry[],
+  ecoEntries: EcoEntry[],
+): Record<string, unknown>[] {
+  return dedupVulns(
+    allVulnsBefore.filter((v) => v.reachable === false),
+  ).map((v) => mapBlockedVulnRow(v, ecoEntries));
+}
+
 /** Build the allVulnsBefore rows array. */
 function buildAllVulnsBeforeRows(
   allVulnsBefore: VulnerabilityEntry[],
@@ -354,6 +382,10 @@ function computeEvidenceStatusPt(
   installedVersions: Map<string, string>,
   locale: Locale,
 ): string {
+  if (v.reachable === false) {
+    const blockedBy = v.blockedBy?.join(', ') ?? '—';
+    return locale.exec.blocked_status(blockedBy);
+  }
   if (!fixed) return pendingStatus(v, locale);
   const fixedVersionLabel = locale.exec.fixed_version(installedVersions.get(v.package) ?? v.safeVersion ?? '—');
   if (isUnverified && residualCount !== null && residualCount > 0) {
@@ -526,7 +558,10 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
 
   const fixedVulns = buildFixedVulnRows(allVulnsBefore, ecoEntries, updatedNamesByEco, residualVerification, installedVersionsByEco);
 
+  const blockedVulns = buildBlockedVulnRows(allVulnsBefore, ecoEntries);
+
   const pendingOriginal = allVulnsBefore.filter((v) => {
+    if (v.reachable === false) return false;
     if (v.classification !== 'auto_safe') return true;
     const names = updatedNamesByEco.get(v.ecosystem) ?? new Set();
     return !names.has(v.package);
@@ -559,13 +594,15 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
     scannerEngines: opts.scannerEngines && opts.scannerEngines.length > 0 ? opts.scannerEngines.join(', ') : null,
     noVulns: totalBefore === 0,
     fixedVulns,
+    blockedVulns,
+    hasBlockedVulns: blockedVulns.length > 0,
     pendingVulns,
     allVulnsBefore: buildAllVulnsBeforeRows(allVulnsBefore, ecoEntries),
     totalBefore,
     scanBeforeSummary: locale.exec.scan_summary(totalBefore, ecoBeforeLabels),
     evidenceSections,
     scanAfterSummary: locale.exec.scan_after_summary_generic(pendingOriginal.length, ecoAfterLabels),
-    allFixed: fixedVulns.length > 0 && pendingOriginal.length === 0,
+    allFixed: fixedVulns.length > 0 && pendingOriginal.length === 0 && blockedVulns.length === 0,
     pendingByPkg,
     sonarSection,
     advisorSection,

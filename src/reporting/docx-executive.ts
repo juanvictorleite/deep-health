@@ -20,6 +20,7 @@ import { buildExecutiveReportContext } from './executive';
 
 const HEADER_FILL_BLUE = 'BDD7EE';   // fixed vulns — light blue
 const HEADER_FILL_ORANGE = 'FCE4D6'; // pending vulns — light orange
+const HEADER_FILL_AMBER = 'FFF2CC';  // blocked vulns — light amber
 const HEADER_FILL_GREY = 'EDEDED';   // evidence tables — light grey
 const HEADER_TEXT_COLOR = '000000';
 
@@ -188,6 +189,28 @@ function buildPendingVulnsTable(pendingVulns: Record<string, unknown>[], tr: Rec
 }
 
 /**
+ * Blocked vulnerabilities table.
+ * Columns: Ecosystem | GHSA | CVSS | Package | Version | Block Reason | Blocked By
+ */
+function buildBlockedVulnsTable(blockedVulns: Record<string, unknown>[], tr: Record<string, unknown>) {
+  const widths = colWidths([11, 12, 6, 16, 14, 22, 19]);
+  const headers = [
+    t(tr, 'col_ecosystem', 'Type'),
+    t(tr, 'col_ghsa', 'CVE/GHSA'),
+    t(tr, 'col_cvss', 'CVSS'),
+    t(tr, 'col_package', 'Package'),
+    t(tr, 'col_affected_versions', 'Version'),
+    t(tr, 'col_block_reason', 'Block Reason'),
+    t(tr, 'col_blocked_by', 'Blocked By'),
+  ];
+  const headerRow = buildHeaderRow(headers, widths, HEADER_FILL_AMBER);
+  const dataRows = blockedVulns.map((v) =>
+    buildDataRow([...baseVulnCells(v), str(v['blockReason']), str(v['blockedBy'])], widths),
+  );
+  return buildVulnTable(headerRow, dataRows);
+}
+
+/**
  * Evidence table (per-ecosystem post-fix scan summary).
  * Columns: Ecosystem | GHSA | CVSS | Package | Version | Status after fixes | Risk
  */
@@ -278,6 +301,13 @@ function buildResolutionSection(ctx: Record<string, unknown>, tr: Record<string,
   if (fixedVulns.length > 0) {
     items.push(bodyText(t(tr, 'found_and_fixed', 'After running the scan, the following issues were found and fixed:')));
     items.push(buildFixedVulnsTable(fixedVulns, tr));
+    items.push(spacer());
+  }
+
+  const blockedVulns = (ctx['blockedVulns'] as Record<string, unknown>[]) ?? [];
+  if (blockedVulns.length > 0) {
+    items.push(bodyText(t(tr, 'blocked_intro', 'The following vulnerabilities were classified as auto-fixable but are blocked by dependency constraints:')));
+    items.push(buildBlockedVulnsTable(blockedVulns, tr));
     items.push(spacer());
   }
 

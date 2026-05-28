@@ -75,6 +75,13 @@ export interface ExecLocale {
   col_reason: string;
   col_affected_versions: string;
   col_status_after: string;
+  /** Blocked vulnerabilities section */
+  blocked_intro: string;
+  table_blocked_header: string;
+  col_block_reason: string;
+  col_blocked_by: string;
+  /** Status label for a blocked vuln in the evidence section */
+  blocked_status(blockedBy: string): string;
   /** SonarQube HTML report labels (used in Slice 2) */
   sonarqube_report_title: string;
   sonarqube_report_generated: string;

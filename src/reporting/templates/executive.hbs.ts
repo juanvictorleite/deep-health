@@ -26,6 +26,12 @@ export default `\
 {{t.table_fixed_header}}
 {{#each fixedVulns}}| {{ecoLabel}} | {{ghsaLink}} | {{cvss}} | {{package}} | {{affectedVersions}} | {{safeVersion}}{{#if residualWarning}} ⚠{{/if}} | {{risk}} |
 {{/each}}{{/if}}
+{{#if blockedVulns}}
+{{t.blocked_intro}}
+
+{{t.table_blocked_header}}
+{{#each blockedVulns}}| {{ecoLabel}} | {{ghsaLink}} | {{cvss}} | {{package}} | {{affectedVersions}} | {{blockReason}} | {{blockedBy}} |
+{{/each}}{{/if}}
 {{#if pendingVulns}}
 {{t.pending_intro}}
 
