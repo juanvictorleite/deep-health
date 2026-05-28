@@ -257,6 +257,66 @@ export function collectNpmLockfileConstraints(
 }
 
 /**
+ * Collect parent-level constraints from a Composer composer.lock string.
+ *
+ * Returns a Map where:
+ *   outer key = dependency name (e.g. "nesbot/carbon")
+ *   inner key = parent package name (e.g. "laravel/framework")
+ *   value     = constraint string the parent declares (e.g. "^2.72")
+ *
+ * Scans both `packages` and `packages-dev` arrays.
+ * Skips platform requirements: entries where dep name is exactly "php",
+ * or starts with "ext-" or "lib-".
+ * Returns an empty Map on parse error or missing sections.
+ */
+export function collectComposerLockfileConstraints(
+  content: string,
+): Map<string, Map<string, string>> {
+  const out = new Map<string, Map<string, string>>();
+
+  const addConstraint = (depName: string, parentName: string, constraint: string): void => {
+    if (!depName || !parentName || !constraint) return;
+    // Skip platform requirements
+    if (depName === 'php' || depName.startsWith('ext-') || depName.startsWith('lib-')) return;
+    const inner = out.get(depName) ?? new Map<string, string>();
+    inner.set(parentName, constraint);
+    out.set(depName, inner);
+  };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return out;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return out;
+
+  const root = parsed as Record<string, unknown>;
+
+  const processPackageArray = (arr: unknown): void => {
+    if (!Array.isArray(arr)) return;
+    for (const entry of arr) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+      const pkg = entry as Record<string, unknown>;
+      const parentName = pkg['name'];
+      if (typeof parentName !== 'string' || !parentName) continue;
+      const require = pkg['require'];
+      if (!require || typeof require !== 'object' || Array.isArray(require)) continue;
+      for (const [depName, constraint] of Object.entries(require as Record<string, unknown>)) {
+        if (typeof constraint === 'string') {
+          addConstraint(depName, parentName, constraint);
+        }
+      }
+    }
+  };
+
+  processPackageArray(root['packages']);
+  processPackageArray(root['packages-dev']);
+
+  return out;
+}
+
+/**
  * Diff root-level package versions between two lockfile contents.
  *
  * Returns only packages whose root-level version changed. Packages present in only
