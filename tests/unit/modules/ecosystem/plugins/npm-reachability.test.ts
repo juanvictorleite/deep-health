@@ -195,3 +195,137 @@ describe('NpmReachabilityAdapter.checkReachability — AC5 real-world fixtures',
     expect(lodashCheck.reachable).toBe(true);
   });
 });
+
+// ─── NpmReachabilityAdapter — deep mode (cross-package conflict) ──────────────
+
+/**
+ * Scenario: pkgA@2.0.0 depends on pkgB with constraint ^2.0.0.
+ * pkgB's safe version is 3.0.0, which does NOT satisfy ^2.0.0.
+ * When deep=true, pkgA should be blocked as a cross-package conflict.
+ */
+const LOCKFILE_DEEP_CROSS_CONFLICT = JSON.stringify({
+  name: 'my-app',
+  lockfileVersion: 2,
+  packages: {
+    '': { name: 'my-app', version: '1.0.0' },
+    'node_modules/pkg-a': {
+      version: '2.0.0',
+      dependencies: {
+        'pkg-b': '^2.0.0',
+      },
+    },
+    'node_modules/pkg-b': {
+      version: '2.5.0',
+    },
+  },
+});
+
+/**
+ * Scenario: pkgA@2.0.0 depends on pkgB with constraint ^3.0.0.
+ * pkgB's safe version is 3.1.0, which satisfies ^3.0.0.
+ * When deep=true, no cross-conflict should be detected.
+ */
+const LOCKFILE_DEEP_NO_CONFLICT = JSON.stringify({
+  name: 'my-app',
+  lockfileVersion: 2,
+  packages: {
+    '': { name: 'my-app', version: '1.0.0' },
+    'node_modules/pkg-a': {
+      version: '2.0.0',
+      dependencies: {
+        'pkg-b': '^3.0.0',
+      },
+    },
+    'node_modules/pkg-b': {
+      version: '3.0.0',
+    },
+  },
+});
+
+describe('NpmReachabilityAdapter.checkReachability — deep mode', () => {
+  beforeEach(() => mockedReadFile.mockReset());
+
+  it('deep=true: pkgA blocked when its dependency pkgB safe version violates the constraint', async () => {
+    mockedReadFile.mockResolvedValue(LOCKFILE_DEEP_CROSS_CONFLICT);
+    const adapter = new NpmReachabilityAdapter({ deep: true });
+    // pkgB safe version 3.0.0 does not satisfy pkg-a's requirement ^2.0.0
+    const results = await adapter.checkReachability(
+      ['pkg-a@2.1.0', 'pkg-b@3.0.0'],
+      { cwd: '/app' },
+    );
+
+    const pkgACheck = results.find((r) => r.packageRef === 'pkg-a@2.1.0')!;
+    expect(pkgACheck.reachable).toBe(false);
+    expect(pkgACheck.blockReason).toContain('Cross-package conflict');
+    expect(pkgACheck.blockReason).toContain('pkg-b');
+    expect(pkgACheck.blockReason).toContain('^2.0.0');
+    expect(pkgACheck.blockReason).toContain('3.0.0');
+    expect(pkgACheck.blockedBy).toEqual(
+      expect.arrayContaining([expect.stringContaining('pkg-b')]),
+    );
+  });
+
+  it('deep=true: no conflict when dependency safe version satisfies the constraint', async () => {
+    mockedReadFile.mockResolvedValue(LOCKFILE_DEEP_NO_CONFLICT);
+    const adapter = new NpmReachabilityAdapter({ deep: true });
+    // pkgB safe version 3.1.0 satisfies pkg-a's requirement ^3.0.0
+    const results = await adapter.checkReachability(
+      ['pkg-a@2.1.0', 'pkg-b@3.1.0'],
+      { cwd: '/app' },
+    );
+
+    const pkgACheck = results.find((r) => r.packageRef === 'pkg-a@2.1.0')!;
+    expect(pkgACheck.reachable).toBe(true);
+  });
+
+  it('deep=false (default): cross-conflict is NOT detected even when constraint is violated', async () => {
+    mockedReadFile.mockResolvedValue(LOCKFILE_DEEP_CROSS_CONFLICT);
+    // No deep flag — default behavior
+    const adapter = new NpmReachabilityAdapter();
+    const results = await adapter.checkReachability(
+      ['pkg-a@2.1.0', 'pkg-b@3.0.0'],
+      { cwd: '/app' },
+    );
+
+    const pkgACheck = results.find((r) => r.packageRef === 'pkg-a@2.1.0')!;
+    // Without deep, no cross-conflict detection — pkg-a passes (no parent blocks it)
+    expect(pkgACheck.reachable).toBe(true);
+  });
+
+  it('deep=false explicit: cross-conflict is NOT detected', async () => {
+    mockedReadFile.mockResolvedValue(LOCKFILE_DEEP_CROSS_CONFLICT);
+    const adapter = new NpmReachabilityAdapter({ deep: false });
+    const results = await adapter.checkReachability(
+      ['pkg-a@2.1.0', 'pkg-b@3.0.0'],
+      { cwd: '/app' },
+    );
+
+    const pkgACheck = results.find((r) => r.packageRef === 'pkg-a@2.1.0')!;
+    expect(pkgACheck.reachable).toBe(true);
+  });
+
+  it('deep=true: cross-conflict only fires when the dep is also in the auto_safe list', async () => {
+    mockedReadFile.mockResolvedValue(LOCKFILE_DEEP_CROSS_CONFLICT);
+    const adapter = new NpmReachabilityAdapter({ deep: true });
+    // pkg-b is NOT in the packages list being checked
+    const results = await adapter.checkReachability(
+      ['pkg-a@2.1.0'],
+      { cwd: '/app' },
+    );
+
+    const pkgACheck = results.find((r) => r.packageRef === 'pkg-a@2.1.0')!;
+    // pkg-b is not in safeVersionByName, so no cross-conflict
+    expect(pkgACheck.reachable).toBe(true);
+  });
+
+  it('deep=true: existing parent-blocks-child tests still pass unchanged', async () => {
+    mockedReadFile.mockResolvedValue(LOCKFILE_V2_COOKIE_BLOCKED);
+    const adapter = new NpmReachabilityAdapter({ deep: true });
+    const results = await adapter.checkReachability(['cookie@0.7.0'], { cwd: '/app' });
+
+    const check = results.find((r) => r.packageRef === 'cookie@0.7.0')!;
+    expect(check.reachable).toBe(false);
+    expect(check.blockReason).toContain('Parent constraint blocks');
+    expect(check.blockReason).toContain('cookies-next');
+  });
+});

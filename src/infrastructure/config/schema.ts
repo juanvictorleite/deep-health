@@ -497,6 +497,23 @@ const SafeUpdatePolicySchema = z
   })
   .strict();
 
+/**
+ * Controls reachability analysis for vulnerability enrichment.
+ *
+ * - `enabled` (default: true): when false, reachability analysis is entirely
+ *   skipped — no adapter is created and all packages are treated as reachable.
+ * - `deep` (default: true): when true, enables cross-package conflict detection
+ *   for npm and composer adapters, in addition to the default parent-blocks-child check.
+ */
+const ReachabilityConfigSchema = z
+  .object({
+    /** Set to false to disable all reachability analysis. Default: true. */
+    enabled: z.boolean().default(true),
+    /** Default: true. Set to false to disable deep cross-package conflict detection (npm, composer). */
+    deep: z.boolean().default(true),
+  })
+  .strict();
+
 export const ProjectConfigSchema = z
   .object({
     /**
@@ -529,6 +546,8 @@ export const ProjectConfigSchema = z
     scanners: ScannersConfigSchema.optional(),
     outputs: OutputsConfigSchema.optional(),
     workflow: WorkflowConfigSchema.optional(),
+    /** Controls reachability analysis. Absent means { enabled: true, deep: false }. */
+    reachability: ReachabilityConfigSchema.optional(),
   })
   .strict()
   .superRefine((data, ctx) => {

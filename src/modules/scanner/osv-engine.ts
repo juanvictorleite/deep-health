@@ -403,11 +403,19 @@ export class OsvScannerEngine implements ScannerEngine {
       // (e.g. 'npm', 'npm:frontend', 'npm:api') with no cross-entry collision.
       const mergedEcosystems: Record<string, EcosystemScanResult> = {};
 
-      const adapters = new Map<string, ReachabilityAdapter>([
-        ['npm', new NpmReachabilityAdapter()],
-        ['pip', new PipReachabilityAdapter()],
-        ['composer', new ComposerReachabilityAdapter()],
-      ]);
+      const reachabilityConfig = config.reachability;
+      const reachabilityEnabled = reachabilityConfig?.enabled !== false;
+      const deep = reachabilityConfig?.deep !== false;
+
+      const adapters = new Map<string, ReachabilityAdapter>(
+        reachabilityEnabled
+          ? [
+              ['npm', new NpmReachabilityAdapter({ deep })],
+              ['pip', new PipReachabilityAdapter()],
+              ['composer', new ComposerReachabilityAdapter({ deep })],
+            ]
+          : [],
+      );
 
       // Ecosystem resolution uses config.ecosystems[] declaratively.
       // Use getAll().find() so the logic works with both real and test-mocked registries

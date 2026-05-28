@@ -505,6 +505,17 @@ export interface ScanPathsConfig {
   exclude?: string[];
 }
 
+/**
+ * Controls reachability analysis for vulnerability enrichment.
+ * Absent or empty means { enabled: true, deep: false } (current default behavior).
+ */
+export interface ReachabilityConfig {
+  /** Set to false to disable all reachability analysis. Default: true. */
+  enabled?: boolean;
+  /** Set to true to enable deep cross-package conflict detection (npm, composer). Default: false. */
+  deep?: boolean;
+}
+
 export interface ProjectConfig {
   /**
    * Schema version for forward-compatibility detection.
@@ -530,4 +541,6 @@ export interface ProjectConfig {
   scanners?: ScannersConfig;
   outputs?: OutputsConfig;
   workflow?: WorkflowConfig;
+  /** Controls reachability analysis. Absent means { enabled: true, deep: false }. */
+  reachability?: ReachabilityConfig;
 }

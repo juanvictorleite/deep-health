@@ -7,10 +7,12 @@
  * - scan() local path vs Docker path dispatch
  * - dry-run handling
  * - error propagation
+ * - reachability config gating (enabled/disabled/deep)
  *
  * Mocks:
  * - OsvDockerRunner to avoid real Docker calls
  * - CommandRunner (inline MockRunner) to control local-binary responses
+ * - NpmReachabilityAdapter / ComposerReachabilityAdapter for reachability config tests
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OsvScannerEngine } from '@modules/scanner/osv-engine';
@@ -19,6 +21,34 @@ import type { ScannerEngineContext } from '@modules/scanner/types';
 import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
 import type { EcosystemRegistry } from '@modules/ecosystem/registry';
+import { ProjectConfigSchema } from '@infra/config/schema';
+
+// ─── Mock reachability adapters ───────────────────────────────────────────────
+
+const mockNpmAdapterConstructor = vi.fn();
+const mockComposerAdapterConstructor = vi.fn();
+const mockPipAdapterConstructor = vi.fn();
+
+vi.mock('@modules/ecosystem/plugins/npm-reachability.js', () => ({
+  NpmReachabilityAdapter: vi.fn().mockImplementation(function (opts?: { deep?: boolean }) {
+    mockNpmAdapterConstructor(opts);
+    return { ecosystemId: 'npm', checkReachability: vi.fn().mockResolvedValue([]) };
+  }),
+}));
+
+vi.mock('@modules/ecosystem/plugins/composer-reachability.js', () => ({
+  ComposerReachabilityAdapter: vi.fn().mockImplementation(function (opts?: { deep?: boolean }) {
+    mockComposerAdapterConstructor(opts);
+    return { ecosystemId: 'composer', checkReachability: vi.fn().mockResolvedValue([]) };
+  }),
+}));
+
+vi.mock('@modules/ecosystem/plugins/pip-reachability.js', () => ({
+  PipReachabilityAdapter: vi.fn().mockImplementation(function () {
+    mockPipAdapterConstructor();
+    return { ecosystemId: 'pip', checkReachability: vi.fn().mockResolvedValue([]) };
+  }),
+}));
 
 // ─── Mock OsvDockerRunner ────────────────────────────────────────────────────
 
@@ -1178,5 +1208,172 @@ describe('OsvScannerEngine — additional branch coverage', () => {
     const ctx = makeCtx(runner, makeConfig({ osv: { runner: 'local' } }));
     const result = await engine.scan(ctx);
     expect(result.status).toBe('success');
+  });
+});
+
+// ─── ReachabilityConfigSchema (AC1) ──────────────────────────────────────────
+
+const minimalConfigForSchema = {
+  project: { name: 'Test', client: 'Test' },
+  ecosystems: [{ id: 'npm' }],
+  protected_packages: {},
+  safe_update_policy: {
+    allow_patch_and_minor_within_constraints: true,
+    require_authorization_for_constraint_change: false,
+  },
+  conflict_resolution: 'manual',
+};
+
+describe('ProjectConfigSchema — reachability field (AC1)', () => {
+  it('parses successfully when reachability field is absent (backward compat)', () => {
+    const result = ProjectConfigSchema.safeParse(minimalConfigForSchema);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.reachability).toBeUndefined();
+    }
+  });
+
+  it('parses successfully with reachability: { enabled: false, deep: false }', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfigForSchema,
+      reachability: { enabled: false, deep: false },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.reachability?.enabled).toBe(false);
+      expect(result.data.reachability?.deep).toBe(false);
+    }
+  });
+
+  it('parses successfully with reachability: { deep: true } (enabled defaults to true)', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfigForSchema,
+      reachability: { deep: true },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.reachability?.deep).toBe(true);
+      // enabled defaults to true per schema
+      expect(result.data.reachability?.enabled).toBe(true);
+    }
+  });
+
+  it('parses successfully with reachability: {} (both fields get their defaults)', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfigForSchema,
+      reachability: {},
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.reachability?.enabled).toBe(true);
+      expect(result.data.reachability?.deep).toBe(true);
+    }
+  });
+
+  it('rejects unknown fields inside reachability (strict mode)', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfigForSchema,
+      reachability: { enabled: true, unknownField: 'x' },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects non-boolean enabled', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfigForSchema,
+      reachability: { enabled: 'yes' },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects non-boolean deep', () => {
+    const result = ProjectConfigSchema.safeParse({
+      ...minimalConfigForSchema,
+      reachability: { deep: 1 },
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+// ─── scan() — reachability config gating ─────────────────────────────────────
+
+describe('OsvScannerEngine.scan() — reachability config gating (AC3)', () => {
+  const engine = new OsvScannerEngine();
+
+  beforeEach(() => {
+    mockDockerRun.mockResolvedValue({ exitCode: 0, stdout: MINIMAL_SCAN_JSON, stderr: '' });
+    vi.mocked(OsvDockerRunner).mockClear();
+    mockDockerRun.mockClear();
+    mockNpmAdapterConstructor.mockClear();
+    mockComposerAdapterConstructor.mockClear();
+    mockPipAdapterConstructor.mockClear();
+  });
+
+  afterEach(() => vi.clearAllMocks());
+
+  it('default config (no reachability field): all three adapters are created with deep=true', async () => {
+    const runner = new MockRunner({ 'docker': { exitCode: 0 } });
+    const ctx = makeCtx(runner, makeConfig({ osv: { runner: 'docker' } }));
+    await engine.scan(ctx);
+
+    expect(mockNpmAdapterConstructor).toHaveBeenCalledWith({ deep: true });
+    expect(mockComposerAdapterConstructor).toHaveBeenCalledWith({ deep: true });
+    expect(mockPipAdapterConstructor).toHaveBeenCalledOnce();
+  });
+
+  it('reachability.enabled=false: no adapters are created (enrichment skipped)', async () => {
+    const runner = new MockRunner({ 'docker': { exitCode: 0 } });
+    const config: ProjectConfig = {
+      ...makeConfig({ osv: { runner: 'docker' } }),
+      reachability: { enabled: false },
+    };
+    const ctx = makeCtx(runner, config);
+    await engine.scan(ctx);
+
+    expect(mockNpmAdapterConstructor).not.toHaveBeenCalled();
+    expect(mockComposerAdapterConstructor).not.toHaveBeenCalled();
+    expect(mockPipAdapterConstructor).not.toHaveBeenCalled();
+  });
+
+  it('reachability.enabled=true (explicit): all adapters are created', async () => {
+    const runner = new MockRunner({ 'docker': { exitCode: 0 } });
+    const config: ProjectConfig = {
+      ...makeConfig({ osv: { runner: 'docker' } }),
+      reachability: { enabled: true },
+    };
+    const ctx = makeCtx(runner, config);
+    await engine.scan(ctx);
+
+    expect(mockNpmAdapterConstructor).toHaveBeenCalledWith({ deep: true });
+    expect(mockComposerAdapterConstructor).toHaveBeenCalledWith({ deep: true });
+    expect(mockPipAdapterConstructor).toHaveBeenCalledOnce();
+  });
+
+  it('reachability.deep=true: npm and composer adapters created with { deep: true }', async () => {
+    const runner = new MockRunner({ 'docker': { exitCode: 0 } });
+    const config: ProjectConfig = {
+      ...makeConfig({ osv: { runner: 'docker' } }),
+      reachability: { deep: true },
+    };
+    const ctx = makeCtx(runner, config);
+    await engine.scan(ctx);
+
+    expect(mockNpmAdapterConstructor).toHaveBeenCalledWith({ deep: true });
+    expect(mockComposerAdapterConstructor).toHaveBeenCalledWith({ deep: true });
+    // Pip adapter always constructed without deep flag
+    expect(mockPipAdapterConstructor).toHaveBeenCalledOnce();
+  });
+
+  it('reachability.deep=false (explicit): npm and composer created with { deep: false }', async () => {
+    const runner = new MockRunner({ 'docker': { exitCode: 0 } });
+    const config: ProjectConfig = {
+      ...makeConfig({ osv: { runner: 'docker' } }),
+      reachability: { deep: false },
+    };
+    const ctx = makeCtx(runner, config);
+    await engine.scan(ctx);
+
+    expect(mockNpmAdapterConstructor).toHaveBeenCalledWith({ deep: false });
+    expect(mockComposerAdapterConstructor).toHaveBeenCalledWith({ deep: false });
   });
 });

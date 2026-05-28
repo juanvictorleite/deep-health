@@ -415,3 +415,163 @@ describe('ComposerReachabilityAdapter.checkReachability — reachable scenarios'
     expect(symfonyCheck.reachable).toBe(true);
   });
 });
+
+// ─── ComposerReachabilityAdapter — deep mode (cross-package conflict) ─────────
+
+/**
+ * Scenario: pkg-a requires pkg-b with ^9.0, but pkg-b's safe version is 8.83.0.
+ * 8.83.0 does NOT satisfy ^9.0, so pkg-a is blocked as a cross-package conflict.
+ */
+const COMPOSER_LOCK_DEEP_CROSS_CONFLICT = JSON.stringify({
+  'packages': [
+    {
+      name: 'vendor/pkg-a',
+      version: 'v1.0.0',
+      require: {
+        'vendor/pkg-b': '^9.0',
+      },
+    },
+    {
+      name: 'vendor/pkg-b',
+      version: 'v8.80.0',
+      require: {
+        'php': '>=8.1',
+      },
+    },
+  ],
+  'packages-dev': [],
+});
+
+/**
+ * Scenario: pkg-a requires pkg-b with ^8.0, and pkg-b's safe version is 8.83.0.
+ * 8.83.0 satisfies ^8.0, so no conflict.
+ */
+const COMPOSER_LOCK_DEEP_NO_CONFLICT = JSON.stringify({
+  'packages': [
+    {
+      name: 'vendor/pkg-a',
+      version: 'v1.0.0',
+      require: {
+        'vendor/pkg-b': '^8.0',
+      },
+    },
+    {
+      name: 'vendor/pkg-b',
+      version: 'v8.80.0',
+      require: {},
+    },
+  ],
+  'packages-dev': [],
+});
+
+describe('ComposerReachabilityAdapter.checkReachability — deep mode', () => {
+  beforeEach(() => mockedReadFile.mockReset());
+
+  it('deep=true: pkg-a blocked when its dependency pkg-b safe version violates the constraint', async () => {
+    mockedReadFile.mockResolvedValue(COMPOSER_LOCK_DEEP_CROSS_CONFLICT);
+    const adapter = new ComposerReachabilityAdapter({ deep: true });
+    // pkg-b safe version 8.83.0 does not satisfy vendor/pkg-a's requirement ^9.0
+    const results = await adapter.checkReachability(
+      ['vendor/pkg-a@1.1.0', 'vendor/pkg-b@8.83.0'],
+      { cwd: '/app' },
+    );
+
+    const pkgACheck = results.find((r) => r.packageRef === 'vendor/pkg-a@1.1.0')!;
+    expect(pkgACheck.reachable).toBe(false);
+    expect(pkgACheck.blockReason).toContain('Cross-package conflict');
+    expect(pkgACheck.blockReason).toContain('vendor/pkg-b');
+    expect(pkgACheck.blockReason).toContain('^9.0');
+    expect(pkgACheck.blockReason).toContain('8.83.0');
+    expect(pkgACheck.blockedBy).toEqual(
+      expect.arrayContaining([expect.stringContaining('vendor/pkg-b')]),
+    );
+  });
+
+  it('deep=true: no conflict when dependency safe version satisfies the constraint', async () => {
+    mockedReadFile.mockResolvedValue(COMPOSER_LOCK_DEEP_NO_CONFLICT);
+    const adapter = new ComposerReachabilityAdapter({ deep: true });
+    // pkg-b safe version 8.83.0 satisfies vendor/pkg-a's requirement ^8.0
+    const results = await adapter.checkReachability(
+      ['vendor/pkg-a@1.1.0', 'vendor/pkg-b@8.83.0'],
+      { cwd: '/app' },
+    );
+
+    const pkgACheck = results.find((r) => r.packageRef === 'vendor/pkg-a@1.1.0')!;
+    expect(pkgACheck.reachable).toBe(true);
+  });
+
+  it('deep=false (default): cross-conflict NOT detected even when constraint is violated', async () => {
+    mockedReadFile.mockResolvedValue(COMPOSER_LOCK_DEEP_CROSS_CONFLICT);
+    const adapter = new ComposerReachabilityAdapter();
+    const results = await adapter.checkReachability(
+      ['vendor/pkg-a@1.1.0', 'vendor/pkg-b@8.83.0'],
+      { cwd: '/app' },
+    );
+
+    const pkgACheck = results.find((r) => r.packageRef === 'vendor/pkg-a@1.1.0')!;
+    // No deep flag — pkg-a has no parent blocking it → reachable
+    expect(pkgACheck.reachable).toBe(true);
+  });
+
+  it('deep=false explicit: cross-conflict NOT detected', async () => {
+    mockedReadFile.mockResolvedValue(COMPOSER_LOCK_DEEP_CROSS_CONFLICT);
+    const adapter = new ComposerReachabilityAdapter({ deep: false });
+    const results = await adapter.checkReachability(
+      ['vendor/pkg-a@1.1.0', 'vendor/pkg-b@8.83.0'],
+      { cwd: '/app' },
+    );
+
+    const pkgACheck = results.find((r) => r.packageRef === 'vendor/pkg-a@1.1.0')!;
+    expect(pkgACheck.reachable).toBe(true);
+  });
+
+  it('deep=true: cross-conflict only fires when the dep is also in the auto_safe list', async () => {
+    mockedReadFile.mockResolvedValue(COMPOSER_LOCK_DEEP_CROSS_CONFLICT);
+    const adapter = new ComposerReachabilityAdapter({ deep: true });
+    // vendor/pkg-b is NOT in the packages list being checked
+    const results = await adapter.checkReachability(
+      ['vendor/pkg-a@1.1.0'],
+      { cwd: '/app' },
+    );
+
+    const pkgACheck = results.find((r) => r.packageRef === 'vendor/pkg-a@1.1.0')!;
+    // vendor/pkg-b is not in safeVersionByName, so no cross-conflict
+    expect(pkgACheck.reachable).toBe(true);
+  });
+
+  it('deep=true: platform requirements in forward deps are never treated as conflicts', async () => {
+    const lockContent = JSON.stringify({
+      'packages': [
+        {
+          name: 'vendor/pkg-a',
+          version: 'v1.0.0',
+          require: {
+            'php': '>=8.1',
+            'ext-mbstring': '*',
+            'lib-pcre': '>=8.0',
+          },
+        },
+      ],
+      'packages-dev': [],
+    });
+    mockedReadFile.mockResolvedValue(lockContent);
+    const adapter = new ComposerReachabilityAdapter({ deep: true });
+    const results = await adapter.checkReachability(
+      ['vendor/pkg-a@1.1.0'],
+      { cwd: '/app' },
+    );
+    const pkgACheck = results.find((r) => r.packageRef === 'vendor/pkg-a@1.1.0')!;
+    expect(pkgACheck.reachable).toBe(true);
+  });
+
+  it('deep=true: existing parent-blocks-child tests still pass unchanged', async () => {
+    mockedReadFile.mockResolvedValue(COMPOSER_LOCK_CARBON_BLOCKED);
+    const adapter = new ComposerReachabilityAdapter({ deep: true });
+    const results = await adapter.checkReachability(['nesbot/carbon@3.0.0'], { cwd: '/app' });
+
+    const check = results.find((r) => r.packageRef === 'nesbot/carbon@3.0.0')!;
+    expect(check.reachable).toBe(false);
+    expect(check.blockReason).toContain('Parent constraint blocks');
+    expect(check.blockReason).toContain('laravel/framework');
+  });
+});
