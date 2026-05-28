@@ -48,6 +48,7 @@ export function generateSonarQubeHtmlReport(
   client: string,
   project: string,
   locale?: SupportedLocale,
+  metricsFilter?: string[],
 ): string | null {
   if (!engineResults) return null;
 
@@ -130,7 +131,11 @@ export function generateSonarQubeHtmlReport(
 
   // Metrics
   const rawMetrics = meta?.metrics;
-  const metrics = rawMetrics ? Object.entries(rawMetrics).map(([key, value]) => ({ key, value })) : null;
+  const metrics = rawMetrics
+    ? Object.entries(rawMetrics)
+        .filter(([key]) => metricsFilter === undefined || metricsFilter.includes(key))
+        .map(([key, value]) => ({ key, value }))
+    : null;
 
   // Issues grouped by file
   const rawIssues = meta?.issues;

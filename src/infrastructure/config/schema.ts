@@ -184,6 +184,11 @@ const OutputsConfigSchema = z
      * Defaults to false.
      */
     split_reports: z.boolean().optional(),
+    /**
+     * List of SonarQube metric keys to display in visual reports (MD/DOCX/HTML).
+     * When omitted, defaults to DEFAULT_SONAR_REPORT_METRICS.
+     */
+    sonarqube_metrics: z.array(z.string()).optional(),
   })
   .strict();
 

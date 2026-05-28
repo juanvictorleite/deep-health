@@ -148,6 +148,18 @@ export interface NpmRunnerConfig {
   native_deps?: readonly string[];
 }
 
+/**
+ * Default set of SonarQube metrics displayed in visual reports (MD/DOCX/HTML).
+ * Excludes code_smells and duplicated_lines_density by default.
+ * Users can override via config.outputs.sonarqube_metrics.
+ */
+export const DEFAULT_SONAR_REPORT_METRICS = [
+  'bugs',
+  'vulnerabilities',
+  'security_hotspots',
+  'coverage',
+] as const;
+
 /** Outputs/reports configuration */
 export interface OutputsConfig {
   formats?: OutputFormat[];
@@ -167,6 +179,12 @@ export interface OutputsConfig {
    * Defaults to false.
    */
   split_reports?: boolean;
+  /**
+   * List of SonarQube metric keys to display in visual reports (MD/DOCX/HTML).
+   * When omitted, defaults to DEFAULT_SONAR_REPORT_METRICS.
+   * Does not affect what is fetched from the SonarQube API or the JSON export.
+   */
+  sonarqube_metrics?: string[];
 }
 
 /** Declarative ecosystem configuration entry */

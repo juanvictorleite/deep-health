@@ -585,7 +585,7 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
   const totalBefore = allVulnsBefore.length;
   const pendingByPkg = buildPendingByPkg(pendingOriginal, locale);
 
-  const sonarSection = buildSonarQubeExecSection(opts.engineResults, locale.exec);
+  const sonarSection = buildSonarQubeExecSection(opts.engineResults, locale.exec, opts.sonarqubeMetrics);
   const advisorSection = buildAdvisorExecSection(opts.advisorResults, locale.exec);
 
   return {

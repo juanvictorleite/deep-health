@@ -93,4 +93,9 @@ export interface ExecutiveReportOptions {
    * Residual OSV verification outcome (typed union).
    */
   residualVerification?: ResidualVerification;
+  /**
+   * SonarQube metric keys to display in visual reports (MD/DOCX/HTML).
+   * When omitted, defaults to DEFAULT_SONAR_REPORT_METRICS from config.
+   */
+  sonarqubeMetrics?: string[];
 }
