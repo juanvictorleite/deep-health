@@ -1,4 +1,4 @@
-import { Listr, type ListrRendererValue } from 'listr2';
+import { Listr, PRESET_TIMER, type ListrRendererValue } from 'listr2';
 
 import { badge } from '@infra/utils/ui';
 import { setProgressSink } from '@infra/utils/logger';
@@ -408,7 +408,7 @@ export function buildScanTaskList(
   return new Listr(tasks, {
     renderer: rendererType,
     rendererOptions: rendererType === 'default'
-      ? { collapseSubtasks: false, timer: { condition: true, field: 'Timer' } }
+      ? { collapseSubtasks: false, timer: PRESET_TIMER }
       : undefined,
     concurrent: false,
   });
@@ -429,7 +429,7 @@ export function buildFixTaskList(
   return new Listr(tasks, {
     renderer: rendererType,
     rendererOptions: rendererType === 'default'
-      ? { collapseSubtasks: false, timer: { condition: true, field: 'Timer' } }
+      ? { collapseSubtasks: false, timer: PRESET_TIMER }
       : undefined,
     concurrent: false,
   });
@@ -462,7 +462,7 @@ export function buildEcosystemFixTaskList(
       if (entry.buildSubtasks) {
         return task.newListr(entry.buildSubtasks(), {
           rendererOptions: rendererType === 'default'
-            ? { collapseSubtasks: true, timer: { condition: true, field: 'Timer' } }
+            ? { collapseSubtasks: true, timer: PRESET_TIMER }
             : undefined,
           concurrent: false,
         });
@@ -481,7 +481,7 @@ export function buildEcosystemFixTaskList(
   return new Listr(tasks, {
     renderer: rendererType,
     rendererOptions: rendererType === 'default'
-      ? { collapseSubtasks: false, timer: { condition: true, field: 'Timer' } }
+      ? { collapseSubtasks: false, timer: PRESET_TIMER }
       : undefined,
     concurrent: false,
   });

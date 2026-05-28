@@ -103,9 +103,10 @@ function resolveFixLockfilePath(
   ecoEntry: EcosystemConfig,
   plugin: EcosystemPlugin,
 ): string | undefined {
+  if (!plugin.osvFixSpec) return undefined;
   const scanPaths = config.scan?.paths;
   if (scanPaths && scanPaths.length > 0) {
-    const pluginLockfile = plugin.osvFixSpec!.fixLockfile;
+    const pluginLockfile = plugin.osvFixSpec.fixLockfile;
     for (const p of scanPaths) {
       if (p.endsWith('/')) {
         return `${p}${pluginLockfile}`;
@@ -119,7 +120,7 @@ function resolveFixLockfilePath(
     return undefined;
   }
   if (ecoEntry.path) {
-    return join(ecoEntry.path, plugin.osvFixSpec!.fixLockfile);
+    return join(ecoEntry.path, plugin.osvFixSpec.fixLockfile);
   }
   return undefined;
 }

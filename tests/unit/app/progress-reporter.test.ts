@@ -10,7 +10,7 @@ vi.mock('@infra/utils/logger', () => ({
   makeProgressSink: vi.fn(),
 }));
 
-import { Listr } from 'listr2';
+import { Listr, PRESET_TIMER } from 'listr2';
 import {
   selectRenderer,
   buildScanTaskList,
@@ -100,7 +100,7 @@ describe('buildScanTaskList()', () => {
     const list = buildScanTaskList(engines, ctx, config, 'default');
     const opts = (list as unknown as { options: { rendererOptions?: { timer?: unknown } } }).options;
     expect(opts.rendererOptions?.timer).toBeDefined();
-    expect(opts.rendererOptions?.timer).toMatchObject({ condition: true, field: 'Timer' });
+    expect(opts.rendererOptions?.timer).toBe(PRESET_TIMER);
   });
 
   it('does not set rendererOptions for silent renderer', () => {
@@ -142,7 +142,7 @@ describe('buildFixTaskList()', () => {
     const list = buildFixTaskList('label', steps, 'default');
     const opts = (list as unknown as { options: { rendererOptions?: { timer?: unknown } } }).options;
     expect(opts.rendererOptions?.timer).toBeDefined();
-    expect(opts.rendererOptions?.timer).toMatchObject({ condition: true, field: 'Timer' });
+    expect(opts.rendererOptions?.timer).toBe(PRESET_TIMER);
   });
 
   it('does not set rendererOptions for silent renderer', () => {
@@ -184,7 +184,7 @@ describe('buildEcosystemFixTaskList()', () => {
     const list = buildEcosystemFixTaskList(entries, 'default');
     const opts = (list as unknown as { options: { rendererOptions?: { timer?: unknown } } }).options;
     expect(opts.rendererOptions?.timer).toBeDefined();
-    expect(opts.rendererOptions?.timer).toMatchObject({ condition: true, field: 'Timer' });
+    expect(opts.rendererOptions?.timer).toBe(PRESET_TIMER);
   });
 
   it('does not set rendererOptions for verbose renderer', () => {
