@@ -288,8 +288,11 @@ export function parsePipInstalledVersions(stdout: string): Map<string, string> {
  * Build the `packages_updated` array for pip using installed versions from pip stdout.
  *
  * For each auto_safe package (e.g. "pillow==8.0.1"), look up the name in the
- * installed-versions map and use the real installed version. Falls back to the
- * scan's safeVersion when the package is not found in the map.
+ * installed-versions map and use the real installed version.
+ *
+ * Packages NOT present in `installedVersions` are silently skipped — they were
+ * excluded by the greedy subset algorithm (findCompatibleSubset) and were never
+ * actually installed.
  *
  * Returns an empty array when `installedVersions` is empty (nothing was installed).
  */
@@ -306,16 +309,8 @@ export function buildPipPackagesUpdated(
     if (installedVersion !== undefined) {
       // Use the real installed version
       updated.push(`${name}@${installedVersion}`);
-    } else {
-      // Fallback: extract safeVersion from scan string (e.g. "pillow==8.0.1" → "pillow@8.0.1")
-      const versionMatch = pkg.match(/==([^\s,;]+)/);
-      const safeVersion = versionMatch ? versionMatch[1] : undefined;
-      if (safeVersion) {
-        updated.push(`${name}@${safeVersion}`);
-      } else {
-        updated.push(name);
-      }
     }
+    // Packages not in installedVersions were excluded by the greedy subset — skip them.
   }
   return updated;
 }
@@ -729,6 +724,43 @@ async function validatePipSpecs(
   return { validated, skipped };
 }
 
+/**
+ * Build a map of lowercase package name → maximum CVSS score from the
+ * provided vulnerability list, filtered to the given classifications.
+ *
+ * Non-numeric CVSS values (e.g. '—', '') are treated as 0.
+ */
+export function buildMaxCvssMap(
+  vulnerabilities: VulnerabilityEntry[],
+  classifications: Set<VulnerabilityClass>,
+): Map<string, number> {
+  const result = new Map<string, number>();
+  for (const vuln of vulnerabilities) {
+    if (!classifications.has(vuln.classification)) continue;
+    const pkgName = vuln.package.toLowerCase();
+    const score = parseFloat(vuln.cvss);
+    const numeric = Number.isNaN(score) ? 0 : score;
+    const current = result.get(pkgName);
+    if (current === undefined || numeric > current) result.set(pkgName, numeric);
+  }
+  return result;
+}
+
+/**
+ * Return a new array of package specs sorted descending by CVSS score.
+ *
+ * Package name is extracted by splitting on '==' and taking the first segment.
+ * Specs not present in cvssMap sort last (treated as CVSS 0).
+ * Sort is stable — equal-CVSS specs retain their original relative order.
+ */
+export function sortSpecsByCvss(specs: string[], cvssMap: Map<string, number>): string[] {
+  return [...specs].sort((a, b) => {
+    const scoreA = cvssMap.get((a.split('==')[0] ?? a).toLowerCase()) ?? 0;
+    const scoreB = cvssMap.get((b.split('==')[0] ?? b).toLowerCase()) ?? 0;
+    return scoreB - scoreA;
+  });
+}
+
 export async function runPipUpdater(
   runner: CommandRunner,
   _config: unknown,
@@ -770,7 +802,7 @@ export async function runPipUpdater(
   // Version-pinned specs for pip install (e.g. 'pillow==9.5.0') — no -U flag.
   // Primary: use computeMaxSafeVersions result (picks max safeVersion across all vulns).
   // Fallback: toPipInstallSpec from scan entry string (for backward compat when vulnerabilities[] is empty).
-  const packageSpecsToInstall = [
+  let packageSpecsToInstall = [
     ...new Set(
       packageNamesToUpdate.map((pkgName) => {
         const maxSafeVersion = maxSafeVersions.get(pkgName);
@@ -785,6 +817,11 @@ export async function runPipUpdater(
       }),
     ),
   ];
+
+  // Sort specs by CVSS severity descending so the greedy subset algorithm
+  // in findCompatibleSubset prioritises the most critical security fixes.
+  const cvssMap = buildMaxCvssMap(pipEcosystem.vulnerabilities, classifications);
+  packageSpecsToInstall = sortSpecsByCvss(packageSpecsToInstall, cvssMap);
 
   const backupFiles = resolveBackupFiles(detection);
   const revertSpec = resolveBootstrapSpec(detection);

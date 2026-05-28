@@ -31,7 +31,10 @@ import { checkUvAvailable, resolveWithUv } from '@modules/ecosystem/plugins/pip-
 import { parseViaAnnotations } from '@modules/ecosystem/plugins/pip-dep-graph';
 
 const mockedExecFileCb = execFileCb as unknown as ReturnType<typeof vi.fn>;
-const mockedLogger = logger as unknown as { warn: ReturnType<typeof vi.fn> };
+const mockedLogger = logger as unknown as {
+  warn: ReturnType<typeof vi.fn>;
+  debug: ReturnType<typeof vi.fn>;
+};
 
 const UV_PATH = '/usr/local/bin/uv';
 const CWD = '/project/python-app';
@@ -182,6 +185,86 @@ describe('resolveWithUv — AC3 + AC7: uv execution failure', () => {
   });
 });
 
+describe('checkUvAvailable — timeout options', () => {
+  it('passes timeout option to execFile for which uv', async () => {
+    mockedExecFileCb.mockImplementation(
+      makeExecMock((cmd, _args, opts, cb) => {
+        if (cmd === 'which') {
+          expect((opts as { timeout?: number }).timeout).toBe(5_000);
+          cb(null, `${UV_PATH}\n`, '');
+        } else {
+          cb(null, 'uv 0.4.0', '');
+        }
+      }),
+    );
+    await checkUvAvailable();
+    expect(mockedExecFileCb).toHaveBeenCalled();
+  });
+
+  it('passes timeout option to execFile for uv --version', async () => {
+    mockedExecFileCb.mockImplementation(
+      makeExecMock((cmd, _args, opts, cb) => {
+        if (cmd === 'which') cb(null, `${UV_PATH}\n`, '');
+        else {
+          expect((opts as { timeout?: number }).timeout).toBe(5_000);
+          cb(null, 'uv 0.4.0', '');
+        }
+      }),
+    );
+    await checkUvAvailable();
+    expect(mockedExecFileCb).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('resolveWithUv — timeout behavior', () => {
+  it('returns undefined when uv pip compile times out (ETIMEDOUT)', async () => {
+    mockedExecFileCb.mockImplementation(
+      makeExecMock((cmd, args, _opts, cb) => {
+        if (cmd === 'which') cb(null, `${UV_PATH}\n`, '');
+        else if (args[0] === '--version') cb(null, 'uv 0.4.0', '');
+        else {
+          const err = Object.assign(new Error('spawn ETIMEDOUT'), { code: 'ETIMEDOUT' });
+          cb(err, '', '');
+        }
+      }),
+    );
+    const result = await resolveWithUv(CWD);
+    expect(result).toBeUndefined();
+  });
+
+  it('logs a warning when uv pip compile times out', async () => {
+    mockedExecFileCb.mockImplementation(
+      makeExecMock((cmd, args, _opts, cb) => {
+        if (cmd === 'which') cb(null, `${UV_PATH}\n`, '');
+        else if (args[0] === '--version') cb(null, 'uv 0.4.0', '');
+        else {
+          const err = Object.assign(new Error('spawn ETIMEDOUT'), { code: 'ETIMEDOUT' });
+          cb(err, '', '');
+        }
+      }),
+    );
+    await resolveWithUv(CWD);
+    expect(mockedLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('uv pip compile failed'),
+    );
+  });
+
+  it('passes the default 30-second timeout to execFile for uv pip compile', async () => {
+    mockedExecFileCb.mockImplementation(
+      makeExecMock((cmd, args, opts, cb) => {
+        if (cmd === 'which') cb(null, `${UV_PATH}\n`, '');
+        else if (args[0] === '--version') cb(null, 'uv 0.4.0', '');
+        else {
+          expect((opts as { timeout?: number }).timeout).toBe(30_000);
+          cb(null, SAMPLE_COMPILED, '');
+        }
+      }),
+    );
+    await resolveWithUv(CWD);
+    expect(mockedExecFileCb).toHaveBeenCalled();
+  });
+});
+
 describe('resolveWithUv — AC7: Python version < 3.8 warning', () => {
   it('logs warning when pythonVersion < 3.8', async () => {
     mockedExecFileCb.mockImplementation(
@@ -206,6 +289,205 @@ describe('resolveWithUv — AC7: Python version < 3.8 warning', () => {
       }),
     );
     await resolveWithUv(CWD, '3.8');
+    expect(mockedLogger.warn).not.toHaveBeenCalled();
+  });
+});
+
+// ── AC1: registry env vars ────────────────────────────────────────────────────
+
+describe('resolveWithUv — AC1: passes registry env vars to uv pip compile', () => {
+  it('merges UV_INDEX_URL into execFile env when set in process.env', async () => {
+    const originalEnv = process.env.UV_INDEX_URL;
+    process.env.UV_INDEX_URL = 'https://my-registry.example.com/simple';
+    try {
+      mockedExecFileCb.mockImplementation(
+        makeExecMock((cmd, args, opts, cb) => {
+          if (cmd === 'which') cb(null, `${UV_PATH}\n`, '');
+          else if (args[0] === '--version') cb(null, 'uv 0.4.0', '');
+          else {
+            const env = (opts as { env?: Record<string, string> }).env;
+            expect(env).toBeDefined();
+            expect(env?.UV_INDEX_URL).toBe('https://my-registry.example.com/simple');
+            cb(null, SAMPLE_COMPILED, '');
+          }
+        }),
+      );
+      await resolveWithUv(CWD);
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.UV_INDEX_URL;
+      } else {
+        process.env.UV_INDEX_URL = originalEnv;
+      }
+    }
+  });
+
+  it('merges PIP_INDEX_URL, PIP_EXTRA_INDEX_URL, UV_EXTRA_INDEX_URL when set', async () => {
+    const keys = ['PIP_INDEX_URL', 'PIP_EXTRA_INDEX_URL', 'UV_EXTRA_INDEX_URL'] as const;
+    const saved: Partial<Record<string, string>> = {};
+    for (const key of keys) {
+      saved[key] = process.env[key];
+      process.env[key] = `https://${key.toLowerCase()}.example.com`;
+    }
+    try {
+      mockedExecFileCb.mockImplementation(
+        makeExecMock((cmd, args, opts, cb) => {
+          if (cmd === 'which') cb(null, `${UV_PATH}\n`, '');
+          else if (args[0] === '--version') cb(null, 'uv 0.4.0', '');
+          else {
+            const env = (opts as { env?: Record<string, string> }).env;
+            for (const key of keys) {
+              expect(env?.[key]).toBe(`https://${key.toLowerCase()}.example.com`);
+            }
+            cb(null, SAMPLE_COMPILED, '');
+          }
+        }),
+      );
+      await resolveWithUv(CWD);
+    } finally {
+      for (const key of keys) {
+        if (saved[key] === undefined) delete process.env[key];
+        else process.env[key] = saved[key];
+      }
+    }
+  });
+
+  it('does not set env on execFile when no registry env vars are present', async () => {
+    const keys = ['UV_INDEX_URL', 'PIP_INDEX_URL', 'PIP_EXTRA_INDEX_URL', 'UV_EXTRA_INDEX_URL'] as const;
+    const saved: Partial<Record<string, string>> = {};
+    for (const key of keys) {
+      saved[key] = process.env[key];
+      delete process.env[key];
+    }
+    try {
+      let compileOpts: unknown;
+      mockedExecFileCb.mockImplementation(
+        makeExecMock((cmd, args, opts, cb) => {
+          if (cmd === 'which') cb(null, `${UV_PATH}\n`, '');
+          else if (args[0] === '--version') cb(null, 'uv 0.4.0', '');
+          else {
+            compileOpts = opts;
+            cb(null, SAMPLE_COMPILED, '');
+          }
+        }),
+      );
+      await resolveWithUv(CWD);
+      expect((compileOpts as { env?: unknown }).env).toBeUndefined();
+    } finally {
+      for (const key of keys) {
+        if (saved[key] !== undefined) process.env[key] = saved[key];
+      }
+    }
+  });
+});
+
+// ── AC2: --no-build retry ─────────────────────────────────────────────────────
+
+describe('resolveWithUv — AC2: retries with --no-build on first failure', () => {
+  it('retries with --no-build appended when first uv pip compile fails', async () => {
+    let compileCallCount = 0;
+    mockedExecFileCb.mockImplementation(
+      makeExecMock((cmd, args, _opts, cb) => {
+        if (cmd === 'which') cb(null, `${UV_PATH}\n`, '');
+        else if (args[0] === '--version') cb(null, 'uv 0.4.0', '');
+        else {
+          compileCallCount += 1;
+          if (compileCallCount === 1) {
+            cb(new Error('build failed'), '', '');
+          } else {
+            expect(args).toContain('--no-build');
+            cb(null, SAMPLE_COMPILED, '');
+          }
+        }
+      }),
+    );
+    const result = await resolveWithUv(CWD);
+    expect(result).toBeInstanceOf(Map);
+    expect(compileCallCount).toBe(2);
+  });
+
+  it('logs debug before retrying with --no-build', async () => {
+    let compileCallCount = 0;
+    mockedExecFileCb.mockImplementation(
+      makeExecMock((cmd, args, _opts, cb) => {
+        if (cmd === 'which') cb(null, `${UV_PATH}\n`, '');
+        else if (args[0] === '--version') cb(null, 'uv 0.4.0', '');
+        else {
+          compileCallCount += 1;
+          if (compileCallCount === 1) cb(new Error('build failed'), '', '');
+          else cb(null, SAMPLE_COMPILED, '');
+        }
+      }),
+    );
+    await resolveWithUv(CWD);
+    expect(mockedLogger.debug).toHaveBeenCalledWith(
+      expect.stringContaining('--no-build'),
+    );
+  });
+
+  it('returns the parsed graph when retry with --no-build succeeds', async () => {
+    let compileCallCount = 0;
+    mockedExecFileCb.mockImplementation(
+      makeExecMock((cmd, args, _opts, cb) => {
+        if (cmd === 'which') cb(null, `${UV_PATH}\n`, '');
+        else if (args[0] === '--version') cb(null, 'uv 0.4.0', '');
+        else {
+          compileCallCount += 1;
+          if (compileCallCount === 1) cb(new Error('needs source build'), '', '');
+          else cb(null, SAMPLE_COMPILED, '');
+        }
+      }),
+    );
+    const result = await resolveWithUv(CWD);
+    expect(result).toBeInstanceOf(Map);
+    expect(result!.has('requests')).toBe(true);
+  });
+
+  it('returns undefined when both attempts fail', async () => {
+    mockedExecFileCb.mockImplementation(
+      makeExecMock((cmd, args, _opts, cb) => {
+        if (cmd === 'which') cb(null, `${UV_PATH}\n`, '');
+        else if (args[0] === '--version') cb(null, 'uv 0.4.0', '');
+        else cb(new Error('compile failed permanently'), '', '');
+      }),
+    );
+    const result = await resolveWithUv(CWD);
+    expect(result).toBeUndefined();
+  });
+
+  it('logs a warning only after both attempts fail', async () => {
+    let compileCallCount = 0;
+    mockedExecFileCb.mockImplementation(
+      makeExecMock((cmd, args, _opts, cb) => {
+        if (cmd === 'which') cb(null, `${UV_PATH}\n`, '');
+        else if (args[0] === '--version') cb(null, 'uv 0.4.0', '');
+        else {
+          compileCallCount += 1;
+          cb(new Error('always fails'), '', '');
+        }
+      }),
+    );
+    await resolveWithUv(CWD);
+    expect(compileCallCount).toBe(2);
+    expect(mockedLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('uv pip compile failed'),
+    );
+  });
+
+  it('does not call warn when retry succeeds', async () => {
+    let compileCallCount = 0;
+    mockedExecFileCb.mockImplementation(
+      makeExecMock((cmd, args, _opts, cb) => {
+        if (cmd === 'which') cb(null, `${UV_PATH}\n`, '');
+        else if (args[0] === '--version') cb(null, 'uv 0.4.0', '');
+        else {
+          compileCallCount += 1;
+          if (compileCallCount === 1) cb(new Error('first fail'), '', '');
+          else cb(null, SAMPLE_COMPILED, '');
+        }
+      }),
+    );
+    await resolveWithUv(CWD);
     expect(mockedLogger.warn).not.toHaveBeenCalled();
   });
 });
