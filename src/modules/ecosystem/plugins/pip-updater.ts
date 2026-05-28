@@ -632,10 +632,67 @@ async function resolveSpec(
 }
 
 /**
+ * Find the largest compatible subset of specs using greedy addition.
+ *
+ * Start with an empty compatible set. For each spec, try adding it to the current
+ * compatible set with a batch dry-run. Keep specs that pass, exclude specs that fail.
+ */
+export async function findCompatibleSubset(
+  runner: CommandRunner,
+  cwd: string,
+  validated: string[],
+): Promise<{ compatible: string[]; excluded: string[] }> {
+  const compatible: string[] = [];
+  const excluded: string[] = [];
+
+  for (const spec of validated) {
+    const result = await dryRunCheck(runner, cwd, [...compatible, spec]);
+    if (result === 'pass' || result === 'unsupported') {
+      compatible.push(spec);
+    } else {
+      excluded.push(spec);
+    }
+  }
+
+  return { compatible, excluded };
+}
+
+/**
+ * Re-batch validated specs to detect cross-package conflicts.
+ *
+ * If the re-batch dry-run fails, runs greedy subset selection via findCompatibleSubset.
+ * Returns the final { validated, skipped } after resolving any cross-conflicts.
+ */
+async function applyReBatchValidation(
+  runner: CommandRunner,
+  cwd: string,
+  validated: string[],
+  skipped: { pkg: string; reason: string }[],
+): Promise<{ validated: string[]; skipped: { pkg: string; reason: string }[] }> {
+  const reBatchResult = await dryRunCheck(runner, cwd, validated);
+  if (reBatchResult !== 'fail') {
+    return { validated, skipped };
+  }
+
+  logger.warn(`Cross-package conflict detected: re-batch of ${validated.length} validated specs failed. Running greedy subset selection.`);
+  const { compatible, excluded } = await findCompatibleSubset(runner, cwd, validated);
+  if (compatible.length === 0) {
+    // Fallback: let the actual install attempt and report the real error
+    return { validated, skipped };
+  }
+  for (const spec of excluded) {
+    const pkgName = spec.split('==')[0] ?? spec;
+    skipped.push({ pkg: pkgName, reason: 'Cross-package conflict detected in batch validation' });
+  }
+  return { validated: compatible, skipped };
+}
+
+/**
  * Validate a list of version-pinned pip specs using --dry-run before the actual install.
  *
  * Fast path: batch dry-run. If all pass, return them all as validated.
  * Slow path: per-package dry-run + fallback version tries when batch fails.
+ * Cross-conflict check: re-batch validated specs; if re-batch fails use greedy subset.
  * Graceful degradation: if pip does not support --dry-run, return all as validated.
  */
 async function validatePipSpecs(
@@ -661,6 +718,12 @@ async function validatePipSpecs(
       const alternatives = sortedSafeVersions.get(pkgName) ?? [];
       skipped.push({ pkg: pkgName, reason: `No installable version found (tried ${spec} and ${alternatives.length} alternative(s))` });
     }
+  }
+
+  // Re-batch check: when multiple specs passed per-package validation individually,
+  // they might still conflict with each other (cross-package conflict).
+  if (validated.length > 1) {
+    return applyReBatchValidation(runner, cwd, validated, skipped);
   }
 
   return { validated, skipped };
