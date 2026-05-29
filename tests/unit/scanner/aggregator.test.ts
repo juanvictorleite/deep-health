@@ -14,9 +14,10 @@
  * - primaryEngineId parameter selects a non-OSV engine as primary
  * - Backward compat: omitting primaryEngineId uses OSV as primary
  */
-import { describe, it, expect } from 'vitest';
-import { aggregateScanResults, OSV_ENGINE_ID } from '@modules/scanner/aggregator';
+
 import type { ScanResultJson, EcosystemScanResult } from '@core/types/scan';
+import { aggregateScanResults, OSV_ENGINE_ID } from '@modules/scanner/aggregator';
+import { describe, it, expect } from 'vitest';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

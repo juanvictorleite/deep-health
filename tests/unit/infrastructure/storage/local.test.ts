@@ -1,13 +1,14 @@
 /**
  * Tests for src/infrastructure/storage/local.ts — LocalStorageProvider
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { rm } from 'node:fs/promises';
 
 // Use real fs for these tests — tmpdir cleanup ensures no side effects
 import { LocalStorageProvider } from '@infra/storage/local';
+import { describe, it, expect, beforeEach } from 'vitest';
+
 
 describe('LocalStorageProvider', () => {
   let dir: string;

@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+
 import { enrichWithReachability, type ReachabilityAdapter, type ReachabilityCheck } from '@core/policy/reachability';
 import type { EcosystemScanResult, VulnerabilityEntry } from '@core/types/scan';
+import { describe, it, expect, vi } from 'vitest';
 
 function makeVuln(overrides: Partial<VulnerabilityEntry> & Pick<VulnerabilityEntry, 'package' | 'currentVersion' | 'safeVersion'>): VulnerabilityEntry {
   return {

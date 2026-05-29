@@ -33,10 +33,10 @@ vi.mock('@modules/ecosystem/plugins/npm-updater', () => ({
   runNpmUpdater: mockRunNpmUpdater,
 }));
 
-import { npmPlugin } from '@modules/ecosystem/plugins/npm';
 import type { CommandRunner, CommandResult } from '@core/types/common';
 import type { ScanResultJson } from '@core/types/scan';
 import { logger } from '@infra/utils/logger';
+import { npmPlugin } from '@modules/ecosystem/plugins/npm';
 
 function ok(stdout = ''): CommandResult {
   return { stdout, stderr: '', exitCode: 0, command: '', dryRun: false };
@@ -51,7 +51,7 @@ function makeRunner(): CommandRunner {
   } as unknown as CommandRunner;
 }
 
-function buildLockfile(pairs: Array<{ name: string; version: string }>): string {
+function buildLockfile(pairs: { name: string; version: string }[]): string {
   const packages: Record<string, { version: string }> = { '': { version: '1.0.0' } };
   const dependencies: Record<string, { version: string }> = {};
   for (const { name, version } of pairs) {

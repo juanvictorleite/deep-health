@@ -13,11 +13,11 @@ vi.mock('@app/output-writer', () => ({
   formatScanSummaryMarkdown: vi.fn().mockReturnValue('## Markdown Scan Summary'),
 }));
 
-import { runScanner } from '@modules/scanner/index';
-import { writeOutput, formatScanSummary, formatScanSummaryMarkdown } from '@app/output-writer';
 import { runScanCommand } from '@app/commands/scan';
+import { writeOutput, formatScanSummary, formatScanSummaryMarkdown } from '@app/output-writer';
 import type { RunContext } from '@app/run-context';
 import type { ScanResultJson } from '@core/types/scan';
+import { runScanner } from '@modules/scanner/index';
 
 function makeCtx(): RunContext {
   return {

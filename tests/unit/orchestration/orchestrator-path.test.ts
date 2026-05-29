@@ -64,16 +64,16 @@ vi.mock('@modules/advisor/index.js', () => ({
 
 // ─── Imports ──────────────────────────────────────────────────────────────────
 
-import { OsvScannerEngine } from '@modules/scanner/osv-engine';
-import type { ScannerEngineContext } from '@modules/scanner/types';
-import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common';
 import type { ProjectConfig, EcosystemConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
+import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 import type { EcosystemPlugin } from '@modules/ecosystem/types';
-import { runEcosystemFix } from '@orchestration/run-ecosystem-fix';
+import { OsvScannerEngine } from '@modules/scanner/osv-engine';
+import type { ScannerEngineContext } from '@modules/scanner/types';
 import { applyOsvFixViaStaging } from '@orchestration/osv-fix-applier';
+import { runEcosystemFix } from '@orchestration/run-ecosystem-fix';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

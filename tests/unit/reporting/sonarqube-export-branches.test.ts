@@ -2,9 +2,10 @@
  * Branch coverage top-up for src/reporting/sonarqube-export.ts
  * Targets uncovered branches (lines 75, 87-88).
  */
-import { describe, it, expect } from 'vitest';
-import { buildSonarQubeExport } from '@reporting/sonarqube-export';
+
 import type { ScanResultJson } from '@core/types/scan';
+import { buildSonarQubeExport } from '@reporting/sonarqube-export';
+import { describe, it, expect } from 'vitest';
 
 describe('buildSonarQubeExport() — branch coverage', () => {
   it('uses error ?? "unknown error" when error field is null/undefined on error status', () => {

@@ -14,6 +14,7 @@ vi.mock('@modules/ecosystem/plugins/pip-dep-graph', () => ({
 }));
 
 import { access } from 'node:fs/promises';
+
 import { readTextFile } from '@infra/utils/infer-version';
 import { hasViaAnnotations } from '@modules/ecosystem/plugins/pip-dep-graph';
 import { detectPipTooling } from '@modules/ecosystem/plugins/pip-tooling-detector';

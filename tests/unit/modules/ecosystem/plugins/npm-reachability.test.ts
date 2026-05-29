@@ -5,6 +5,7 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 import { readFile } from 'node:fs/promises';
+
 import { NpmReachabilityAdapter } from '@modules/ecosystem/plugins/npm-reachability';
 
 const mockedReadFile = readFile as unknown as ReturnType<typeof vi.fn>;

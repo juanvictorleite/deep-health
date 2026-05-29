@@ -1,8 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, rmSync, existsSync } from 'node:fs';
+
+import { rmSync, existsSync } from 'node:fs';
 import { mkdtemp, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 
 // We mock the logger before importing the module so the import picks up the mock.
 vi.mock('@infra/utils/logger', () => ({
@@ -34,8 +35,9 @@ vi.mock('@infra/provisioner/docker-sonar-scanner.js', () => ({
   DockerSonarScannerRunner: vi.fn(),
 }));
 
-import { cleanupScannerWorkDir } from '@modules/scanner/sonarqube-engine';
 import { logger } from '@infra/utils/logger';
+import { cleanupScannerWorkDir } from '@modules/scanner/sonarqube-engine';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 describe('cleanupScannerWorkDir', () => {
   let tmpDir: string;

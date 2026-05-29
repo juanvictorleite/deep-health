@@ -1,5 +1,6 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { isCI, isInteractive, assertInteractive } from '@infra/utils/tty';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

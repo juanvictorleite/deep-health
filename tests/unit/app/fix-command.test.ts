@@ -1,6 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RunContext } from '@app/run-context';
 import type { ProjectConfig } from '@core/types/config';
+import { runScanner } from '@modules/scanner/index';
+import { runOrchestrator } from '@orchestration/orchestrator';
+import { generateSonarQubeHtmlReport } from '@reporting/sonarqube-report';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 
 vi.mock('@modules/scanner/index', () => ({
   runScanner: vi.fn(),
@@ -35,12 +39,9 @@ vi.mock('@app/audit-trail', () => ({
   resolveCliVersion: vi.fn().mockResolvedValue('1.0.0'),
 }));
 
-import { runScanner } from '@modules/scanner/index';
-import { runOrchestrator } from '@orchestration/orchestrator';
 import { writeOutput } from '@app/output-writer';
 import { runFixCommand } from '@app/commands/fix';
 import { saveReport } from '@app/report-saver';
-import { generateSonarQubeHtmlReport } from '@reporting/sonarqube-report';
 import { writeAuditTrail } from '@app/audit-trail';
 
 const configWithOutputs: ProjectConfig = {

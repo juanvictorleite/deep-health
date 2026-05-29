@@ -2,8 +2,6 @@
  * Barrel test for src/index.ts — ensures all re-exports are defined.
  * Achieves coverage on the barrel file's statements/functions.
  */
-import { describe, it, expect } from 'vitest';
-
 import {
   loadConfig,
   DEFAULT_CONFIG_PATH,
@@ -17,6 +15,9 @@ import {
   resolveReportsDir,
   saveReport,
 } from '@app/../index';
+import { describe, it, expect } from 'vitest';
+
+
 
 describe('src/index.ts barrel exports', () => {
   it('DEFAULT_CONFIG_PATH is a non-empty string', () => {

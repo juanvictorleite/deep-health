@@ -3,11 +3,12 @@
  * Tests uncovered paths: advisor section branches, motivoStr, pendingStatus,
  * residualVerification, conditionStatusIcon, severityIcon.
  */
-import { describe, it, expect } from 'vitest';
-import { generateExecutiveReport, executiveReportFilename, escapeMdTableCell, vulnLink, buildExecutiveReportContext } from '@reporting/executive';
-import { generateExecutiveReportDocx } from '@reporting/docx-executive';
+
 import type { ExecutiveReportOptions } from '@core/types/report';
 import type { ScanResultJson } from '@core/types/scan';
+import { generateExecutiveReportDocx } from '@reporting/docx-executive';
+import { generateExecutiveReport, executiveReportFilename, escapeMdTableCell, vulnLink, buildExecutiveReportContext } from '@reporting/executive';
+import { describe, it, expect } from 'vitest';
 
 const emptyScan: ScanResultJson = {
   agent: 'osv-scanner',
@@ -669,22 +670,6 @@ describe('generateExecutiveReport() — vulnerability deduplication', () => {
       },
       error: null,
     };
-  }
-
-  // Helper: extract table rows from a named section header until the next heading (##/###).
-  // Stops at the next markdown heading line, not at horizontal rules.
-  // Searches for the headerFragment using a locale-agnostic approach: find the line containing it.
-  function tableRowsAfterHeader(report: string, headerFragment: string): string[] {
-    const lines = report.split('\n');
-    const start = lines.findIndex((l) => l.includes(headerFragment));
-    if (start === -1) return [];
-    const rows: string[] = [];
-    for (let i = start + 1; i < lines.length; i++) {
-      const l = lines[i]!;
-      if (/^#{2,}/.test(l)) break;
-      if (l.startsWith('|') && !l.includes('---')) rows.push(l);
-    }
-    return rows;
   }
 
   // The before-section header key is section_evidence_before — locale-dependent.

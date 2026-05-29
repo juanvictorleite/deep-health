@@ -5,8 +5,9 @@
  *   - branch_prefix: valid prefix patterns, no dash-leading values
  *   - folder_id: minimum length and character set
  */
-import { describe, it, expect } from 'vitest';
 import { ProjectConfigSchema } from '@infra/config/schema';
+import { describe, it, expect } from 'vitest';
+
 
 const minimalConfig = {
   project: { name: 'Test Project', client: 'Test Client' },

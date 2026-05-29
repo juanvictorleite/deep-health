@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+
 import { formatCliError } from '@app/diagnostics';
 import { ConfigLoadError, GateValidationError, PhaseError } from '@core/errors';
 import { CLI_NAME } from '@infra/brand';
+import { describe, it, expect } from 'vitest';
 
 describe('formatCliError', () => {
   describe('ConfigLoadError', () => {

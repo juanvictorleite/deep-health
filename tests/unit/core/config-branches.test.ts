@@ -2,8 +2,9 @@
  * Branch coverage for src/core/types/config.ts
  * Targets: isValidSonarProjectKey (lines 152-153)
  */
-import { describe, it, expect } from 'vitest';
 import { isValidSonarProjectKey } from '@core/types/config';
+import { describe, it, expect } from 'vitest';
+
 
 describe('isValidSonarProjectKey()', () => {
   it('returns true for a valid project key', () => {

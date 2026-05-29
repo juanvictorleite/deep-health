@@ -3,13 +3,15 @@
  *
  * Uses real temp-directory fixtures (no fs mocks) for isolation.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdir, writeFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
-import type { EcosystemPlugin } from '@modules/ecosystem/types';
+import { mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+
 import { discoverProject } from '@infra/utils/detect-ecosystems';
+import type { EcosystemPlugin } from '@modules/ecosystem/types';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 // ── Fixture helpers ───────────────────────────────────────────────────────────
 

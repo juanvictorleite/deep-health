@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { CommandRunner, CommandResult } from '@core/types/common';
-import type { ProjectConfig } from '@core/types/config';
-import type { ScanResultJson } from '@core/types/scan';
 
 // ── Module-level mocks ───────────────────────────────────────────────────────
 vi.mock('node:fs/promises', () => ({
@@ -35,6 +33,12 @@ vi.mock('@core/types/scan.js', async (importOriginal) => {
   };
 });
 
+import { readFile as mockReadFile, writeFile as mockWriteFile } from 'node:fs/promises';
+
+import type { ProjectConfig } from '@core/types/config';
+import type { VulnerabilityEntry } from '@core/types/scan';
+import type { ScanResultJson } from '@core/types/scan';
+import { logger } from '@infra/utils/logger';
 import {
   runPipUpdater,
   stripPipVersion,
@@ -43,14 +47,10 @@ import {
   updateRequirementsContent,
   computeMaxSafeVersions,
   computeSortedSafeVersions,
-  findCompatibleSubset,
   buildMaxCvssMap,
   sortSpecsByCvss,
   buildPipPackagesUpdated,
 } from '@modules/ecosystem/plugins/pip-updater';
-import type { VulnerabilityEntry } from '@core/types/scan';
-import { readFile as mockReadFile, writeFile as mockWriteFile } from 'node:fs/promises';
-import { logger } from '@infra/utils/logger';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

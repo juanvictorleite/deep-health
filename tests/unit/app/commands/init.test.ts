@@ -65,13 +65,13 @@ vi.mock('@infra/utils/logger', () => ({
   },
 }));
 
+import { runInitCommand } from '@app/commands/init';
 import { generateConfigJson } from '@infra/config/generator';
-import { prompt } from '@infra/utils/prompt';
-import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
 import { discoverProject } from '@infra/utils/detect-ecosystems';
 import { detectProjectScripts } from '@infra/utils/detect-scripts';
-import { runInitCommand } from '@app/commands/init';
+import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
 import { logger } from '@infra/utils/logger';
+import { prompt } from '@infra/utils/prompt';
 
 const mockLoggerInfo = vi.mocked(logger.info);
 const mockGenerateConfigJson = vi.mocked(generateConfigJson);
@@ -774,7 +774,7 @@ describe('generateConfigJson — path and label fields (AC5)', () => {
       ],
     });
 
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string; path?: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string; path?: string }[] };
     const npmEntry = parsed.ecosystems.find((e) => e.id === 'npm');
     expect(npmEntry?.path).toBe('web');
   });
@@ -788,7 +788,7 @@ describe('generateConfigJson — path and label fields (AC5)', () => {
       ],
     });
 
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string; path?: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string; path?: string }[] };
     const npmEntry = parsed.ecosystems.find((e) => e.id === 'npm');
     expect(npmEntry?.path).toBeUndefined();
   });
@@ -802,7 +802,7 @@ describe('generateConfigJson — path and label fields (AC5)', () => {
       ],
     });
 
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string; path?: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string; path?: string }[] };
     const npmEntry = parsed.ecosystems.find((e) => e.id === 'npm');
     expect(npmEntry?.path).toBeUndefined();
   });
@@ -816,7 +816,7 @@ describe('generateConfigJson — path and label fields (AC5)', () => {
       ],
     });
 
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string; label?: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string; label?: string }[] };
     const npmEntry = parsed.ecosystems.find((e) => e.id === 'npm');
     expect(npmEntry?.label).toBe('frontend');
   });
@@ -830,7 +830,7 @@ describe('generateConfigJson — path and label fields (AC5)', () => {
       ],
     });
 
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string; label?: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string; label?: string }[] };
     const npmEntry = parsed.ecosystems.find((e) => e.id === 'npm');
     expect(npmEntry?.label).toBeUndefined();
   });
@@ -845,7 +845,7 @@ describe('generateConfigJson — path and label fields (AC5)', () => {
       ],
     });
 
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string; path?: string; label?: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string; path?: string; label?: string }[] };
     const npmEntry = parsed.ecosystems.find((e) => e.id === 'npm');
     const pipEntry = parsed.ecosystems.find((e) => e.id === 'pip');
     expect(npmEntry?.path).toBe('web');
@@ -864,7 +864,7 @@ describe('generateConfigJson — path and label fields (AC5)', () => {
       ],
     });
 
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string; path?: string; label?: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string; path?: string; label?: string }[] };
     const npmEntries = parsed.ecosystems.filter((e) => e.id === 'npm');
     expect(npmEntries.length).toBe(2);
     // root entry: no path, but has label
@@ -1077,7 +1077,7 @@ describe('init command — discovery summary display', () => {
     const summaryCalls = mockLoggerInfo.mock.calls.filter((args) =>
       typeof args[0] === 'string' && args[0].toLowerCase().includes('ecosystem'),
     );
-    expect(summaryCalls.length).toBe(true ? 0 : 0); // explicit: no summary
+    expect(summaryCalls.length).toBe(0); // explicit: no summary
     expect(summaryCalls.length).toBe(0);
   });
 

@@ -13,8 +13,8 @@ vi.mock('@infra/utils/logger.js', () => ({
   },
 }));
 
-import { parseComposerAuditJson, parseComposerAuditAdvisories } from '@modules/ecosystem/plugins/composer-audit-parser';
 import { logger } from '@infra/utils/logger.js';
+import { parseComposerAuditJson, parseComposerAuditAdvisories } from '@modules/ecosystem/plugins/composer-audit-parser';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

@@ -7,10 +7,11 @@
  * `resolvePlatform` is the shared helper from `@infra/utils/docker-platform`.
  * Tests verify the sonar-scanner-specific call signature (with 'linux/amd64' default).
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { DockerSonarScannerRunner } from '@infra/provisioner/docker-sonar-scanner';
-import { resolvePlatform } from '@infra/utils/docker-platform';
 import type { EphemeralContainerRunner, ContainerRunResult } from '@infra/provisioner/types';
+import { resolvePlatform } from '@infra/utils/docker-platform';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
 
 // ─── Mock execa ────────────────────────────────────────────────────────────────
 
@@ -29,6 +30,7 @@ vi.mock('node:os', async (importOriginal) => {
 });
 
 import { execa } from 'execa';
+
 import { arch as osArch, platform as osPlatform } from 'node:os';
 
 const mockExeca = vi.mocked(execa);

@@ -21,7 +21,6 @@ vi.mock('@reporting/sonarqube-export', () => ({
 
 import { resolveReportsDir, resolveEngineReportsDir, saveSonarQubeExport } from '@app/report-saver';
 import { buildSonarQubeExport } from '@reporting/sonarqube-export';
-import type { ScanResultJson } from '@core/types/scan';
 
 describe('resolveReportsDir()', () => {
   it('resolves to default .security-scan/reports when configReportsDir is undefined', () => {

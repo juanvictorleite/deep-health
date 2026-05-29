@@ -5,16 +5,16 @@ vi.mock('@modules/ecosystem/plugins/pip-tooling-detector', () => ({
   detectPipTooling: vi.fn(),
 }));
 
-import { detectPipTooling } from '@modules/ecosystem/plugins/pip-tooling-detector';
+import type { CommandRunner } from '@core/types/common';
+import type { ScanResultJson } from '@core/types/scan';
 import { pipPlugin, _resetDetectionCache } from '@modules/ecosystem/plugins/pip';
 import type { PipToolingDetection } from '@modules/ecosystem/plugins/pip-tooling-detector';
+import { detectPipTooling } from '@modules/ecosystem/plugins/pip-tooling-detector';
 import {
   runPipUpdater,
   resolveBackupFiles,
   resolveBootstrapSpec,
 } from '@modules/ecosystem/plugins/pip-updater';
-import type { CommandRunner } from '@core/types/common';
-import type { ScanResultJson } from '@core/types/scan';
 
 const mockedDetectPipTooling = detectPipTooling as unknown as ReturnType<typeof vi.fn>;
 
@@ -55,19 +55,6 @@ function makeScanResult(autoSafePackages: string[] = ['django==3.2.15']): ScanRe
       },
     },
   };
-}
-
-function mockRunner(
-  exitCode = 0,
-  stdout = 'Successfully installed django-3.2.15',
-  stderr = '',
-): CommandRunner {
-  return {
-    run: vi.fn().mockResolvedValue({ exitCode, stdout, stderr }),
-    runArgs: vi.fn().mockResolvedValue({ exitCode, stdout, stderr }),
-    dryRun: true, // use dryRun to avoid full lifecycle execution in routing tests
-    environment: 'host',
-  } as unknown as CommandRunner;
 }
 
 // ─── buildScanArgs with detection cache ───────────────────────────────────────

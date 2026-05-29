@@ -1,5 +1,6 @@
-import { describe, it, expect, beforeEach } from 'vitest';
 import { __, setLocale, getActiveLocale } from '@core/i18n';
+import { describe, it, expect, beforeEach } from 'vitest';
+
 
 // Reset locale to 'en' before each test to prevent cross-test state leakage
 beforeEach(() => {

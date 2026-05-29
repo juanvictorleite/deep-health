@@ -2,8 +2,9 @@
  * Tests for DOCX artifact generation in generateAndSaveReportArtifacts().
  * AC5: DOCX artifact is generated when outputs.formats includes 'docx'.
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ProjectConfig } from '@core/types/config';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
 
 vi.mock('@modules/scanner/index', () => ({
   runScanner: vi.fn(),
@@ -32,8 +33,8 @@ vi.mock('@app/report-saver', () => ({
 }));
 
 import { runScanner } from '@modules/scanner/index';
-import { generateExecutiveReport, executiveReportFilename } from '@reporting/executive';
 import { generateExecutiveReportDocx, executiveReportDocxFilename } from '@reporting/docx-executive';
+import { generateExecutiveReport, executiveReportFilename } from '@reporting/executive';
 import { saveReport } from '@app/report-saver';
 import { generateAndSaveReportArtifacts } from '@app/report-artifacts';
 

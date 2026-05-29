@@ -2,10 +2,11 @@
  * Tests for src/reporting/i18n — getLocale, buildLocale
  * Covers all branches in loader.ts.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+
+import { setLocale } from '@core/i18n';
 import { getLocale } from '@reporting/i18n/index';
 import { buildLocale } from '@reporting/i18n/loader';
-import { setLocale } from '@core/i18n';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 beforeEach(() => {
   setLocale('en');
@@ -78,8 +79,8 @@ describe('getLocale()', () => {
     setLocale('en');
     getLocale('pt-br');
     // After getLocale, the active locale should be restored to 'en'
-    import('@core/i18n').then(({ getActiveLocale }) => {
-      expect(getActiveLocale()).toBe('en');
+    return import('@core/i18n').then(({ getActiveLocale }) => {
+      return expect(getActiveLocale()).toBe('en');
     });
   });
 });

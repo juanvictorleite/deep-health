@@ -17,10 +17,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { OsvScannerEngine } from '@modules/scanner/osv-engine';
 import { EnvironmentError } from '@core/errors';
-import type { ScannerEngineContext } from '@modules/scanner/types';
 import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
-import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 import { ProjectConfigSchema } from '@infra/config/schema';
 
 // ─── Mock reachability adapters ───────────────────────────────────────────────
@@ -59,6 +57,8 @@ vi.mock('@infra/provisioner/osv-runner.js', () => ({
 }));
 
 import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
+import type { EcosystemRegistry } from '@modules/ecosystem/registry';
+import type { ScannerEngineContext } from '@modules/scanner/types';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -343,7 +343,7 @@ function makeOsvJson(options: {
   pkgName: string;
   pkgVersion: string;
   ecosystem?: string;
-  vulnRanges: Array<Array<{ introduced?: string; fixed?: string; last_affected?: string }>>;
+  vulnRanges: { introduced?: string; fixed?: string; last_affected?: string }[][];
 }): string {
   const { pkgName, pkgVersion, ecosystem = 'npm', vulnRanges } = options;
   return JSON.stringify({
@@ -763,7 +763,7 @@ function makeOsvJsonWithCvss(options: {
   pkgVersion: string;
   ecosystem?: string;
   cvssScore?: string;
-  vulnRanges: Array<Array<{ introduced?: string; fixed?: string }>>;
+  vulnRanges: { introduced?: string; fixed?: string }[][];
 }): string {
   const { pkgName, pkgVersion, ecosystem = 'npm', cvssScore, vulnRanges } = options;
   const vuln: Record<string, unknown> = {

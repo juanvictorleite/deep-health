@@ -4,10 +4,10 @@ vi.mock("@infra/utils/logger.js", () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },
 }));
 
-import { logDryRunPreview } from "@modules/ecosystem/utils/dry-run-preview";
-import { logger } from "@infra/utils/logger";
 import { emptyEcosystem } from "@core/types/scan";
 import type { EcosystemScanResult, VulnerabilityEntry } from "@core/types/scan";
+import { logger } from "@infra/utils/logger";
+import { logDryRunPreview } from "@modules/ecosystem/utils/dry-run-preview";
 
 function makeVuln(
   pkg: string,

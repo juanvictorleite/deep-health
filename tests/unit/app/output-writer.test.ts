@@ -46,6 +46,7 @@ vi.mock('@infra/utils/ui', () => {
 });
 
 import { mkdir, writeFile } from 'node:fs/promises';
+
 import { writeOutput, formatScanSummary, formatScanSummaryMarkdown } from '@app/output-writer';
 import type { ScanResultJson } from '@core/types/scan';
 

@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
 import { LocalExecutor } from '@infra/executor/local-executor';
+import { describe, it, expect } from 'vitest';
+
 
 describe('LocalExecutor', () => {
   it('returns dry-run result without executing', async () => {

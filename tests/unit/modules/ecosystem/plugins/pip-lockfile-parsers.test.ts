@@ -1,10 +1,11 @@
-import { describe, it, expect } from 'vitest';
 import {
   parsePoetryLock,
   parseUvLock,
   parsePipfileLock,
   parsePdmLock,
 } from '@modules/ecosystem/plugins/pip-lockfile-parsers';
+import { describe, it, expect } from 'vitest';
+
 
 // ---------------------------------------------------------------------------
 // parsePoetryLock

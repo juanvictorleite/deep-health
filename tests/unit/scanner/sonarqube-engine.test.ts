@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { SonarQubeEngine, computeEffectiveTimeouts, fetchNcloc } from '@modules/scanner/sonarqube-engine';
+
+import fs from 'node:fs';
+
+
 import { EnvironmentError } from '@core/errors';
-import type { ScannerEngineContext } from '@modules/scanner/types';
 import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
-import type { EcosystemRegistry } from '@modules/ecosystem/registry';
-import fs from 'node:fs';
 
 // ─── Mock sonar-properties helper ──────────────────────────────────────────────
 // Tests now read project-level config (projectKey, host.url, etc.) from
@@ -80,8 +80,11 @@ vi.mock('@infra/provisioner/docker-sonar-scanner.js', () => ({
   }; }),
 }));
 
-import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube';
 import { DockerSonarScannerRunner } from '@infra/provisioner/docker-sonar-scanner';
+import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube';
+import type { EcosystemRegistry } from '@modules/ecosystem/registry';
+import type { ScannerEngineContext } from '@modules/scanner/types';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 // ─── Minimal mocks ─────────────────────────────────────────────────────────────
 
@@ -209,7 +212,7 @@ describe('CommandRunner contract — runArgs required for scan execution', () =>
   });
 
   it('calls runArgs (not run) for the sonar-scanner scan invocation', async () => {
-    const runArgsCalls: Array<{ file: string; args: string[] }> = [];
+    const runArgsCalls: { file: string; args: string[] }[] = [];
     const runCalls: string[] = [];
 
     // Instrumented runner that records which method handles each invocation

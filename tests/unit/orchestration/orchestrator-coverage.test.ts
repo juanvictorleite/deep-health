@@ -73,17 +73,17 @@ vi.mock('@modules/advisor/index.js', () => ({
   runAdvisors: vi.fn().mockResolvedValue([]),
 }));
 
-import { runOrchestrator } from '@orchestration/orchestrator';
-import { ScannerEngineRegistry } from '@modules/scanner/registry';
-import { OsvScannerEngine } from '@modules/scanner/osv-engine';
-import { npmPlugin } from '@modules/ecosystem/plugins/npm';
-import { pipPlugin } from '@modules/ecosystem/plugins/pip';
-import * as runEcosystemFixModule from '@orchestration/run-ecosystem-fix';
 import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
-import type { ScannerEngine, ScannerEngineContext } from '@modules/scanner/types';
 import type { ScanResultJson } from '@core/types/scan';
 import { logger } from '@infra/utils/logger.js';
+import { npmPlugin } from '@modules/ecosystem/plugins/npm';
+import { pipPlugin } from '@modules/ecosystem/plugins/pip';
+import { OsvScannerEngine } from '@modules/scanner/osv-engine';
+import { ScannerEngineRegistry } from '@modules/scanner/registry';
+import type { ScannerEngine, ScannerEngineContext } from '@modules/scanner/types';
+import { runOrchestrator } from '@orchestration/orchestrator';
+import * as runEcosystemFixModule from '@orchestration/run-ecosystem-fix';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -138,26 +138,6 @@ function npmScanWithAutoSafe(): string {
           }],
         }],
         groups: [{ ids: ['GHSA-test-npm'] }],
-      }],
-    }],
-  });
-}
-
-function pipScanWithAutoSafe(): string {
-  return JSON.stringify({
-    results: [{
-      source: { path: 'requirements.txt', type: 'lockfile' },
-      packages: [{
-        package: { name: 'requests', version: '2.27.0', ecosystem: 'PyPI' },
-        vulnerabilities: [{
-          id: 'GHSA-test-pip',
-          summary: 'Test pip vuln',
-          affected: [{
-            package: { ecosystem: 'PyPI', name: 'requests' },
-            ranges: [{ type: 'SEMVER', events: [{ introduced: '0' }, { fixed: '2.28.0' }] }],
-          }],
-        }],
-        groups: [{ ids: ['GHSA-test-pip'] }],
       }],
     }],
   });
@@ -607,19 +587,6 @@ describe('orchestrator — line 841: breakRes.error ?? fallback when error absen
       status: 'error', // no error field → ?? fires
     } as any);
 
-    const breakingScanJson = JSON.stringify({
-      results: [{
-        packages: [{
-          package: { name: 'lodash', version: '1.0.0', ecosystem: 'npm' },
-          vulnerabilities: [{
-            id: 'GHSA-breaking', summary: 'breaking',
-            affected: [{ ranges: [{ events: [{ introduced: '0' }, { fixed: '2.0.0' }] }] }],
-          }],
-          groups: [{ ids: ['GHSA-breaking'] }],
-        }],
-      }],
-    });
-
     const osvEngine = new OsvScannerEngine();
     vi.spyOn(osvEngine, 'scan').mockResolvedValueOnce({
       $schema: 'osv-scan-result/v1', agent: 'osv', status: 'success', environment: 'local',
@@ -836,7 +803,8 @@ describe('orchestrator — line 559: String(err) when verify throws non-Error', 
       if (scanCallCount === 1) {
         return { stdout: npmScanWithAutoSafe(), stderr: '', exitCode: 0, command, dryRun: false };
       }
-      // For verify scan: throw a string (non-Error)
+      // For verify scan: throw a string (non-Error) to exercise the String(err) branch in orchestrator
+      // oxlint-disable-next-line no-throw-literal
       throw 'string-verify-error';
     });
 

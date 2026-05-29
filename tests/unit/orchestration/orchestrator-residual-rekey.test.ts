@@ -32,14 +32,14 @@ vi.mock('@modules/advisor/index.js', () => ({
   runAdvisors: vi.fn().mockResolvedValue([]),
 }));
 
-import { runOrchestrator } from '@orchestration/orchestrator';
-import { runEcosystemFix } from '@orchestration/run-ecosystem-fix';
-import { ScannerEngineRegistry } from '@modules/scanner/registry';
 import type { CommandRunner, CommandResult, CommandRunnerOptions } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
-import type { EcosystemPlugin } from '@modules/ecosystem/types';
 import type { EcosystemRegistry } from '@modules/ecosystem/registry';
+import type { EcosystemPlugin } from '@modules/ecosystem/types';
+import { ScannerEngineRegistry } from '@modules/scanner/registry';
+import { runOrchestrator } from '@orchestration/orchestrator';
+import { runEcosystemFix } from '@orchestration/run-ecosystem-fix';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

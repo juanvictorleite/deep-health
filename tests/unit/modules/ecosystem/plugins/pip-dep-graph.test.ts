@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
 import { parseViaAnnotations, hasViaAnnotations } from '@modules/ecosystem/plugins/pip-dep-graph';
+import { describe, it, expect } from 'vitest';
+
 
 const BASIC_PIP_TOOLS_OUTPUT = `
 django==3.0.8

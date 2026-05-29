@@ -10,7 +10,6 @@ vi.mock('@infra/utils/logger', () => ({
   makeProgressSink: vi.fn(),
 }));
 
-import { Listr, PRESET_TIMER } from 'listr2';
 import {
   selectRenderer,
   buildScanTaskList,
@@ -19,11 +18,12 @@ import {
   buildEcosystemFixSubtasks,
 } from '@app/progress-reporter';
 import type { EcosystemFixStepFns, EcosystemFixSubtasksParams } from '@app/progress-reporter';
-import type { ScannerEngine, ScannerEngineContext } from '@modules/scanner/types';
-import type { ProjectConfig } from '@core/types/config';
-import type { EcosystemPlugin } from '@modules/ecosystem/types';
-import type { UpdateResultJson } from '@core/types/update';
 import type { CommandRunner, CommandResult } from '@core/types/common';
+import type { ProjectConfig } from '@core/types/config';
+import type { UpdateResultJson } from '@core/types/update';
+import type { EcosystemPlugin } from '@modules/ecosystem/types';
+import type { ScannerEngine, ScannerEngineContext } from '@modules/scanner/types';
+import { Listr, PRESET_TIMER } from 'listr2';
 
 // ─── selectRenderer() ─────────────────────────────────────────────────────────
 
@@ -86,7 +86,7 @@ describe('buildScanTaskList()', () => {
   it('includes the engine name in the task title', () => {
     const engines = [makeMockEngine('npm', 'NPM Audit')];
     const list = buildScanTaskList(engines, ctx, config, 'silent');
-    const tasks = (list as unknown as { tasks: Array<{ title: string }> }).tasks;
+    const tasks = (list as unknown as { tasks: { title: string }[] }).tasks;
     expect(tasks[0].title).toContain('NPM Audit');
   });
 
@@ -133,7 +133,7 @@ describe('buildFixTaskList()', () => {
   it('preserves each step title', () => {
     const steps = [{ title: 'Revert lock file', task: vi.fn().mockResolvedValue(undefined) }];
     const list = buildFixTaskList('label', steps, 'silent');
-    const tasks = (list as unknown as { tasks: Array<{ title: string }> }).tasks;
+    const tasks = (list as unknown as { tasks: { title: string }[] }).tasks;
     expect(tasks[0].title).toBe('Revert lock file');
   });
 
@@ -175,7 +175,7 @@ describe('buildEcosystemFixTaskList()', () => {
   it('preserves the entry title on each task', () => {
     const entries = [{ title: '[NPM] npm', run: vi.fn().mockResolvedValue(undefined) }];
     const list = buildEcosystemFixTaskList(entries, 'silent');
-    const tasks = (list as unknown as { tasks: Array<{ title: string }> }).tasks;
+    const tasks = (list as unknown as { tasks: { title: string }[] }).tasks;
     expect(tasks[0].title).toBe('[NPM] npm');
   });
 
@@ -223,7 +223,7 @@ describe('buildEcosystemFixTaskList()', () => {
   it('preserves entry title when entry has buildSubtasks', () => {
     const entries = [{ title: '[NPM] npm', buildSubtasks: () => [] }];
     const list = buildEcosystemFixTaskList(entries, 'silent');
-    const tasks = (list as unknown as { tasks: Array<{ title: string }> }).tasks;
+    const tasks = (list as unknown as { tasks: { title: string }[] }).tasks;
     expect(tasks[0].title).toBe('[NPM] npm');
   });
 });

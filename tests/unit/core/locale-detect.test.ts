@@ -3,8 +3,9 @@
  * Covers: env var priority, encoding stripping, Intl fallback, empty-string fallback,
  * and resolveDefaultLocale mapping.
  */
-import { describe, it, expect, vi, afterEach } from 'vitest';
 import { detectSystemLocale, resolveDefaultLocale } from '@core/locale-detect';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+
 
 // Helper: clear all POSIX locale env vars
 function clearLocaleEnv() {

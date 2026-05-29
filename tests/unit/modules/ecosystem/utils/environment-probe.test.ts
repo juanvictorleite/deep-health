@@ -16,9 +16,8 @@ vi.mock('@infra/utils/logger', () => ({
   },
 }));
 
-import { logger } from '@infra/utils/logger';
 import { runEcosystemEnvironmentProbe } from '@modules/ecosystem/utils/environment-probe';
-import type { ProbeSpec, ProbeResult } from '@modules/ecosystem/utils/environment-probe';
+import type { ProbeSpec } from '@modules/ecosystem/utils/environment-probe';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 

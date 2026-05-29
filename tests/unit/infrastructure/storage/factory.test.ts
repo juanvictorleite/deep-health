@@ -9,8 +9,8 @@ vi.mock('@infra/storage/google-drive', () => ({
   }),
 }));
 
-import { createStorageProvider } from '@infra/storage/factory';
 import type { CloudStorageConfig } from '@core/types/config';
+import { createStorageProvider } from '@infra/storage/factory';
 
 describe('createStorageProvider()', () => {
   it('returns a GoogleDriveProvider for google_drive provider', async () => {

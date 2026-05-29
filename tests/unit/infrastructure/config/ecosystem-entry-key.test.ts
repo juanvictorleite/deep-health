@@ -7,8 +7,9 @@
  *   AC3 — different entries with same id but different labels produce distinct keys
  *   AC4 — edge cases: empty string fields, undefined label
  */
-import { describe, it, expect } from 'vitest';
 import { ecosystemEntryKey } from '@core/types/config';
+import { describe, it, expect } from 'vitest';
+
 
 // ── AC1: no label → returns entry.id ─────────────────────────────────────────
 

@@ -664,7 +664,7 @@ describe('buildComposerPackagesUpdated', () => {
 
 // ── packages_updated post-update version tests ───────────────────────────────
 
-function makeLockJson(packages: Array<{ name: string; version: string }>): string {
+function makeLockJson(packages: { name: string; version: string }[]): string {
   return JSON.stringify({ packages, 'packages-dev': [] });
 }
 
@@ -1090,7 +1090,7 @@ describe('runComposerUpdater — osv-then-audit warn-level summary (AC2)', () =>
     mockParseComposerAuditAdvisories.mockReturnValue([]);
   });
 
-  async function setupLocks(preLockPkgs: Array<{ name: string; version: string }>, postLockPkgs: Array<{ name: string; version: string }>) {
+  async function setupLocks(preLockPkgs: { name: string; version: string }[], postLockPkgs: { name: string; version: string }[]) {
     const { backupFiles } = await import('@infra/utils/fs-backup.js');
     const { readFile } = await import('node:fs/promises');
     const preLock = makeLockJson(preLockPkgs);

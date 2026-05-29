@@ -5,8 +5,9 @@
  * and mock `fetch` to control readiness polling responses.
  * All tests are pure unit tests — no Docker required.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
 
 // ─── Mock node:net to avoid real socket binding in findFreePort ──────────────
 

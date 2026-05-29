@@ -1,14 +1,15 @@
 /**
  * Barrel test for src/infrastructure/provisioner/index.ts
  */
-import { describe, it, expect } from 'vitest';
-
 import {
   DockerSonarQubeProvisioner,
   DockerSonarScannerRunner,
   OsvDockerRunner,
   resolveComposerDockerImage,
 } from '@infra/provisioner/index';
+import { describe, it, expect } from 'vitest';
+
+
 
 describe('src/infrastructure/provisioner/index.ts barrel exports', () => {
   it('DockerSonarQubeProvisioner is exported', () => {

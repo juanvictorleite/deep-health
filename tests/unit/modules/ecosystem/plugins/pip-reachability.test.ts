@@ -13,8 +13,8 @@ vi.mock('@modules/ecosystem/plugins/pip-uv-resolver', () => ({
 }));
 
 import { readFile } from 'node:fs/promises';
-import { detectPipTooling } from '@modules/ecosystem/plugins/pip-tooling-detector';
-import { resolveWithUv } from '@modules/ecosystem/plugins/pip-uv-resolver';
+
+import type { PythonDependencyGraph } from '@modules/ecosystem/plugins/pip-dep-graph';
 import {
   satisfiesPep440,
   normalizePep503,
@@ -22,7 +22,8 @@ import {
   buildGraphFromDetection,
   PipReachabilityAdapter,
 } from '@modules/ecosystem/plugins/pip-reachability';
-import type { PythonDependencyGraph } from '@modules/ecosystem/plugins/pip-dep-graph';
+import { detectPipTooling } from '@modules/ecosystem/plugins/pip-tooling-detector';
+import { resolveWithUv } from '@modules/ecosystem/plugins/pip-uv-resolver';
 
 const mockedReadFile = readFile as unknown as ReturnType<typeof vi.fn>;
 const mockedDetectPipTooling = detectPipTooling as unknown as ReturnType<typeof vi.fn>;
@@ -30,14 +31,14 @@ const mockedResolveWithUv = resolveWithUv as unknown as ReturnType<typeof vi.fn>
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
-function makeGraph(entries: Array<{
+function makeGraph(entries: {
   name: string;
   version: string;
   direct: boolean;
   editable?: boolean;
-  requiredBy?: Array<{ name: string; constraint?: string }>;
-  dependsOn?: Array<{ name: string; constraint?: string }>;
-}>): PythonDependencyGraph {
+  requiredBy?: { name: string; constraint?: string }[];
+  dependsOn?: { name: string; constraint?: string }[];
+}[]): PythonDependencyGraph {
   const graph: PythonDependencyGraph = new Map();
   for (const e of entries) {
     graph.set(e.name, {

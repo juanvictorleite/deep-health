@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+
 import { formatFixSummary, formatBreakingWarning } from '@app/fix-summary';
 import type { FixSummaryInput } from '@app/fix-summary';
+import { describe, it, expect } from 'vitest';
 
 const baseEcosystem = {
   vulnerabilities_total: 0,

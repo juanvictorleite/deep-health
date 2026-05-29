@@ -15,8 +15,6 @@ import {
   splitReportFilename,
   executiveReportFilename,
 } from '@reporting/executive';
-import type { ExecutiveReportOptions } from '@core/types/report';
-import type { ScanResultJson } from '@core/types/scan';
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
 
@@ -94,14 +92,14 @@ describe('buildEntryReportContext()', () => {
   it('only includes vulns from the target entry in the scoped context', () => {
     const ctx = buildEntryReportContext(baseOpts, 'npm:frontend') as Record<string, unknown>;
     // allVulnsBefore should only have lodash, not express
-    const allVulns = ctx['allVulnsBefore'] as Array<{ package: string }>;
+    const allVulns = ctx['allVulnsBefore'] as { package: string }[];
     expect(allVulns.some((v) => v.package === 'lodash')).toBe(true);
     expect(allVulns.some((v) => v.package === 'express')).toBe(false);
   });
 
   it('only includes vulns from npm:api when scoped to npm:api', () => {
     const ctx = buildEntryReportContext(baseOpts, 'npm:api') as Record<string, unknown>;
-    const allVulns = ctx['allVulnsBefore'] as Array<{ package: string }>;
+    const allVulns = ctx['allVulnsBefore'] as { package: string }[];
     expect(allVulns.some((v) => v.package === 'express')).toBe(true);
     expect(allVulns.some((v) => v.package === 'lodash')).toBe(false);
   });
@@ -120,7 +118,7 @@ describe('buildEntryReportContext()', () => {
 
   it('scopes ecosystems to the single entry', () => {
     const ctx = buildEntryReportContext(baseOpts, 'npm:frontend') as Record<string, unknown>;
-    const sections = ctx['evidenceSections'] as Array<{ id: string }>;
+    const sections = ctx['evidenceSections'] as { id: string }[];
     expect(sections.length).toBe(1);
     expect(sections[0]!.id).toBe('npm:frontend');
   });
@@ -204,11 +202,13 @@ vi.mock('@app/report-saver', () => ({
   resolveEngineReportsDir: vi.fn(() => '/abs/reports'),
 }));
 
+import { generateAndSaveReportArtifacts } from '@app/report-artifacts';
+import { saveReport } from '@app/report-saver';
+import type { ProjectConfig } from '@core/types/config';
+import type { ExecutiveReportOptions } from '@core/types/report';
+import type { ScanResultJson } from '@core/types/scan';
 import { runScanner } from '@modules/scanner/index';
 import { generateExecutiveReport, generateEntryReport } from '@reporting/executive';
-import { saveReport } from '@app/report-saver';
-import { generateAndSaveReportArtifacts } from '@app/report-artifacts';
-import type { ProjectConfig } from '@core/types/config';
 
 const multiEntryConfig: ProjectConfig = {
   project: { name: 'Project', client: 'Client' },

@@ -6,7 +6,6 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { RunContext } from '@app/run-context';
-import type { ProjectConfig } from '@core/types/config';
 
 vi.mock('@modules/scanner/index', () => ({
   runScanner: vi.fn(),
@@ -41,10 +40,8 @@ vi.mock('@app/audit-trail', () => ({
   resolveCliVersion: vi.fn().mockResolvedValue('1.0.0'),
 }));
 
-import { runScanner } from '@modules/scanner/index';
-import { runOrchestrator } from '@orchestration/orchestrator';
-import { generateExecutiveReport } from '@reporting/executive';
 import { runFixCommand } from '@app/commands/fix';
+import type { ProjectConfig } from '@core/types/config';
 
 const config: ProjectConfig = {
   project: { name: 'App', client: 'Client' },
@@ -540,6 +537,9 @@ describe('runFixCommand() — authorizeBreaking entryKey bridging (AC2)', () => 
 // ─── Phase 4: createBranchAndCommit / buildBranchName / openPr ───────────────
 
 import { createBranchAndCommit, buildBranchName } from '@infra/utils/git-commit';
+import { runScanner } from '@modules/scanner/index';
+import { runOrchestrator } from '@orchestration/orchestrator';
+import { generateExecutiveReport } from '@reporting/executive';
 
 function makeRunArgs(responses: Record<string, { exitCode: number; stdout?: string; stderr?: string }>) {
   return vi.fn().mockImplementation((_file: string, args: string[]) => {

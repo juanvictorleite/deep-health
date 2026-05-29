@@ -22,8 +22,8 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
 }));
 
-import { execa } from 'execa';
 import { access } from 'node:fs/promises';
+
 import {
   checkNodeVersion,
   checkDocker,
@@ -35,6 +35,7 @@ import {
   runDoctorCommand,
   type DoctorCheck,
 } from '@app/commands/doctor';
+import { execa } from 'execa';
 
 const mockExeca = vi.mocked(execa);
 const mockAccess = vi.mocked(access);

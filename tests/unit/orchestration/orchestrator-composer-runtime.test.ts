@@ -1,11 +1,12 @@
-import { describe, it, expect, vi } from 'vitest';
-import { runOrchestrator } from '@orchestration/orchestrator';
-import { ScannerEngineRegistry } from '@modules/scanner/registry';
-import { OsvScannerEngine } from '@modules/scanner/osv-engine';
+
 import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
-import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
 import * as ecosystemRuntime from '@infra/ecosystem-runtime';
+import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
+import { OsvScannerEngine } from '@modules/scanner/osv-engine';
+import { ScannerEngineRegistry } from '@modules/scanner/registry';
+import { runOrchestrator } from '@orchestration/orchestrator';
+import { describe, it, expect, vi } from 'vitest';
 
 class MockCommandRunner implements CommandRunner {
   readonly dryRun: boolean;

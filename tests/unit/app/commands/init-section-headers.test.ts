@@ -61,11 +61,11 @@ vi.mock('@infra/utils/logger', () => ({
   },
 }));
 
-import { prompt } from '@infra/utils/prompt';
-import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
+import { runInitCommand } from '@app/commands/init';
 import { discoverProject } from '@infra/utils/detect-ecosystems';
 import { detectProjectScripts } from '@infra/utils/detect-scripts';
-import { runInitCommand } from '@app/commands/init';
+import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
+import { prompt } from '@infra/utils/prompt';
 import { dim } from '@infra/utils/ui';
 
 const mockPrompt = vi.mocked(prompt);

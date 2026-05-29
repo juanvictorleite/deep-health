@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+
 import {
   ok,
   err,
@@ -13,6 +13,7 @@ import {
   unwrapOr,
 } from '@core/types/result';
 import type { Result, Ok, Err } from '@core/types/result';
+import { describe, it, expect } from 'vitest';
 
 // ─── ok / err constructors ────────────────────────────────────────────────────
 
@@ -274,6 +275,7 @@ describe('fromPromise', () => {
   });
 
   it('mapError receives the raw rejection value (non-Error)', async () => {
+    // oxlint-disable-next-line prefer-promise-reject-errors -- load-bearing: test asserts mapError receives the raw string value, not an Error wrapper
     const r = await fromPromise(Promise.reject('raw string'), (e) => e as string);
     if (isErr(r)) expect(r.error).toBe('raw string');
   });
@@ -305,6 +307,7 @@ describe('tryCatch', () => {
 
   it('mapError receives the thrown value (non-Error)', () => {
     const r = tryCatch(
+      // oxlint-disable-next-line no-throw-literal -- load-bearing: test asserts mapError receives the raw thrown string, not an Error wrapper
       () => { throw 'string thrown'; },
       (e) => e as string,
     );

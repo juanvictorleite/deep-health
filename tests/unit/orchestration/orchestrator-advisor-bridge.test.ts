@@ -47,7 +47,6 @@ vi.mock('@modules/advisor/index', () => ({
 // default-mode subtask path via progress-reporter.ts). Only runEcosystemFix is
 // overridden; tests use rendererType: 'verbose' to exercise the verbose path that
 // still calls runEcosystemFix directly.
-import type { RunEcosystemFixOutcome } from '@orchestration/run-ecosystem-fix';
 let mockedOutcome: RunEcosystemFixOutcome = { status: 'skipped', reason: 'no-updates' };
 vi.mock('@orchestration/run-ecosystem-fix', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@orchestration/run-ecosystem-fix')>();
@@ -61,14 +60,15 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn().mockRejectedValue(new Error('ENOENT')),
 }));
 
-import { runOrchestrator } from '@orchestration/orchestrator';
 import type { CommandRunner, CommandResult, CommandRunnerOptions } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
-import type { ScanResultJson } from '@core/types/scan';
 import type { AdvisorResult, AdvisorFinding } from '@core/types/report';
+import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
 import { ScannerEngineRegistry } from '@modules/scanner/registry';
 import type { ScannerEngine, ScannerEngineContext } from '@modules/scanner/types';
+import { runOrchestrator } from '@orchestration/orchestrator';
+import type { RunEcosystemFixOutcome } from '@orchestration/run-ecosystem-fix';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

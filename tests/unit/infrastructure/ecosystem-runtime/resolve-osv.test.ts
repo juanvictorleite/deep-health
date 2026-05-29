@@ -31,12 +31,12 @@ vi.mock('@infra/ecosystem-runtime/command-runner', () => ({
   EcosystemContainerCommandRunner: vi.fn().mockImplementation(function (opts: unknown) { return { _opts: opts }; }),
 }));
 
-import { resolveOsvRuntime } from '@infra/ecosystem-runtime/resolve-osv';
-import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
-import { EcosystemContainerCommandRunner } from '@infra/ecosystem-runtime/command-runner';
-import { osvRuntimeSpec } from '@infra/ecosystem-runtime/osv-runtime-spec';
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
+import { EcosystemContainerCommandRunner } from '@infra/ecosystem-runtime/command-runner';
+import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
+import { osvRuntimeSpec } from '@infra/ecosystem-runtime/osv-runtime-spec';
+import { resolveOsvRuntime } from '@infra/ecosystem-runtime/resolve-osv';
 
 const MockContainer = vi.mocked(EphemeralEcosystemContainer);
 const MockCommandRunner = vi.mocked(EcosystemContainerCommandRunner);

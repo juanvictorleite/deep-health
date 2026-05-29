@@ -2,8 +2,9 @@
  * Tests for src/infrastructure/utils/ui.ts
  * Pure string-builder module — no I/O side effects.
  */
-import { describe, it, expect } from 'vitest';
 import { SCANNER_COLORS, badge, divider, tag } from '@infra/utils/ui';
+import { describe, it, expect } from 'vitest';
+
 
 // Strips SGR ANSI escape sequences so we can assert on plain text.
 function stripAnsi(str: string): string {

@@ -10,9 +10,9 @@ vi.mock('@modules/ecosystem/utils/lockfile-utils', () => ({
   readNpmLockfileVersion: vi.fn().mockResolvedValue(null),
 }));
 
+import type { ProjectConfig, EcosystemConfig } from '@core/types/config';
 import { npmPlugin } from '@modules/ecosystem/plugins/npm';
 import { readNpmLockfileVersion } from '@modules/ecosystem/utils/lockfile-utils';
-import type { ProjectConfig, EcosystemConfig } from '@core/types/config';
 
 function makeConfig(): ProjectConfig {
   return {

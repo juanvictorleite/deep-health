@@ -49,8 +49,8 @@ vi.mock('@infra/utils/tty', () => ({
   assertInteractive: vi.fn(),
 }));
 
-import { isInteractive } from '@infra/utils/tty';
 import { runInitCommand } from '@app/commands/init';
+import { isInteractive } from '@infra/utils/tty';
 
 const mockIsInteractive = vi.mocked(isInteractive);
 
@@ -129,7 +129,7 @@ describe('runInitCommand() — TTY guard (AC4)', () => {
     // In interactive mode the prompts would be invoked — mock them minimally
     const { selectPrompt, checkboxPrompt, confirmPrompt } = await import('@infra/utils/inquirer-prompts');
     vi.mocked(selectPrompt).mockImplementation(
-      (_msg: string, choices: Array<{ name: string; value: string }>) =>
+      (_msg: string, choices: { name: string; value: string }[]) =>
         Promise.resolve(choices[0]!.value),
     );
     vi.mocked(checkboxPrompt).mockResolvedValue([]);

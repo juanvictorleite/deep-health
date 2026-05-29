@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RunContext } from '@app/run-context';
-import type { ProjectConfig } from '@core/types/config';
 
 vi.mock('@modules/scanner/index', () => ({
   runScanner: vi.fn(),
@@ -26,10 +25,11 @@ vi.mock('@app/report-saver', () => ({
   resolveEngineReportsDir: vi.fn(() => '/abs/reports'),
 }));
 
-import { runScanner } from '@modules/scanner/index';
-import { runOrchestrator } from '@orchestration/orchestrator';
 import { runExecutiveReportCommand } from '@app/commands/executive-report';
 import { saveReport } from '@app/report-saver';
+import type { ProjectConfig } from '@core/types/config';
+import { runScanner } from '@modules/scanner/index';
+import { runOrchestrator } from '@orchestration/orchestrator';
 import { generateSonarQubeHtmlReport } from '@reporting/sonarqube-report';
 
 const scanResult = {

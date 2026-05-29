@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest';
 import {
   generateBashCompletion,
   generateZshCompletion,
   generateFishCompletion,
 } from '@app/completions';
+import { describe, expect, it } from 'vitest';
+
 
 // ─── Bash completion ──────────────────────────────────────────────────────────
 

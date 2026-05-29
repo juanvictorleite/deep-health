@@ -53,7 +53,7 @@ describe('writeAuditTrail()', () => {
   });
 
   it('logs String(err) when a non-Error is thrown from mkdir (line 46 false branch)', async () => {
-    mockMkdir.mockImplementation(() => Promise.reject('EPERM string'));
+    mockMkdir.mockImplementation(() => Promise.reject(new Error('EPERM string')));
 
     await expect(writeAuditTrail('/no-permission', record)).resolves.toBeUndefined();
     expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(

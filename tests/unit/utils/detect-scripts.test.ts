@@ -6,6 +6,7 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 import { access, readFile } from 'node:fs/promises';
+
 import { detectProjectScripts } from '@infra/utils/detect-scripts';
 
 const mockAccess = vi.mocked(access);

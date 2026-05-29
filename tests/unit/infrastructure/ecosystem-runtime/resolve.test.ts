@@ -31,13 +31,13 @@ vi.mock('@infra/ecosystem-runtime/build-project-image', () => ({
   buildProjectImage: vi.fn(),
 }));
 
-import { resolveEcosystemRuntime } from '@infra/ecosystem-runtime/resolve';
-import { CLI_NAME } from '@infra/brand';
-import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
-import { buildProjectImage } from '@infra/ecosystem-runtime/build-project-image';
-import type { EcosystemPlugin } from '@modules/ecosystem/types';
-import type { ProjectConfig, RunnerConfig } from '@core/types/config';
 import type { CommandRunner } from '@core/types/common';
+import type { ProjectConfig, RunnerConfig } from '@core/types/config';
+import { CLI_NAME } from '@infra/brand';
+import { buildProjectImage } from '@infra/ecosystem-runtime/build-project-image';
+import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
+import { resolveEcosystemRuntime } from '@infra/ecosystem-runtime/resolve';
+import type { EcosystemPlugin } from '@modules/ecosystem/types';
 
 const MockContainer = vi.mocked(EphemeralEcosystemContainer);
 const mockBuildProjectImage = vi.mocked(buildProjectImage);

@@ -15,11 +15,14 @@
  * Timeout: 120 s per test (container pull + startup).
  */
 
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
-import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+
+
 import { skipIfNoDocker } from '../helpers/docker-skip.js';
 
 // ─── Suite-level skip guard ───────────────────────────────────────────────────

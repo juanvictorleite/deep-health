@@ -7,9 +7,11 @@
  * `node:child_process` is NOT mocked at module level — we create fake ChildProcess-
  * shaped objects manually so we can control their state precisely.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { EventEmitter } from 'node:events';
+
 import type { ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // ─── Capture the registered shutdown hook ────────────────────────────────────
 

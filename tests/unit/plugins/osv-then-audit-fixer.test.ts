@@ -28,10 +28,10 @@ vi.mock('@modules/ecosystem/utils/updater-transaction', async (importOriginal) =
   };
 });
 
-import { applyOsvThenAuditFix } from '@modules/ecosystem/fixers/osv-then-audit-fixer';
 import type { CommandRunner, CommandResult } from '@core/types/common';
 import type { ScanResultJson } from '@core/types/scan';
 import { logger } from '@infra/utils/logger.js';
+import { applyOsvThenAuditFix } from '@modules/ecosystem/fixers/osv-then-audit-fixer';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -39,7 +39,7 @@ import { logger } from '@infra/utils/logger.js';
  * Build a syntactically valid package-lock.json v2 content string whose tree
  * contains the given { name, version } pairs.
  */
-function buildLockfile(pairs: Array<{ name: string; version: string }>, lockfileVersion = 2): string {
+function buildLockfile(pairs: { name: string; version: string }[], lockfileVersion = 2): string {
   const dependencies: Record<string, { version: string }> = {};
   const packages: Record<string, { name?: string; version: string }> = {
     '': { name: 'sample', version: '1.0.0' },

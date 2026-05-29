@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
 import { parseNpmAuditJson } from '@modules/ecosystem/plugins/npm-audit-parser';
+import { describe, it, expect } from 'vitest';
+
 
 // ─── Fixtures ──────────────────────────────────────────────────────────────────
 

@@ -5,6 +5,7 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 import { readFile } from 'node:fs/promises';
+
 import {
   ComposerReachabilityAdapter,
   normalizeComposerConstraint,

@@ -4,9 +4,9 @@ vi.mock('@infra/utils/logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },
 }));
 
-import { applyOsvNoOp } from '@modules/ecosystem/fixers/osv-fixer';
 import type { CommandRunner } from '@core/types/common';
 import type { ScanResultJson } from '@core/types/scan';
+import { applyOsvNoOp } from '@modules/ecosystem/fixers/osv-fixer';
 
 function makeRunner(): CommandRunner {
   return {

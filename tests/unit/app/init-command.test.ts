@@ -43,14 +43,15 @@ vi.mock('@infra/utils/detect-scripts', () => ({
 }));
 
 import { writeFile, mkdir, access } from 'node:fs/promises';
-import { generateConfigJson } from '@infra/config/generator';
-import { generateJsonSchema } from '@infra/config/schema-export';
-import { prompt } from '@infra/utils/prompt';
-import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
-import { discoverProject } from '@infra/utils/detect-ecosystems';
-import { detectProjectScripts } from '@infra/utils/detect-scripts';
+
 import { runInitCommand } from '@app/commands/init';
 import { ConfigLoadError } from '@core/errors';
+import { generateConfigJson } from '@infra/config/generator';
+import { generateJsonSchema } from '@infra/config/schema-export';
+import { discoverProject } from '@infra/utils/detect-ecosystems';
+import { detectProjectScripts } from '@infra/utils/detect-scripts';
+import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
+import { prompt } from '@infra/utils/prompt';
 
 const mockPrompt = vi.mocked(prompt);
 const mockAccess = vi.mocked(access);
@@ -603,7 +604,7 @@ describe('runInitCommand — ecosystem detection', () => {
     });
 
     // checkboxPrompt: capture choices and return the npm discovery index '0'
-    let capturedChoices: Array<{ name: string; value: string; checked: boolean }> = [];
+    let capturedChoices: { name: string; value: string; checked: boolean }[] = [];
     mockCheckbox.mockImplementation(async (_msg: string, choices: any[]) => {
       capturedChoices = choices;
       return ['0']; // select the first (npm) discovery
@@ -942,7 +943,7 @@ describe('runInitCommand — i18n', () => {
 
   it('language prompt choices are "English (en)" and "Português (pt-br)"', async () => {
     mockCheckbox.mockResolvedValue([]);
-    let capturedChoices: Array<{ name: string; value: string }> = [];
+    let capturedChoices: { name: string; value: string }[] = [];
     mockSelect.mockImplementation(async (msg: string, choices: any[]) => {
       if (msg === 'Language / Idioma') {
         capturedChoices = choices;
@@ -1205,7 +1206,7 @@ describe('runInitCommand — script detection flow (interactive)', () => {
       return [];
     });
 
-    let capturedScriptChoices: Array<{ name: string; value: string; checked: boolean }> = [];
+    let capturedScriptChoices: { name: string; value: string; checked: boolean }[] = [];
     let capturedScriptMessage = '';
 
     // Ecosystem selection → scripts checkbox: two sequential checkboxPrompt calls
@@ -1257,7 +1258,7 @@ describe('runInitCommand — script detection flow (interactive)', () => {
       return [];
     });
 
-    let capturedChoices: Array<{ name: string; value: string; checked: boolean }> = [];
+    let capturedChoices: { name: string; value: string; checked: boolean }[] = [];
     mockCheckbox
       .mockImplementationOnce(async () => ['npm']) // ecosystem selection
       .mockImplementationOnce(async (_msg: string, choices: any[]) => {
@@ -1379,7 +1380,7 @@ describe('runInitCommand — script detection flow (interactive)', () => {
       return [];
     });
 
-    let capturedChoices: Array<{ name: string; value: string; checked: boolean }> = [];
+    let capturedChoices: { name: string; value: string; checked: boolean }[] = [];
     mockCheckbox
       .mockImplementationOnce(async () => ['npm']) // ecosystem selection
       .mockImplementationOnce(async (_msg: string, choices: any[]) => {
@@ -1429,7 +1430,7 @@ describe('runInitCommand — script detection flow (interactive)', () => {
       return [];
     });
 
-    let capturedChoices: Array<{ name: string; value: string; checked: boolean }> = [];
+    let capturedChoices: { name: string; value: string; checked: boolean }[] = [];
     mockCheckbox
       .mockImplementationOnce(async () => ['npm'])
       .mockImplementationOnce(async (_msg: string, choices: any[]) => {
@@ -1480,7 +1481,7 @@ describe('runInitCommand — script detection flow (interactive)', () => {
       return [];
     });
 
-    let capturedChoices: Array<{ name: string; value: string; checked: boolean }> = [];
+    let capturedChoices: { name: string; value: string; checked: boolean }[] = [];
     mockCheckbox
       .mockImplementationOnce(async () => ['npm'])
       .mockImplementationOnce(async (_msg: string, choices: any[]) => {
@@ -1528,7 +1529,7 @@ describe('runInitCommand — script detection flow (interactive)', () => {
       return [];
     });
 
-    let capturedChoices: Array<{ name: string; value: string; checked: boolean }> = [];
+    let capturedChoices: { name: string; value: string; checked: boolean }[] = [];
     mockCheckbox
       .mockImplementationOnce(async () => ['npm'])
       .mockImplementationOnce(async (_msg: string, choices: any[]) => {

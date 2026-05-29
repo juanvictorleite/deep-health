@@ -82,12 +82,12 @@ vi.mock('@core/gates/validator.js', () => ({
   validateEcosystemGate: vi.fn().mockReturnValue({ valid: true, gate: 'npm', errors: [] }),
 }));
 
-import { runOrchestrator } from '@orchestration/orchestrator';
-import { ScannerEngineRegistry } from '@modules/scanner/registry';
-import { OsvScannerEngine } from '@modules/scanner/osv-engine';
-import { npmPlugin } from '@modules/ecosystem/plugins/npm';
 import type { CommandRunner, CommandResult, CommandRunnerOptions } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
+import { npmPlugin } from '@modules/ecosystem/plugins/npm';
+import { OsvScannerEngine } from '@modules/scanner/osv-engine';
+import { ScannerEngineRegistry } from '@modules/scanner/registry';
+import { runOrchestrator } from '@orchestration/orchestrator';
 
 class MockCommandRunner implements CommandRunner {
   readonly dryRun = false;

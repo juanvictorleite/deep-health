@@ -2,8 +2,10 @@
  * Coverage for src/infrastructure/provisioner/composer-runner.ts
  * and EphemeralEcosystemContainer with shell-wrap + preamble RunMode (composer).
  */
-import { describe, it, expect, vi, type Mock } from 'vitest';
 import { EventEmitter } from 'node:events';
+
+import { describe, it, expect, vi, type Mock } from 'vitest';
+
 
 vi.mock('@infra/utils/logger', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },
@@ -19,13 +21,14 @@ vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
 }));
 
-import { COMPOSER_BOOTSTRAP, isPhpCliImage } from '@infra/provisioner/composer-runner';
-import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
 import { execFile, spawn } from 'node:child_process';
-import { needsHostGateway, resolvePlatform } from '@infra/utils/docker-platform';
-import { COMPOSER_DEFAULT_IMAGE } from '@infra/provisioner/php-profiles';
 
-function makeComposerRunMode(image: string) {
+import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
+import { COMPOSER_BOOTSTRAP, isPhpCliImage } from '@infra/provisioner/composer-runner';
+import { COMPOSER_DEFAULT_IMAGE } from '@infra/provisioner/php-profiles';
+import { needsHostGateway, resolvePlatform } from '@infra/utils/docker-platform';
+
+function makeComposerRunMode(_image: string) {
   return {
     kind: 'shell-wrap' as const,
     preamble: (img: string) => isPhpCliImage(img) ? COMPOSER_BOOTSTRAP : undefined,

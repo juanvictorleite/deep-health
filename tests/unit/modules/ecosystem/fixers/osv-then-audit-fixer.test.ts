@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+
 import { extractPackageName, mergeOsvFirstWins } from '@modules/ecosystem/fixers/index';
 import type { OsvFixOutcome } from '@modules/ecosystem/fixers/index';
+import { describe, it, expect } from 'vitest';
 
 // ── extractPackageName unit tests ─────────────────────────────────────────────
 

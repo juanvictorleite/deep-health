@@ -13,14 +13,22 @@ const {
   mockSelectPrompt,
   mockInputPrompt,
 } = vi.hoisted(() => {
-  const mockUserinfoGet = vi.fn();
-  const mockFilesListGdrive = vi.fn();
-  const mockSetCredentials = vi.fn();
-  const mockOAuth2Constructor = vi.fn(function () { return { setCredentials: mockSetCredentials }; });
-  const mockConfirmPrompt = vi.fn();
-  const mockSelectPrompt = vi.fn();
-  const mockInputPrompt = vi.fn();
-  return { mockUserinfoGet, mockFilesListGdrive, mockSetCredentials, mockOAuth2Constructor, mockConfirmPrompt, mockSelectPrompt, mockInputPrompt };
+  const _mockUserinfoGet = vi.fn();
+  const _mockFilesListGdrive = vi.fn();
+  const _mockSetCredentials = vi.fn();
+  const _mockOAuth2Constructor = vi.fn(function () { return { setCredentials: _mockSetCredentials }; });
+  const _mockConfirmPrompt = vi.fn();
+  const _mockSelectPrompt = vi.fn();
+  const _mockInputPrompt = vi.fn();
+  return {
+    mockUserinfoGet: _mockUserinfoGet,
+    mockFilesListGdrive: _mockFilesListGdrive,
+    mockSetCredentials: _mockSetCredentials,
+    mockOAuth2Constructor: _mockOAuth2Constructor,
+    mockConfirmPrompt: _mockConfirmPrompt,
+    mockSelectPrompt: _mockSelectPrompt,
+    mockInputPrompt: _mockInputPrompt,
+  };
 });
 
 // Mock fs/promises
@@ -56,14 +64,15 @@ vi.mock('@infra/utils/inquirer-prompts', () => ({
   checkboxPrompt: vi.fn(),
 }));
 
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
+
+import { runCloudSetup } from '@app/commands/cloud-setup';
 import {
   createOAuth2Client,
   loadStoredTokens,
   runOAuthFlow,
   saveTokens,
 } from '@infra/storage/google-drive-auth';
-import { runCloudSetup } from '@app/commands/cloud-setup';
 
 const mockTokens = {
   access_token: 'access',
@@ -306,8 +315,8 @@ describe('runCloudSetup()', () => {
 
   it('uses String(err) when createOAuth2Client throws a non-Error (line 101 false branch)', async () => {
     vi.mocked(readFile).mockResolvedValue(mockConfigContent);
-    // eslint-disable-next-line @typescript-eslint/only-throw-error
-    vi.mocked(createOAuth2Client).mockImplementation(() => { throw 'missing env vars string'; });
+     
+    vi.mocked(createOAuth2Client).mockImplementation(() => { throw new Error('missing env vars string'); });
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
 
     const code = await runCloudSetup({ configPath: 'security-scan.config.json', cwd: '/cwd' });
@@ -319,7 +328,7 @@ describe('runCloudSetup()', () => {
   it('uses String(err) when runOAuthFlow throws a non-Error (line 136 false branch)', async () => {
     vi.mocked(readFile).mockResolvedValue(mockConfigContent);
     vi.mocked(loadStoredTokens).mockResolvedValue(null);
-    vi.mocked(runOAuthFlow).mockImplementation(() => Promise.reject('oauth string error'));
+    vi.mocked(runOAuthFlow).mockImplementation(() => Promise.reject(new Error('oauth string error')));
 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     const stdoutSpy = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
@@ -335,7 +344,7 @@ describe('runCloudSetup()', () => {
     vi.mocked(readFile).mockResolvedValue(mockConfigContent);
     vi.mocked(loadStoredTokens).mockResolvedValue(mockTokens);
     mockUserinfoGet.mockResolvedValue({ data: { email: 'user@example.com' } });
-    mockFilesListGdrive.mockImplementation(() => Promise.reject('folders string error'));
+    mockFilesListGdrive.mockImplementation(() => Promise.reject(new Error('folders string error')));
 
     mockConfirmPrompt.mockResolvedValueOnce(false);
 

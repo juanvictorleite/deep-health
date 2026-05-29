@@ -7,11 +7,12 @@
  *   "No direct tests found for residual verification state union behavior
  *    or executive unverified rendering branch."
  */
-import { describe, it, expect } from 'vitest';
+
 import type { ResidualVerification } from '@core/types/report';
-import { generateExecutiveReport } from '@reporting/executive';
 import type { ExecutiveReportOptions } from '@core/types/report';
 import type { ScanResultJson } from '@core/types/scan';
+import { generateExecutiveReport } from '@reporting/executive';
+import { describe, it, expect } from 'vitest';
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 

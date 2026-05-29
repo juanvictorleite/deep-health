@@ -11,15 +11,17 @@
  * - Apply ecosystem-aware exclusion defaults
  * - Be idempotent: skip if the file already exists (never clobber user config)
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, writeFile, readFile, rm, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+
 import {
   buildSonarPropertiesTemplate,
   writeSonarPropertiesTemplateIfMissing,
 } from '@app/commands/sonar-properties-template';
 import { parsePropertiesFile } from '@modules/scanner/sonar-properties';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 describe('buildSonarPropertiesTemplate', () => {
   it('produces a parseable .properties file with projectKey + projectName', () => {

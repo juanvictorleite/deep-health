@@ -26,9 +26,10 @@ vi.mock('@modules/ecosystem/plugins/pip-dep-graph', async (importOriginal) => {
 });
 
 import { execFile as execFileCb } from 'node:child_process';
+
 import { logger } from '@infra/utils/logger';
-import { checkUvAvailable, resolveWithUv } from '@modules/ecosystem/plugins/pip-uv-resolver';
 import { parseViaAnnotations } from '@modules/ecosystem/plugins/pip-dep-graph';
+import { checkUvAvailable, resolveWithUv } from '@modules/ecosystem/plugins/pip-uv-resolver';
 
 const mockedExecFileCb = execFileCb as unknown as ReturnType<typeof vi.fn>;
 const mockedLogger = logger as unknown as {

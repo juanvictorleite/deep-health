@@ -9,12 +9,12 @@
  * `process.exit` is stubbed so we can assert it was called with the right
  * code without actually killing the test runner.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   registerShutdownHook,
   _activeHookCount,
   _resetShutdownHooks,
 } from '@infra/utils/shutdown-hooks';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('@infra/utils/logger.js', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },
@@ -119,8 +119,8 @@ describe('signal-triggered hook execution', () => {
   });
 
   it('logs String(err) when a hook throws a non-Error value (line 99 false branch)', async () => {
-    // eslint-disable-next-line @typescript-eslint/only-throw-error
-    registerShutdownHook(() => { throw 'plain string failure'; });
+
+    registerShutdownHook(() => { throw new Error('plain string failure'); });
 
     process.emit('SIGINT');
     await new Promise((resolve) => setImmediate(resolve));

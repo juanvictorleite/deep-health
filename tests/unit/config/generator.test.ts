@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest';
+
 import { generateConfigJson, normalizeSonarProjectKey } from '@infra/config/generator';
-import { generateJsonSchema } from '@infra/config/schema-export';
 import { ProjectConfigSchema } from '@infra/config/schema';
+import { generateJsonSchema } from '@infra/config/schema-export';
+import { describe, it, expect } from 'vitest';
 
 /**
  * Strip $schema before Zod validation.
@@ -63,7 +64,7 @@ describe('generateConfigJson', () => {
 
   it('defaults npm fixer to "osv" in generated config', () => {
     const json = generateConfigJson();
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string; fixer?: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string; fixer?: string }[] };
     const npm = parsed.ecosystems.find((e) => e.id === 'npm');
     expect(npm).toBeDefined();
     expect(npm?.fixer).toBe('osv');
@@ -79,7 +80,7 @@ describe('generateConfigJson', () => {
         },
       ],
     });
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string }[] };
     const composer = parsed.ecosystems.find((e) => e.id === 'composer');
     expect(composer).toBeDefined();
   });
@@ -100,7 +101,7 @@ describe('generateConfigJson', () => {
         },
       ],
     });
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string }[] };
     const ids = parsed.ecosystems.map((e) => e.id);
     expect(ids).toContain('composer');
     expect(ids).toContain('npm');
@@ -128,7 +129,7 @@ describe('generateConfigJson', () => {
         },
       ],
     });
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string }[] };
     const pip = parsed.ecosystems.find((e) => e.id === 'pip');
     expect(pip).toBeDefined();
   });
@@ -410,7 +411,7 @@ describe('generateConfigJson — build config options', () => {
 
     // Must parse as valid JSON
     const parsed = JSON.parse(json) as {
-      ecosystems: Array<{ id: string; runner?: Record<string, unknown> }>;
+      ecosystems: { id: string; runner?: Record<string, unknown> }[];
       runners?: unknown;
     };
 
@@ -452,7 +453,7 @@ describe('generateConfigJson — build config options', () => {
     });
 
     const parsed = JSON.parse(json) as {
-      ecosystems: Array<{ id: string; runner?: Record<string, unknown> }>;
+      ecosystems: { id: string; runner?: Record<string, unknown> }[];
     };
     const npmEntry = parsed.ecosystems.find((e) => e.id === 'npm');
     const buildBlock = npmEntry?.runner?.build as Record<string, unknown> | undefined;
@@ -480,11 +481,11 @@ describe('generateConfigJson — empty validationCommands', () => {
 
     // (a) JSON must parse successfully
     const parsed = JSON.parse(json) as {
-      ecosystems: Array<{
+      ecosystems: {
         id: string;
         validationCommands?: unknown[];
-        advisors?: Array<{ name: string; command: string }>;
-      }>;
+        advisors?: { name: string; command: string }[];
+      }[];
     };
 
     // (b) validationCommands must be an empty array
@@ -511,7 +512,7 @@ describe('generateConfigJson — empty validationCommands', () => {
     });
 
     const parsed = JSON.parse(json) as {
-      ecosystems: Array<{ id: string; validationCommands?: unknown[]; advisors?: unknown[] }>;
+      ecosystems: { id: string; validationCommands?: unknown[]; advisors?: unknown[] }[];
     };
     const npm = parsed.ecosystems.find((e) => e.id === 'npm');
     expect(npm?.validationCommands).toEqual([]);

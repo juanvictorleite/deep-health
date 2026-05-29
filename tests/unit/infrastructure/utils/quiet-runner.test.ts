@@ -2,9 +2,10 @@
  * Tests for src/infrastructure/utils/quiet-runner.ts
  * Covers AC5: stream stripping, onLine preservation, passthrough, and property proxying.
  */
-import { describe, it, expect, vi } from 'vitest';
+
 import type { CommandRunner, CommandResult } from '@core/types/common';
 import { createQuietRunner } from '@infra/utils/quiet-runner';
+import { describe, it, expect, vi } from 'vitest';
 
 function makeResult(command: string): CommandResult {
   return { stdout: '', stderr: '', exitCode: 0, command, dryRun: false };

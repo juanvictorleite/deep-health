@@ -3,10 +3,11 @@
  * Covers: metricsFilter parameter — default filtering, custom filter,
  * no filter (backward compat), and empty filter.
  */
-import { describe, it, expect } from 'vitest';
-import { buildSonarQubeExecSection } from '@reporting/sonarqube-exec-section';
-import type { ScanResultJson } from '@core/types/scan';
+
 import { DEFAULT_SONAR_REPORT_METRICS } from '@core/types/config';
+import type { ScanResultJson } from '@core/types/scan';
+import { buildSonarQubeExecSection } from '@reporting/sonarqube-exec-section';
+import { describe, it, expect } from 'vitest';
 
 // Minimal ExecLocale stub
 const stubLocale = {

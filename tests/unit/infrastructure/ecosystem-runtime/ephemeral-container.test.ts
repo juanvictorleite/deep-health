@@ -19,8 +19,8 @@ vi.mock('@infra/utils/retry', () => ({
   isDockerTransientError: () => false,
 }));
 
-import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
 import { CLI_NAME } from '@infra/brand';
+import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
 import type { RunMode } from '@infra/ecosystem-runtime/types';
 
 function makeContainer(opts: {
@@ -218,7 +218,7 @@ describe('EphemeralEcosystemContainer — pull timeout', () => {
     });
 
     vi.doMock('node:util', () => ({
-      promisify: (fn: unknown) => {
+      promisify: (_fn: unknown) => {
         // promisify of execFile — return a function that calls execFileMock as promise
         return (...args: unknown[]) =>
           new Promise((resolve, reject) => {
