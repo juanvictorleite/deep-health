@@ -102,6 +102,8 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
     return { breakingInstallError: null, packagesUpdated: [] };
   }
 
+  const treeVersionsBefore = collectNpmLockfileVersions(preLockfileContent);
+
   // ── Run npm audit fix ─────────────────────────────────────────────────────
   logger.info('Applying npm audit fix for auto-safe vulnerabilities...');
   // SEC: use runArgs (shell: false) — 'npm audit fix' has no variable data but
@@ -124,11 +126,17 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
   }
 
   const rootVersionsAfterAutoSafe = collectRootNpmLockfileVersions(postAutoSafeLockfile);
+  const treeVersionsAfterAutoSafe = collectNpmLockfileVersions(postAutoSafeLockfile);
 
   // ── Verify auto-safe upgrades ─────────────────────────────────────────────
   // auto_safe_packages is a string[] of "name@version" or bare "name" strings from the scanner.
   // We only care about the package name for verification — the lockfile is the authority on which
   // version actually landed.
+  //
+  // Hybrid rule: packages present at root level (in EITHER pre or post lockfile) use the existing
+  // root-only comparison — this preserves the nested-dedup false-positive guard for lockfileVersion 1.
+  // Packages that are purely transitive (absent at root both before and after) use the full-tree
+  // max-version comparison so genuine transitive upgrades (e.g. elliptic, ip) are counted.
   const autoSafeVerified: string[] = [];
   const autoSafeFalsePositives: string[] = [];
 
@@ -137,13 +145,27 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
       ? pkgSpec.slice(0, pkgSpec.lastIndexOf('@'))
       : pkgSpec;
 
-    const before = rootVersionsBefore.get(name);
-    const after = rootVersionsAfterAutoSafe.get(name);
+    const rootBefore = rootVersionsBefore.get(name);
+    const rootAfter = rootVersionsAfterAutoSafe.get(name);
 
-    if (isUpgraded(before, after)) {
-      autoSafeVerified.push(`${name}@${after!}`);
+    if (rootBefore !== undefined || rootAfter !== undefined) {
+      // Package is present at root level (at least one side) — use root-only comparison.
+      // This preserves the nested-dedup false-positive guard for lockfileVersion 1.
+      if (isUpgraded(rootBefore, rootAfter)) {
+        autoSafeVerified.push(`${name}@${rootAfter!}`);
+      } else {
+        autoSafeFalsePositives.push(name);
+      }
     } else {
-      autoSafeFalsePositives.push(name);
+      // Package is purely transitive — absent at root both before and after.
+      // Compare full-tree max versions to detect genuine transitive upgrades.
+      const treeBeforeMax = semverMax(treeVersionsBefore.get(name) ?? new Set());
+      const treeAfterMax = semverMax(treeVersionsAfterAutoSafe.get(name) ?? new Set());
+      if (isUpgraded(treeBeforeMax, treeAfterMax)) {
+        autoSafeVerified.push(`${name}@${treeAfterMax!}`);
+      } else {
+        autoSafeFalsePositives.push(name);
+      }
     }
   }
 
