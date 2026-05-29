@@ -1,10 +1,10 @@
+import type { CommandRunner } from '@core/types/common';
+import type { ProjectConfig } from '@core/types/config';
+import { unwrap } from '@core/types/result';
 import { loadConfig } from '@infra/config/loader';
 import { LocalExecutor } from '@infra/executor/local-executor';
 import { setLogLevel, setJsonMode } from '@infra/utils/logger';
 import { defaultRegistry } from '@modules/ecosystem/index';
-import type { ProjectConfig } from '@core/types/config';
-import type { CommandRunner } from '@core/types/common';
-import { unwrap } from '@core/types/result';
 
 export interface RunContext {
   config: ProjectConfig;

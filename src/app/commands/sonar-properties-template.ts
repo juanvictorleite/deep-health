@@ -19,9 +19,10 @@
  * starting point that covers most layouts.
  */
 
-import { CLI_NAME } from '@infra/brand';
 import { writeFile, access } from 'node:fs/promises';
 import { resolve } from 'node:path';
+
+import { CLI_NAME } from '@infra/brand';
 import { normalizeSonarProjectKey } from '@infra/config/generator';
 
 const ECOSYSTEM_SONAR_EXCLUSIONS: Record<string, string[]> = {

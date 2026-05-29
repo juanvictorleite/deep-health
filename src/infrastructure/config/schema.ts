@@ -1,6 +1,7 @@
-import { CLI_NAME } from '@infra/brand';
-import { __ } from '@core/i18n';
 import { z } from "zod";
+
+import { __ } from '@core/i18n';
+import { CLI_NAME } from '@infra/brand';
 
 const ProtectedPackageSchema = z
   .object({
@@ -74,7 +75,7 @@ const OsvScannerConfigSchema = z
 const DebianPackageNameSchema = z
   .string()
   .regex(
-    /^[a-z0-9][a-z0-9+.\-]*$/,
+    /^[a-z0-9][a-z0-9+.-]*$/,
     'Invalid package name — must follow Debian naming conventions (lowercase alphanumeric, hyphens, dots, plus signs only)',
   );
 

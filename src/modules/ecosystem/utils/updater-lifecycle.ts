@@ -1,11 +1,12 @@
+import { PhaseError } from '@core/errors';
 import type { CommandRunner } from '@core/types/common';
 import type { ValidationCommandConfig } from '@core/types/config';
-import type { UpdateResultJson, ValidationEntry, AuditFinding } from '@core/types/update';
+import type { Ok, Err } from '@core/types/result';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
-import { PhaseError } from '@core/errors';
+import type { UpdateResultJson, ValidationEntry, AuditFinding } from '@core/types/update';
 import { logger } from '@infra/utils/logger';
-import type { Ok, Err } from '@core/types/result';
+
 import type { BootstrapSpec } from './updater-transaction';
 import { beginUpdaterTransaction } from './updater-transaction';
 import { runValidations } from './validation-runner';

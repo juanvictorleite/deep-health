@@ -1,8 +1,8 @@
-import { success, warn, dim } from '@infra/utils/ui';
 import { __ } from '@core/i18n';
-import { CLI_NAME } from '@infra/brand';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
+import { CLI_NAME } from '@infra/brand';
+import { success, warn, dim } from '@infra/utils/ui';
 
 export interface FixSummaryInput {
   scanResult: ScanResultJson | null;

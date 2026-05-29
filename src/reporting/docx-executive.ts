@@ -13,7 +13,9 @@ import {
   ShadingType,
   convertInchesToTwip,
 } from 'docx';
+
 import type { ExecutiveReportOptions } from '@core/types/report';
+
 import { buildExecutiveReportContext } from './executive';
 
 // ── colour palette for table headers ────────────────────────────────────────

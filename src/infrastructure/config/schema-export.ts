@@ -1,4 +1,5 @@
 import { zodToJsonSchema } from 'zod-to-json-schema';
+
 import { ProjectConfigSchema } from '@infra/config/schema';
 
 /**

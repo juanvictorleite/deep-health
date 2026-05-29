@@ -1,6 +1,8 @@
 import { z } from 'zod';
-import type { GateResult } from '../types/common';
+
 import { logger } from '@infra/utils/logger';
+
+import type { GateResult } from '../types/common';
 
 const VulnerabilityEntrySchema = z.object({
   ecosystem: z.string(),

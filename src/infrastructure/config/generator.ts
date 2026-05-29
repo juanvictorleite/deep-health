@@ -1,5 +1,5 @@
-import type { SupportedLocale } from '@core/types/locale';
 import type { OutputFormat } from '@core/types/config';
+import type { SupportedLocale } from '@core/types/locale';
 
 /**
  * Config / init scaffolding generates a declarative security-scan.config.json.
@@ -30,8 +30,8 @@ export interface EcosystemRunnerConfig {
 export interface EcosystemConfigEntry {
   id: string;
   fixerStrategy?: string;
-  validationCommands?: Array<{ name: string; command: string }>;
-  advisors?: Array<{ name: string; command: string }>;
+  validationCommands?: { name: string; command: string }[];
+  advisors?: { name: string; command: string }[];
   runner?: EcosystemRunnerConfig;
   /** Relative path from cwd to the directory containing the lockfile. Omitted for root. */
   path?: string;
@@ -173,28 +173,6 @@ export function normalizeSonarProjectKey(name: string): string {
   key = key.replace(/^-+|-+$/g, '');
   return key || 'my-project';
 }
-
-/** Known protected_packages ecosystem entries (id → example values) */
-const ECOSYSTEM_EXAMPLES: Record<
-  string,
-  { examplePackage: string; exampleConstraint: string; exampleReason: string }
-> = {
-  composer: {
-    examplePackage: 'vendor/package',
-    exampleConstraint: '^2.0',
-    exampleReason: 'Major upgrade requires project-wide migration',
-  },
-  npm: {
-    examplePackage: 'some-package',
-    exampleConstraint: '^3.0.0',
-    exampleReason: 'v4 has breaking API changes',
-  },
-  pip: {
-    examplePackage: 'requests',
-    exampleConstraint: '>=2.31',
-    exampleReason: 'Major upgrade requires API migration',
-  },
-};
 
 /** Default ecosystem entries used when ecosystemConfigs is not provided */
 const DEFAULT_ECOSYSTEM_CONFIGS: EcosystemConfigEntry[] = [

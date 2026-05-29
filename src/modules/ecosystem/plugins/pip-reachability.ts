@@ -1,16 +1,18 @@
 import { readFile } from 'node:fs/promises';
+
 import type { ReachabilityAdapter, ReachabilityCheck } from '@core/policy/reachability';
 import { logger } from '@infra/utils/logger';
+
 import type { PythonDependencyGraph, PythonPackageNode } from './pip-dep-graph';
 import { parseViaAnnotations } from './pip-dep-graph';
-import type { PipToolingDetection } from './pip-tooling-detector';
-import { detectPipTooling } from './pip-tooling-detector';
 import {
   parsePoetryLock,
   parseUvLock,
   parsePipfileLock,
   parsePdmLock,
 } from './pip-lockfile-parsers';
+import type { PipToolingDetection } from './pip-tooling-detector';
+import { detectPipTooling } from './pip-tooling-detector';
 import { resolveWithUv } from './pip-uv-resolver';
 
 // ─── PEP 503 normalization ────────────────────────────────────────────────────
@@ -55,7 +57,7 @@ function satisfiesWildcardNotEqual(version: string, target: string): boolean {
 
 type OperatorHandler = (version: string, operand: string) => boolean;
 
-const OPERATOR_MAP: Array<[string, OperatorHandler]> = [
+const OPERATOR_MAP: [string, OperatorHandler][] = [
   ['===', (v, op) => v === op],
   ['~=', (v, op) => satisfiesCompatibleRelease(v, op)],
   ['==', (v, op) => (op.endsWith('.*') ? satisfiesWildcardEqual(v, op) : v === op)],

@@ -1,6 +1,8 @@
 import { execFile as execFileCb } from 'node:child_process';
 import { resolve } from 'node:path';
+
 import { logger } from '@infra/utils/logger';
+
 import { parseViaAnnotations } from './pip-dep-graph';
 import type { PythonDependencyGraph } from './pip-dep-graph';
 
@@ -79,7 +81,7 @@ export async function resolveWithUv(
   try {
     const stdout = await execAsync(uvPath, args, cwd, 30_000, registryEnv);
     return parseViaAnnotations(stdout);
-  } catch (firstErr) {
+  } catch {
     logger.debug('uv pip compile failed; retrying with --no-build');
     try {
       const stdout = await execAsync(uvPath, [...args, '--no-build'], cwd, 30_000, registryEnv);

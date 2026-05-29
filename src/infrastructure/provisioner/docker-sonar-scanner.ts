@@ -1,12 +1,13 @@
 import { execa } from 'execa';
-import { logger } from '../utils/logger';
-import { needsHostGateway, resolvePlatform } from '../utils/docker-platform';
-import { trackKillable } from '../ecosystem-runtime/child-process-tracker';
+
 import type {
   DockerSonarScannerRunnerOptions,
   EphemeralContainerRunner,
   ContainerRunResult,
 } from './types';
+import { trackKillable } from '../ecosystem-runtime/child-process-tracker';
+import { needsHostGateway, resolvePlatform } from '../utils/docker-platform';
+import { logger } from '../utils/logger';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
 

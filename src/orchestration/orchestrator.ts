@@ -1,36 +1,42 @@
+import { readFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
+
+import { buildEcosystemFixTaskList, buildEcosystemFixSubtasks } from "@app/progress-reporter";
+import type { RendererType } from "@app/progress-reporter";
+import type { EcosystemFixStepFns } from "@app/progress-reporter";
+import { GateValidationError } from "@core/errors";
+import { validateGateA } from "@core/gates/validator";
 import type { CommandRunner, PhaseStatus } from "@core/types/common";
+import { ecosystemEntryKey } from "@core/types/config";
 import type { ProjectConfig } from "@core/types/config";
+import type { EcosystemConfig } from "@core/types/config";
+import type { AdvisorResult, ResidualVerification } from "@core/types/report";
+import { isErr } from "@core/types/result";
 import type { ScanResultJson } from "@core/types/scan";
 import type { UpdateResultJson } from "@core/types/update";
-import type { AdvisorResult, ResidualVerification } from "@core/types/report";
-import type {
-  EngineWarning,
-  ScannerEngineContext,
-} from "@modules/scanner/types";
-import { validateGateA } from "@core/gates/validator";
-import { GateValidationError } from "@core/errors";
-import { logger } from "@infra/utils/logger";
+import { CLI_NAME, KILL_SWITCH_VAR } from "@infra/brand";
 import { detectGitBranch } from "@infra/utils/git-branch";
-import type { RendererType } from "@app/progress-reporter";
-import { buildEcosystemFixTaskList, buildEcosystemFixSubtasks } from "@app/progress-reporter";
+import { logger } from "@infra/utils/logger";
 import { badge } from "@infra/utils/ui";
 // Ecosystem registry — plugins are registered via modules/ecosystem/index.ts side-effects
-import { EcosystemRegistry, defaultRegistry } from "@modules/ecosystem/index";
+import { type EcosystemRegistry, defaultRegistry } from "@modules/ecosystem/index";
 // Scanner registry — engines are bootstrapped lazily via bootstrapDefaultEngines()
+import type { EcosystemPlugin } from "@modules/ecosystem/types";
 import {
   defaultScannerRegistry,
-  ScannerEngineRegistry,
+  type ScannerEngineRegistry,
   aggregateScanResults,
   OSV_ENGINE_ID,
   bootstrapDefaultEngines,
   executeScannerSweep,
   listr2ScannerSweepRenderer,
 } from "@modules/scanner/index";
-import { isErr } from "@core/types/result";
 import type { AggregatedScanResult } from "@modules/scanner/index";
-import { CLI_NAME, KILL_SWITCH_VAR } from "@infra/brand";
-import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import type {
+  EngineWarning,
+  ScannerEngineContext,
+} from "@modules/scanner/types";
+
 import {
   runEcosystemFix,
   resolveEcosystemFixContext,
@@ -41,10 +47,7 @@ import {
   maybeRunOsvVerification,
   finalizeEcosystemOutcome,
 } from "./run-ecosystem-fix";
-import { ecosystemEntryKey } from "@core/types/config";
-import type { EcosystemPlugin } from "@modules/ecosystem/types";
-import type { EcosystemConfig } from "@core/types/config";
-import type { EcosystemFixStepFns } from "@app/progress-reporter";
+
 
 export interface OrchestratorOptions {
   configPath: string;
@@ -199,7 +202,7 @@ interface ScanPhaseParams {
 interface ScanPhaseResult {
   scanResult: ScanResultJson;
   aggregated: AggregatedScanResult;
-  engineEntries: Array<{ engineId: string; result: ScanResultJson }>;
+  engineEntries: { engineId: string; result: ScanResultJson }[];
   warnings: EngineWarning[];
 }
 
@@ -313,7 +316,7 @@ interface PostFixSweepParams {
   ctx: ScannerEngineContext;
   config: ProjectConfig;
   options: OrchestratorOptions;
-  engineEntries: Array<{ engineId: string; result: ScanResultJson }>;
+  engineEntries: { engineId: string; result: ScanResultJson }[];
   result: OrchestratorResult;
   primaryEngineId: string;
 }
@@ -449,18 +452,18 @@ function buildActiveEcosystemEntries(
   config: ProjectConfig,
   options: OrchestratorOptions,
   ecosystemRegistry: EcosystemRegistry,
-): Array<{
+): {
   plugin: EcosystemPlugin;
   ecoEntry: EcosystemConfig;
   ecosystemCwd: string;
   authorizeBreaking: boolean;
-}> {
-  const entries: Array<{
+}[] {
+  const entries: {
     plugin: EcosystemPlugin;
     ecoEntry: EcosystemConfig;
     ecosystemCwd: string;
     authorizeBreaking: boolean;
-  }> = [];
+  }[] = [];
 
   for (const ecoEntry of config.ecosystems) {
     const plugin = ecosystemRegistry.getAll().find((p) => p.id === ecoEntry.id);

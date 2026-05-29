@@ -1,6 +1,7 @@
+import type { Dirent } from 'node:fs';
 import { readdir } from 'node:fs/promises';
 import { resolve, relative, join, basename } from 'node:path';
-import type { Dirent } from 'node:fs';
+
 import type { EcosystemPlugin } from '@modules/ecosystem/types';
 
 // ── Public types ─────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 import { __ } from '@core/i18n';
+
 import type { Locale } from './types';
 
 export function buildLocale(): Locale {

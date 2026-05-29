@@ -14,6 +14,7 @@
  */
 
 import { spawn } from 'node:child_process';
+
 import type { LogLevel } from './logger';
 import { logger } from './logger';
 
@@ -76,6 +77,13 @@ export async function spawnStreaming(
     const stdoutChunks: string[] = [];
     const stderrChunks: string[] = [];
     let killedByTimeout = false;
+    let settled = false;
+
+    const settle = (result: SpawnStreamingResult): void => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
 
     const child = spawn(file, args, { stdio: ['ignore', 'pipe', 'pipe'], detached: true });
 
@@ -84,7 +92,7 @@ export async function spawnStreaming(
       timeoutHandle = setTimeout(() => {
         killedByTimeout = true;
         try {
-          if (child.pid != null) process.kill(-child.pid, 'SIGKILL');
+          if (child.pid !== null && child.pid !== undefined) process.kill(-child.pid, 'SIGKILL');
         } catch {
           child.kill('SIGKILL');
         }
@@ -114,7 +122,7 @@ export async function spawnStreaming(
     child.on('close', (code) => {
       if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
       if (killedByTimeout) {
-        resolve({
+        settle({
           exitCode: 1,
           stdout: stdoutChunks.join(''),
           stderr: `Timed out after ${timeoutMs}ms`,
@@ -122,7 +130,7 @@ export async function spawnStreaming(
         });
         return;
       }
-      resolve({
+      settle({
         exitCode: typeof code === 'number' ? code : 1,
         stdout: stdoutChunks.join(''),
         stderr: stderrChunks.join(''),
@@ -133,7 +141,7 @@ export async function spawnStreaming(
     child.on('error', (err) => {
       // spawn itself failed (e.g. binary not found) — treat as exit code 1.
       if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
-      resolve({
+      settle({
         exitCode: 1,
         stdout: stdoutChunks.join(''),
         stderr: err.message,

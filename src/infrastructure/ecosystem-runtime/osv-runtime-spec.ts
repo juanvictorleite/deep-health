@@ -1,5 +1,5 @@
-import { OSV_DEFAULT_IMAGE } from '../utils/osv-commands';
 import type { EcosystemRuntimeSpec } from './types';
+import { OSV_DEFAULT_IMAGE } from '../utils/osv-commands';
 
 /**
  * EcosystemRuntimeSpec for osv-scanner.

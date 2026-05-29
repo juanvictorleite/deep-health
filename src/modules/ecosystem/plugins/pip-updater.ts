@@ -1,17 +1,20 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
+
 import semver from 'semver';
+
 import type { CommandRunner, VulnerabilityClass } from '@core/types/common';
 import type { FixerStrategyId, ValidationCommandConfig } from '@core/types/config';
-import type { UpdateResultJson } from '@core/types/update';
-import type { ScanResultJson, VulnerabilityEntry } from '@core/types/scan';
 import type { AdvisorResult } from '@core/types/report';
+import type { ScanResultJson, VulnerabilityEntry } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
+import type { UpdateResultJson } from '@core/types/update';
 import { logger } from '@infra/utils/logger';
+
+import type { PipToolingDetection } from './pip-tooling-detector';
 import { mergeOsvFirstWins } from '../fixers/index';
 import type { OsvFixOutcome } from '../fixers/index';
 import { runUpdaterLifecycle } from '../utils/updater-lifecycle';
-import type { PipToolingDetection } from './pip-tooling-detector';
 
 const PIP_FILES = ['requirements.txt'];
 

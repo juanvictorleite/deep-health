@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+
 import { badge, divider, tag } from './ui';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';

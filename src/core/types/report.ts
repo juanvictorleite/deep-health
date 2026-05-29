@@ -1,7 +1,7 @@
+import type { EcosystemConfig } from './config';
+import type { SupportedLocale } from './locale';
 import type { ScanResultJson } from './scan';
 import type { UpdateResultJson } from './update';
-import type { SupportedLocale } from './locale';
-import type { EcosystemConfig } from './config';
 
 /** A single structured finding from a structured advisor (e.g. npm audit --json) */
 export interface AdvisorFinding {

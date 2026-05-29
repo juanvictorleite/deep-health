@@ -1,8 +1,8 @@
 export interface PythonPackageNode {
   version: string;
   directDependency: boolean;
-  dependsOn: Array<{ name: string; constraint?: string }>;
-  requiredBy: Array<{ name: string; constraint?: string }>;
+  dependsOn: { name: string; constraint?: string }[];
+  requiredBy: { name: string; constraint?: string }[];
   editable?: boolean;
 }
 

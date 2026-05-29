@@ -1,6 +1,8 @@
 import { access, constants } from 'node:fs/promises';
 import { resolve } from 'node:path';
+
 import { readTextFile } from '@infra/utils/infer-version';
+
 import { hasViaAnnotations } from './pip-dep-graph';
 
 export interface PipToolingDetection {
@@ -23,7 +25,7 @@ export async function detectPipTooling(cwd: string): Promise<PipToolingDetection
   const manifest = resolve(cwd, 'requirements.txt');
 
   // Tier 1: lockfile-based tooling
-  const tier1Checks: Array<{ file: string; tooling: PipToolingDetection['tooling'] }> = [
+  const tier1Checks: { file: string; tooling: PipToolingDetection['tooling'] }[] = [
     { file: 'uv.lock', tooling: 'uv' },
     { file: 'poetry.lock', tooling: 'poetry' },
     { file: 'pdm.lock', tooling: 'pdm' },

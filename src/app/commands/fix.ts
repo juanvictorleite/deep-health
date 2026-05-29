@@ -1,20 +1,20 @@
-import { runOrchestrator } from "@orchestration/orchestrator";
-import { selectRenderer } from "@app/progress-reporter";
-import { defaultRegistry } from "@modules/ecosystem/index";
-import { ecosystemEntryKey } from "@core/types/config";
+import { writeAuditTrail, resolveCliVersion } from "@app/audit-trail";
+import { formatFixSummary, formatBreakingWarning } from "@app/fix-summary";
 import { writeOutput } from "@app/output-writer";
+import { selectRenderer } from "@app/progress-reporter";
+import { generateAndSaveReportArtifacts } from "@app/report-artifacts";
 import {
   resolveReportsDir,
 } from "@app/report-saver";
-import { generateAndSaveReportArtifacts } from "@app/report-artifacts";
 import type { RunContext } from "@app/run-context";
-import { writeAuditTrail, resolveCliVersion } from "@app/audit-trail";
-import { createBranchAndCommit, buildBranchName } from "@infra/utils/git-commit";
-import { detectGitBranch } from "@infra/utils/git-branch";
-import type { CommandRunner } from "@core/types/common";
-import { CLI_NAME, DEFAULT_BRANCH_PREFIX } from "@infra/brand";
 import { __ } from "@core/i18n";
-import { formatFixSummary, formatBreakingWarning } from "@app/fix-summary";
+import type { CommandRunner } from "@core/types/common";
+import { ecosystemEntryKey } from "@core/types/config";
+import { CLI_NAME, DEFAULT_BRANCH_PREFIX } from "@infra/brand";
+import { detectGitBranch } from "@infra/utils/git-branch";
+import { createBranchAndCommit, buildBranchName } from "@infra/utils/git-commit";
+import { defaultRegistry } from "@modules/ecosystem/index";
+import { runOrchestrator } from "@orchestration/orchestrator";
 
 export interface FixCommandOptions {
   config: string;

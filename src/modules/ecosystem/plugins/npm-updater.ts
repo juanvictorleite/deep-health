@@ -1,15 +1,16 @@
+import { PhaseError } from '@core/errors';
 import type { CommandRunner } from '@core/types/common';
 import type { FixerStrategyId, ValidationCommandConfig } from '@core/types/config';
-import type { AuditFinding, UpdateResultJson } from '@core/types/update';
-import type { ScanResultJson } from '@core/types/scan';
 import type { AdvisorResult } from '@core/types/report';
-import { PhaseError } from '@core/errors';
+import type { ScanResultJson } from '@core/types/scan';
+import type { AuditFinding, UpdateResultJson } from '@core/types/update';
 import { backupFiles } from '@infra/utils/fs-backup';
 import { logger } from '@infra/utils/logger';
+
 import { FIXER_MAP, mergeOsvFirstWins } from '../fixers/index';
 import type { OsvFixOutcome } from '../fixers/index';
-import { runUpdaterLifecycle } from '../utils/updater-lifecycle';
 import { collectRootNpmLockfileVersions } from '../utils/lockfile-inspect';
+import { runUpdaterLifecycle } from '../utils/updater-lifecycle';
 
 const NPM_FILES = ['package.json', 'package-lock.json'];
 const NPM_ADVISOR_FILES = ['yarn.lock'];

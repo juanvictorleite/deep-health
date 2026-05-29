@@ -7,7 +7,7 @@ import type { ScannerEngine } from './types';
  * Additional engines can be registered without modifying existing code.
  */
 export class ScannerEngineRegistry {
-  private engines: Map<string, ScannerEngine> = new Map();
+  private engines = new Map<string, ScannerEngine>();
   private order: string[] = [];
 
   /**

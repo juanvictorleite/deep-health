@@ -1,18 +1,19 @@
+
 import { Listr, PRESET_TIMER, type ListrRendererValue } from 'listr2';
 
-import { badge } from '@infra/utils/ui';
-import { setProgressSink } from '@infra/utils/logger';
 import { __ } from '@core/i18n';
-import { createQuietRunner } from '@infra/utils/quiet-runner';
-import { resolveEcosystemRuntime } from '@infra/ecosystem-runtime';
-import type { ScannerEngine, ScannerEngineContext } from '@modules/scanner/types';
-import type { ProjectConfig } from '@core/types/config';
 import type { CommandRunner } from '@core/types/common';
-import type { ScanResultJson } from '@core/types/scan';
-import type { AdvisorResult, ResidualVerification } from '@core/types/report';
-import type { EcosystemPlugin } from '@modules/ecosystem/types';
+import type { ProjectConfig } from '@core/types/config';
 import type { EcosystemConfig, FixerStrategyId, ValidationCommandConfig } from '@core/types/config';
+import type { AdvisorResult, ResidualVerification } from '@core/types/report';
+import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
+import { resolveEcosystemRuntime } from '@infra/ecosystem-runtime';
+import { setProgressSink } from '@infra/utils/logger';
+import { createQuietRunner } from '@infra/utils/quiet-runner';
+import { badge } from '@infra/utils/ui';
+import type { EcosystemPlugin } from '@modules/ecosystem/types';
+import type { ScannerEngine, ScannerEngineContext } from '@modules/scanner/types';
 
 // ─── Renderer selection ───────────────────────────────────────────────────────
 
@@ -74,7 +75,7 @@ export interface EcosystemFixStepFns {
     cwd: string;
     dryRun: boolean;
     verbose?: boolean;
-  }): Promise<{ preFixBackups: Map<string, string> | undefined; osvFixOutcome: { applied: boolean; packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }> } | undefined }>;
+  }): Promise<{ preFixBackups: Map<string, string> | undefined; osvFixOutcome: { applied: boolean; packagesUpdated: { name: string; versionFrom: string; versionTo: string }[] } | undefined }>;
   runPluginUpdater(opts: {
     plugin: EcosystemPlugin;
     effectiveRunner: CommandRunner;
@@ -85,7 +86,7 @@ export interface EcosystemFixStepFns {
     validationCommands: ValidationCommandConfig[] | undefined;
     fixerStrategy: FixerStrategyId;
     preFixBackups: Map<string, string> | undefined;
-    osvFixOutcome: { applied: boolean; packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }> } | undefined;
+    osvFixOutcome: { applied: boolean; packagesUpdated: { name: string; versionFrom: string; versionTo: string }[] } | undefined;
     preRunSnapshots: Map<string, string> | undefined;
     advisorResults: AdvisorResult[] | undefined;
     ecoEntry: EcosystemConfig;
@@ -142,10 +143,10 @@ export interface EcosystemFixSubtasksParams {
   onOutcome: (outcome: EcosystemFixOutcome) => void;
 }
 
-type SubtaskDef = {
+interface SubtaskDef {
   title: string;
   task: (_ctx: unknown, task: { title: string; output: string }) => Promise<void>;
-};
+}
 
 /**
  * Builds an array of Listr subtask definitions for the per-ecosystem fix phases.
@@ -172,7 +173,7 @@ export function buildEcosystemFixSubtasks(params: EcosystemFixSubtasksParams): S
   let effectiveRunner = hostRunner;
   let advisorResults: AdvisorResult[] | undefined;
   let preFixBackups: Map<string, string> | undefined;
-  let osvFixOutcome: { applied: boolean; packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }> } | undefined;
+  let osvFixOutcome: { applied: boolean; packagesUpdated: { name: string; versionFrom: string; versionTo: string }[] } | undefined;
   let updateResult: UpdateResultJson | undefined;
   let done = false;
 
@@ -418,7 +419,7 @@ export function buildScanTaskList(
 
 export function buildFixTaskList(
   label: string,
-  steps: Array<{ title: string; task: () => Promise<void> }>,
+  steps: { title: string; task: () => Promise<void> }[],
   rendererType: RendererType,
 ): Listr<unknown, ListrRendererValue> {
   const tasks = steps.map((step) => ({
@@ -449,11 +450,11 @@ export function buildFixTaskList(
  * The sink is cleared in finally so the global singleton is not left dangling.
  */
 export function buildEcosystemFixTaskList(
-  entries: Array<{
+  entries: {
     title: string;
     run?: () => Promise<void>;
     buildSubtasks?: () => SubtaskDef[];
-  }>,
+  }[],
   rendererType: RendererType,
 ): Listr<unknown, ListrRendererValue> {
   const tasks = entries.map((entry) => ({

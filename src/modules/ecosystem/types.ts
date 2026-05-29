@@ -1,11 +1,11 @@
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig, ProtectedPackage, FixerStrategyId, ValidationCommandConfig, AdvisorConfig, EcosystemConfig } from '@core/types/config';
+import type { AdvisorResult } from '@core/types/report';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
-import type { AdvisorResult } from '@core/types/report';
 import type { EcosystemRuntimeSpec } from '@infra/ecosystem-runtime/types';
-import type { OsvFixOutcome } from '@modules/ecosystem/fixers/index';
 import type { VersionSource } from '@infra/utils/infer-version';
+import type { OsvFixOutcome } from '@modules/ecosystem/fixers/index';
 
 export interface EcosystemUpdaterContext {
   runner: CommandRunner;

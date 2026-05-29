@@ -2,7 +2,7 @@ import chalk, { type ChalkInstance } from 'chalk';
 
 // ─── Scanner color palette ────────────────────────────────────────────────────
 
-export const SCANNER_COLORS: Map<string, ChalkInstance> = new Map([
+export const SCANNER_COLORS = new Map<string, ChalkInstance>([
   ['osv', chalk.hex('#F97316')],
   ['sonarqube', chalk.hex('#4D9FE8')],
   ['npm', chalk.hex('#22C55E')],

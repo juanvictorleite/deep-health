@@ -14,11 +14,13 @@
  */
 
 import { Listr } from 'listr2';
+
 import type { RendererType } from '@app/progress-reporter';
-import { badge } from '@infra/utils/ui';
 import { setProgressSink } from '@infra/utils/logger';
-import type { ScannerEngine } from './types';
+import { badge } from '@infra/utils/ui';
+
 import type { EngineRunRenderer } from './scanner-sweep';
+import type { ScannerEngine } from './types';
 
 // ─── Listr2 adapter ───────────────────────────────────────────────────────────
 

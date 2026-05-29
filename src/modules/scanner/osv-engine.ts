@@ -1,10 +1,15 @@
-import type { ScannerEngine, ScannerEngineContext } from './types';
-import type { ScanResultJson, EcosystemScanResult, VulnerabilityEntry } from '@core/types/scan';
-import { emptyEcosystem } from '@core/types/scan';
+import { join } from 'node:path';
+
+import semver from 'semver';
+
+import { PhaseError, EnvironmentError } from '@core/errors';
+import { enrichWithReachability, type ReachabilityAdapter } from '@core/policy/reachability';
+import { classifyPackage } from '@core/policy/safe-update';
 import type { ProjectConfig } from '@core/types/config';
 import { ecosystemEntryKey } from '@core/types/config';
-import type { EcosystemRegistry } from '@modules/ecosystem/registry';
-import { PhaseError, EnvironmentError } from '@core/errors';
+import { emptyEcosystem } from '@core/types/scan';
+import type { ScanResultJson, EcosystemScanResult, VulnerabilityEntry } from '@core/types/scan';
+import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
 import { logger } from '@infra/utils/logger';
 import {
   buildScanCommand,
@@ -13,24 +18,23 @@ import {
   validateScanPath,
   resolveScanPathArgs,
 } from '@infra/utils/osv-commands';
-import { classifyPackage } from '@core/policy/safe-update';
-import { enrichWithReachability, type ReachabilityAdapter } from '@core/policy/reachability';
+import { getPlatformInstallHint } from '@infra/utils/platform';
+import { ComposerReachabilityAdapter } from '@modules/ecosystem/plugins/composer-reachability';
 import { NpmReachabilityAdapter } from '@modules/ecosystem/plugins/npm-reachability';
 import { PipReachabilityAdapter } from '@modules/ecosystem/plugins/pip-reachability';
-import { ComposerReachabilityAdapter } from '@modules/ecosystem/plugins/composer-reachability';
-import { getPlatformInstallHint } from '@infra/utils/platform';
-import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
-import semver from 'semver';
-import { join } from 'node:path';
+import type { EcosystemRegistry } from '@modules/ecosystem/registry';
+
+import type { ScannerEngine, ScannerEngineContext } from './types';
+
 
 // ─── Internal types ────────────────────────────────────────────────────────────
 
-type OsvVulnerability = {
+interface OsvVulnerability {
   id?: string;
   summary?: string;
-  severity?: Array<{ type?: string; score?: string }>;
-  affected?: Array<{
-    ranges?: Array<{
+  severity?: { type?: string; score?: string }[];
+  affected?: {
+    ranges?: {
       /**
        * OSV range type: 'SEMVER' | 'ECOSYSTEM' | 'GIT'.
        * GIT ranges carry commit SHAs, not installable package versions — must be
@@ -38,23 +42,23 @@ type OsvVulnerability = {
        * a leading-digit SHA (e.g. "9e08eb8f…") as "9.0.0".
        */
       type?: string;
-      events?: Array<{
+      events?: {
         fixed?: string;
         introduced?: string;
         last_affected?: string;
-      }>;
-    }>;
-  }>;
-};
+      }[];
+    }[];
+  }[];
+}
 
-export type OsvJsonOutput = {
-  results?: Array<{
-    packages?: Array<{
+export interface OsvJsonOutput {
+  results?: {
+    packages?: {
       package?: { name?: string; version?: string; ecosystem?: string };
       vulnerabilities?: OsvVulnerability[];
-    }>;
-  }>;
-};
+    }[];
+  }[];
+}
 
 // ─── CVSS helpers ─────────────────────────────────────────────────────────────
 
@@ -107,7 +111,7 @@ function parseCvssBaseScore(score: string): string {
   }
 }
 
-function extractCvss(vuln: { severity?: Array<{ type?: string; score?: string }> }): string {
+function extractCvss(vuln: { severity?: { type?: string; score?: string }[] }): string {
   for (const s of vuln.severity ?? []) {
     if (s.type === 'CVSS_V3' && s.score) {
       return parseCvssBaseScore(s.score);
@@ -347,7 +351,7 @@ export class OsvScannerEngine implements ScannerEngine {
       ecosystems: {},
       error: null,
       // Stamp branch when available (null omitted by consumers — treated as unknown)
-      ...(ctx.branch != null ? { branch: ctx.branch } : {}),
+      ...(ctx.branch !== null && ctx.branch !== undefined ? { branch: ctx.branch } : {}),
     };
 
     try {

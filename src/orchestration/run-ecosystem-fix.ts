@@ -24,23 +24,26 @@
  * or record state on the rolling result object.
  */
 
-import type { CommandRunner } from '@core/types/common';
-import { createQuietRunner } from '@infra/utils/quiet-runner';
-import type { ProjectConfig, FixerStrategyId, EcosystemConfig, ValidationCommandConfig } from '@core/types/config';
-import { ecosystemEntryKey } from '@core/types/config';
-import type { ScanResultJson, EcosystemScanResult } from '@core/types/scan';
-import type { OsvJsonOutput } from '@modules/scanner/osv-engine';
-import type { UpdateResultJson } from '@core/types/update';
-import type { ResidualVerification, AdvisorResult } from '@core/types/report';
-import type { EcosystemPlugin } from '@modules/ecosystem/types';
+import { join } from 'node:path';
+
 import { GateValidationError } from '@core/errors';
 import { validateEcosystemGate } from '@core/gates/validator';
-import { logger, setProgressSink, makeProgressSink } from '@infra/utils/logger';
+import type { CommandRunner } from '@core/types/common';
+import type { ProjectConfig, FixerStrategyId, EcosystemConfig, ValidationCommandConfig } from '@core/types/config';
+import { ecosystemEntryKey } from '@core/types/config';
+import type { ResidualVerification, AdvisorResult } from '@core/types/report';
+import type { ScanResultJson, EcosystemScanResult } from '@core/types/scan';
+import type { UpdateResultJson } from '@core/types/update';
 import { resolveEcosystemRuntime, resolveOsvRuntime } from '@infra/ecosystem-runtime';
+import { logger, setProgressSink, makeProgressSink } from '@infra/utils/logger';
+import { createQuietRunner } from '@infra/utils/quiet-runner';
 import { runAdvisors } from '@modules/advisor/index';
-import { applyOsvFixViaStaging } from './osv-fix-applier';
+import type { EcosystemPlugin } from '@modules/ecosystem/types';
 import { logDryRunPreview } from '@modules/ecosystem/utils/dry-run-preview';
-import { join } from 'node:path';
+import type { OsvJsonOutput } from '@modules/scanner/osv-engine';
+
+import { applyOsvFixViaStaging } from './osv-fix-applier';
+
 
 export interface RunEcosystemFixParams {
   plugin: EcosystemPlugin;
@@ -146,7 +149,7 @@ export interface OsvStagingPhaseParams {
  */
 export async function executeOsvStagingPhase(
   params: OsvStagingPhaseParams,
-): Promise<{ preFixBackups: Map<string, string> | undefined; osvFixOutcome: { applied: boolean; packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }> } | undefined }> {
+): Promise<{ preFixBackups: Map<string, string> | undefined; osvFixOutcome: { applied: boolean; packagesUpdated: { name: string; versionFrom: string; versionTo: string }[] } | undefined }> {
   const { plugin, fixerStrategy, config, ecoEntry, cwd, dryRun, verbose } = params;
 
   if (
@@ -273,10 +276,10 @@ export async function resolveAdvisors(
   return runAdvisors(runner, cwd, plugin.id, advisors);
 }
 
-type OsvPackageEntry = {
+interface OsvPackageEntry {
   package?: { name?: string; version?: string; ecosystem?: string };
   vulnerabilities?: { id?: string }[];
-};
+}
 
 /**
  * Accumulates vulnerability counts from a single osv-scanner result entry
@@ -394,7 +397,7 @@ export interface RunUpdaterParams {
   validationCommands: ValidationCommandConfig[] | undefined;
   fixerStrategy: FixerStrategyId;
   preFixBackups: Map<string, string> | undefined;
-  osvFixOutcome: { applied: boolean; packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }> } | undefined;
+  osvFixOutcome: { applied: boolean; packagesUpdated: { name: string; versionFrom: string; versionTo: string }[] } | undefined;
   preRunSnapshots: Map<string, string> | undefined;
   advisorResults: AdvisorResult[] | undefined;
   ecoEntry: EcosystemConfig;

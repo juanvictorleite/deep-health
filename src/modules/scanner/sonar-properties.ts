@@ -19,10 +19,11 @@
  */
 
 import { readFile, writeFile, unlink, mkdtemp, rm } from 'node:fs/promises';
-import { resolve, join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { logger } from '@infra/utils/logger';
+import { resolve, join } from 'node:path';
+
 import { CLI_NAME, DEFAULT_SONAR_DOTFILE, DEFAULT_SONAR_TEMPDIR_PREFIX } from '@infra/brand';
+import { logger } from '@infra/utils/logger';
 
 /**
  * Keys the CLI owns — values in the user's file are ignored and the CLI

@@ -1,15 +1,16 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+
+import { __ } from '@core/i18n';
 import type { ProjectConfig } from '@core/types/config';
+import { CLI_NAME } from '@infra/brand';
 import {
   createOAuth2Client,
   loadStoredTokens,
   runOAuthFlow,
   saveTokens,
 } from '@infra/storage/google-drive-auth';
-import { CLI_NAME } from '@infra/brand';
 import { confirmPrompt, selectPrompt, inputPrompt } from '@infra/utils/inquirer-prompts';
-import { __ } from '@core/i18n';
 
 interface CloudSetupOptions {
   configPath: string;
@@ -47,7 +48,7 @@ async function listDriveFolders(tokens: {
   refresh_token: string;
   expiry_date: number;
   token_type: string;
-}): Promise<Array<{ id: string; name: string }>> {
+}): Promise<{ id: string; name: string }[]> {
   const { clientId, clientSecret } = createOAuth2Client();
   const { google } = await import('googleapis');
 
@@ -146,7 +147,7 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
 
   process.stdout.write(__('Fetching Google Drive folders...\n'));
 
-  let folders: Array<{ id: string; name: string }>;
+  let folders: { id: string; name: string }[];
   try {
     folders = await listDriveFolders(tokens);
   } catch (err) {
@@ -162,7 +163,7 @@ export async function runCloudSetup(opts: CloudSetupOptions): Promise<number> {
     );
   }
 
-  const choices: Array<{ name: string; value: string }> = [
+  const choices: { name: string; value: string }[] = [
     ...folders.map((f) => ({ name: `${f.name}  (${f.id})`, value: f.id })),
     { name: '[Enter folder ID manually]', value: '__manual__' },
   ];

@@ -1,14 +1,16 @@
+import { __ } from '@core/i18n';
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig, RunnerConfig } from '@core/types/config';
-import type { EcosystemPlugin } from '@modules/ecosystem/types';
-import type { RunMode } from './types';
-import { __ } from '@core/i18n';
-import { logger } from '../utils/logger';
-import { EcosystemContainerCommandRunner } from './command-runner';
-import { EphemeralEcosystemContainer } from './ephemeral-container';
-import { buildProjectImage } from './build-project-image';
 import { CLI_NAME } from '@infra/brand';
 import { inferVersionFromSources } from '@infra/utils/infer-version';
+import type { EcosystemPlugin } from '@modules/ecosystem/types';
+
+import { buildProjectImage } from './build-project-image';
+import { EcosystemContainerCommandRunner } from './command-runner';
+import { EphemeralEcosystemContainer } from './ephemeral-container';
+import type { RunMode } from './types';
+import { logger } from '../utils/logger';
+
 
 export interface ResolveEcosystemRuntimeOptions {
   plugin: EcosystemPlugin;
@@ -44,7 +46,7 @@ export interface ResolveEcosystemRuntimeOptions {
 export async function resolveEcosystemRuntime(
   options: ResolveEcosystemRuntimeOptions,
 ): Promise<CommandRunner> {
-  const { plugin, hostRunner, config, cwd, runnerConfig, projectRoot } = options;
+  const { plugin, hostRunner, cwd, runnerConfig, projectRoot } = options;
   if (plugin.runtimeSpec === undefined) {
     throw new Error(
       __("Plugin '{{pluginId}}' has no runtimeSpec; cannot resolve a runtime container.", { pluginId: plugin.id }),
@@ -74,7 +76,7 @@ export async function resolveEcosystemRuntime(
   let image: string;
   let entrypointOverride: string | undefined;
 
-  if (runnerCfg?.build != null) {
+  if (runnerCfg?.build !== null && runnerCfg?.build !== undefined) {
     // ── Build branch (project-owned Dockerfile) ──────────────────────────────
     const build = runnerCfg.build;
 

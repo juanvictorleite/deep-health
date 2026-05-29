@@ -1,18 +1,20 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
-import type { ProjectConfig, ProtectedPackage, FixerStrategyId, EcosystemConfig } from '@core/types/config';
+
 import type { CommandRunner } from '@core/types/common';
+import type { ProjectConfig, ProtectedPackage, FixerStrategyId, EcosystemConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
-import type { UpdateResultJson } from '@core/types/update';
 import { emptyEcosystem } from '@core/types/scan';
+import type { UpdateResultJson } from '@core/types/update';
+import { NPM_DEFAULT_FIXER } from '@infra/brand';
+import { resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
+import type { VersionSource } from '@infra/utils/infer-version';
 import { logger } from '@infra/utils/logger';
 import { collectRootNpmLockfileVersions } from '@modules/ecosystem/utils/lockfile-inspect';
 import { readNpmLockfileVersion } from '@modules/ecosystem/utils/lockfile-utils';
+
 import { runNpmUpdater } from './npm-updater';
-import { resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
-import { NPM_DEFAULT_FIXER } from '@infra/brand';
-import type { VersionSource } from '@infra/utils/infer-version';
+import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
 
 // ─── Version inference helpers ────────────────────────────────────────────────
 

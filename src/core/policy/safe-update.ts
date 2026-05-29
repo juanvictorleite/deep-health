@@ -1,6 +1,7 @@
 import semver from 'semver';
-import type { ProtectedPackage } from '../types/config';
+
 import type { VulnerabilityClass } from '../types/common';
+import type { ProtectedPackage } from '../types/config';
 
 export interface PackageVulnerability {
   name: string;

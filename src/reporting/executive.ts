@@ -1,15 +1,16 @@
+import type { EcosystemConfig } from '@core/types/config';
+import { ecosystemEntryKey } from '@core/types/config';
 import type { ExecutiveReportOptions, ResidualVerification } from '@core/types/report';
 import type { VulnerabilityEntry, ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
-import type { EcosystemConfig } from '@core/types/config';
-import { ecosystemEntryKey } from '@core/types/config';
-import type { Locale } from './i18n/index';
 import { defaultRegistry } from '@modules/ecosystem/index';
+
+import { buildAdvisorExecSection } from './advisor-exec-section';
+import type { Locale } from './i18n/index';
 import { getLocale } from './i18n/index';
 import { render } from './renderer';
-import executiveTemplate from './templates/executive.hbs';
 import { buildSonarQubeExecSection } from './sonarqube-exec-section';
-import { buildAdvisorExecSection } from './advisor-exec-section';
+import executiveTemplate from './templates/executive.hbs';
 
 // ── deduplication ───────────────────────────────────────────────────────────
 
@@ -43,7 +44,7 @@ function dedupVulns(entries: VulnerabilityEntry[]): AggregatedVulnEntry[] {
       return best;
     }, null);
 
-    const safeVersion = group.find((v) => v.safeVersion != null)?.safeVersion ?? null;
+    const safeVersion = group.find((v) => v.safeVersion !== null && v.safeVersion !== undefined)?.safeVersion ?? null;
 
     const worstClass = group.reduce<VulnerabilityClass>((worst, v) => {
       return (CLASS_RANK[v.classification] ?? 0) > (CLASS_RANK[worst] ?? 0) ? v.classification : worst;
@@ -129,7 +130,7 @@ function pendingStatus(vuln: VulnerabilityEntry, locale: Locale): string {
 
 // ── private context-builder helpers ─────────────────────────────────────────
 
-type EcoEntry = { key: string; entry?: EcosystemConfig; pluginId: string; reportLabel: string; name: string };
+interface EcoEntry { key: string; entry?: EcosystemConfig; pluginId: string; reportLabel: string; name: string }
 
 /** Resolve the list of ecosystem entries from opts (new per-entry mode or registry fallback). */
 function resolveEcoEntries(opts: ExecutiveReportOptions): EcoEntry[] {
@@ -157,7 +158,7 @@ function resolveEcoEntries(opts: ExecutiveReportOptions): EcoEntry[] {
   }));
 }
 
-type EcoScanEntry = { vulnerabilities_total: number; auto_safe: number; breaking: number; manual: number; auto_safe_packages: string[]; breaking_packages: string[]; manual_packages: string[]; vulnerabilities: VulnerabilityEntry[] };
+interface EcoScanEntry { vulnerabilities_total: number; auto_safe: number; breaking: number; manual: number; auto_safe_packages: string[]; breaking_packages: string[]; manual_packages: string[]; vulnerabilities: VulnerabilityEntry[] }
 
 /** Create an empty ecosystem scan entry for when none exists yet. */
 function emptyEcoScanEntry(): EcoScanEntry {
@@ -399,7 +400,7 @@ function computeEvidenceStatusPt(
   return fixedVersionLabel;
 }
 
-type RawVulnAfterRow = { ghsaId: string | null; cvss: string; package: string; currentVersion: string; statusPt: string; risk: string };
+interface RawVulnAfterRow { ghsaId: string | null; cvss: string; package: string; currentVersion: string; statusPt: string; risk: string }
 
 /** Deduplicate rawVulnsAfter rows by (package, statusPt), merging versions and ghsaIds. */
 function deduplicateAfterRows(rawVulnsAfter: RawVulnAfterRow[]): Record<string, unknown>[] {

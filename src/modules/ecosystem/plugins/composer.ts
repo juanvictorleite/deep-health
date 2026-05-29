@@ -1,11 +1,12 @@
-import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
 import type { ProjectConfig, ProtectedPackage } from '@core/types/config';
 import type { UpdateResultJson } from '@core/types/update';
-import { runComposerUpdater } from './composer-updater';
-import { resolveComposerDockerImage } from '@infra/provisioner/php-image-resolver';
 import { COMPOSER_BOOTSTRAP, isPhpCliImage } from '@infra/provisioner/composer-runner';
+import { resolveComposerDockerImage } from '@infra/provisioner/php-image-resolver';
 import { COMPOSER_DEFAULT_IMAGE } from '@infra/provisioner/php-profiles';
 import type { VersionSource } from '@infra/utils/infer-version';
+
+import { runComposerUpdater } from './composer-updater';
+import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
 
 // ─── Version inference helpers ────────────────────────────────────────────────
 

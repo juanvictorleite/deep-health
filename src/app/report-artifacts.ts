@@ -1,21 +1,21 @@
+import { saveReport, resolveReportsDir, resolveEngineReportsDir } from '@app/report-saver';
+import type { CommandRunner } from '@core/types/common';
+import type { ProjectConfig, EcosystemConfig } from '@core/types/config';
+import { ecosystemEntryKey, DEFAULT_SONAR_REPORT_METRICS } from '@core/types/config';
+import type { SupportedLocale } from '@core/types/locale';
+import type { AdvisorResult, ResidualVerification, ExecutiveReportOptions } from '@core/types/report';
+import type { ScanResultJson } from '@core/types/scan';
+import type { UpdateResultJson } from '@core/types/update';
 import { CLI_NAME } from '@infra/brand';
 import { runScanner } from '@modules/scanner/index';
+import { generateExecutiveReportDocx, executiveReportDocxFilename } from '@reporting/docx-executive';
 import {
   generateExecutiveReport,
   generateEntryReport,
   executiveReportFilename,
   splitReportFilename,
 } from '@reporting/executive';
-import { generateExecutiveReportDocx, executiveReportDocxFilename } from '@reporting/docx-executive';
 import { generateSonarQubeHtmlReport, sonarqubeHtmlReportFilename } from '@reporting/sonarqube-report';
-import { saveReport, resolveReportsDir, resolveEngineReportsDir } from '@app/report-saver';
-import type { ProjectConfig, EcosystemConfig } from '@core/types/config';
-import { ecosystemEntryKey, DEFAULT_SONAR_REPORT_METRICS } from '@core/types/config';
-import type { ScanResultJson } from '@core/types/scan';
-import type { UpdateResultJson } from '@core/types/update';
-import type { AdvisorResult, ResidualVerification, ExecutiveReportOptions } from '@core/types/report';
-import type { SupportedLocale } from '@core/types/locale';
-import type { CommandRunner } from '@core/types/common';
 
 export interface ReportArtifactsInput {
   runner: CommandRunner;

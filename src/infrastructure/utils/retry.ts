@@ -1,5 +1,6 @@
-import { logger } from './logger';
 import { __ } from '@core/i18n';
+
+import { logger } from './logger';
 
 export interface RetryOptions {
   maxAttempts: number;

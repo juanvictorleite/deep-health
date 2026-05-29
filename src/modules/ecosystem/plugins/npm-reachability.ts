@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+
 import semver from 'semver';
+
 import type { ReachabilityAdapter, ReachabilityCheck } from '@core/policy/reachability';
 import { collectNpmLockfileConstraints } from '@modules/ecosystem/utils/lockfile-inspect';
 

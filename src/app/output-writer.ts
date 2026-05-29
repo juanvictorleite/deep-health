@@ -1,15 +1,17 @@
 import { writeFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
+
 import chalk from 'chalk';
+
+import { __ } from '@core/i18n';
 import type { EcosystemScanResult, ScanResultJson } from '@core/types/scan';
 import { SCANNER_COLORS, warn, dim, success } from '@infra/utils/ui';
-import { __ } from '@core/i18n';
 
 // ─── Column layout ────────────────────────────────────────────────────────────
 
 function padColumn(text: string, width: number, align: 'left' | 'right'): string {
   // Strip ANSI codes for length calculation
-  // eslint-disable-next-line no-control-regex
+  // oxlint-disable-next-line no-control-regex
   const visibleLength = text.replace(/\x1b\[[0-9;]*m/g, '').length;
   const padding = Math.max(0, width - visibleLength);
   if (align === 'right') {

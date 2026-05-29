@@ -27,7 +27,7 @@ ${fnName}() {
     cur="\${COMP_WORDS[COMP_CWORD]}"
     prev="\${COMP_WORDS[COMP_CWORD-1]}"
     words=("\${COMP_WORDS[@]}")
-    cword=\$COMP_CWORD
+    cword=$COMP_CWORD
   }
 
   local subcommands="init scan fix executive-report cloud-setup doctor completion"
@@ -46,24 +46,24 @@ ${fnName}() {
     esac
   done
 
-  if [[ -z "\$subcommand" ]]; then
+  if [[ -z "$subcommand" ]]; then
     # Complete subcommands and top-level flags
-    COMPREPLY=( \$(compgen -W "\$subcommands --help --version" -- "\$cur") )
+    COMPREPLY=( $(compgen -W "$subcommands --help --version" -- "$cur") )
     return 0
   fi
 
-  case "\$subcommand" in
+  case "$subcommand" in
     fix)
-      COMPREPLY=( \$(compgen -W "\$common_flags \$fix_flags --help" -- "\$cur") )
+      COMPREPLY=( $(compgen -W "$common_flags $fix_flags --help" -- "$cur") )
       ;;
     completion)
-      COMPREPLY=( \$(compgen -W "bash zsh fish" -- "\$cur") )
+      COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") )
       ;;
     init)
-      COMPREPLY=( \$(compgen -W "--project-name --client --cwd --output --force --non-interactive --json --help" -- "\$cur") )
+      COMPREPLY=( $(compgen -W "--project-name --client --cwd --output --force --non-interactive --json --help" -- "$cur") )
       ;;
     *)
-      COMPREPLY=( \$(compgen -W "\$common_flags --help" -- "\$cur") )
+      COMPREPLY=( $(compgen -W "$common_flags --help" -- "$cur") )
       ;;
   esac
 
@@ -84,7 +84,7 @@ export function generateZshCompletion(cliName: string): string {
 # Zsh completion for ${cliName}
 # Add to your ~/.zshrc:
 #   ${cliName} completion zsh >> ~/.zshrc
-# Or save to a file in your \$fpath:
+# Or save to a file in your $fpath:
 #   ${cliName} completion zsh > "\${fpath[1]}/_${cliName}"
 
 _${cliName.replace(/-/g, '_')}() {
@@ -134,12 +134,12 @@ _${cliName.replace(/-/g, '_')}() {
     return
   fi
 
-  case \$words[2] in
+  case $words[2] in
     fix)
-      _arguments \$common_flags \$fix_flags '--help[Show help]'
+      _arguments $common_flags $fix_flags '--help[Show help]'
       ;;
     init)
-      _arguments \$init_flags '--help[Show help]'
+      _arguments $init_flags '--help[Show help]'
       ;;
     completion)
       local -a shells
@@ -147,7 +147,7 @@ _${cliName.replace(/-/g, '_')}() {
       _describe 'shell' shells
       ;;
     *)
-      _arguments \$common_flags '--help[Show help]'
+      _arguments $common_flags '--help[Show help]'
       ;;
   esac
 }

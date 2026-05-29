@@ -1,4 +1,5 @@
 import type { ScanResultJson, SonarQubeQualityGateCondition, SonarQubeIssue } from '@core/types/scan';
+
 import type { ExecLocale } from './i18n/types';
 
 // ── SonarQube executive section builder ──────────────────────────────────────
@@ -34,7 +35,7 @@ export interface SonarQubeExecSectionData {
   hasConditions: boolean;
   conditions: SonarQubeConditionEntry[];
   conditionsLabel: string;
-  metrics: Array<{ key: string; value: string }> | null;
+  metrics: { key: string; value: string }[] | null;
   hasIssues: boolean;
   noIssues: boolean;
   issueCountLabel: string;

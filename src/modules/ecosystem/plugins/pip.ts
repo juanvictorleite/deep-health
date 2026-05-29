@@ -1,10 +1,12 @@
 import { basename } from 'node:path';
-import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
-import type { VersionSource } from '@infra/utils/infer-version';
+
 import type { ProjectConfig, ProtectedPackage } from '@core/types/config';
 import type { UpdateResultJson } from '@core/types/update';
-import { runPipUpdater } from './pip-updater';
 import { resolvePipDockerImage, PIP_DEFAULT_IMAGE } from '@infra/provisioner/pip-runner';
+import type { VersionSource } from '@infra/utils/infer-version';
+
+import { runPipUpdater } from './pip-updater';
+import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
 import { detectPipTooling } from './pip-tooling-detector';
 import type { PipToolingDetection } from './pip-tooling-detector';
 

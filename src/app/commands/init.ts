@@ -1,22 +1,24 @@
 import { writeFile, access, mkdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
-import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
-import { generateConfigJson, type GenerateConfigOptions, type EcosystemRunnerConfig } from '@infra/config/generator';
-import { generateJsonSchema } from '@infra/config/schema-export';
-import { writeSonarPropertiesTemplateIfMissing } from './sonar-properties-template';
-import { prompt } from '@infra/utils/prompt';
-import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
-import { isInteractive } from '@infra/utils/tty';
-import { discoverProject, type DiscoveredEcosystem, type DiscoveredDockerfile } from '@infra/utils/detect-ecosystems';
-import { detectProjectScripts } from '@infra/utils/detect-scripts';
-import { defaultRegistry } from '@modules/ecosystem/index';
+
 import { ConfigLoadError } from '@core/errors';
+import { __, setLocale } from '@core/i18n';
 import { resolveDefaultLocale } from '@core/locale-detect';
 import { CLI_NAME, DEFAULT_AUDIT_SUBDIR, DEFAULT_REPORTS_SUBDIR } from '@infra/brand';
-import { __, setLocale } from '@core/i18n';
-import { logger } from '@infra/utils/logger';
-import { sectionHeader, dim } from '@infra/utils/ui';
+import { generateConfigJson, type GenerateConfigOptions, type EcosystemRunnerConfig } from '@infra/config/generator';
+import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
+import { generateJsonSchema } from '@infra/config/schema-export';
+import { discoverProject, type DiscoveredEcosystem, type DiscoveredDockerfile } from '@infra/utils/detect-ecosystems';
+import { detectProjectScripts } from '@infra/utils/detect-scripts';
 import { inferVersionFromSources } from '@infra/utils/infer-version';
+import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
+import { logger } from '@infra/utils/logger';
+import { prompt } from '@infra/utils/prompt';
+import { isInteractive } from '@infra/utils/tty';
+import { sectionHeader, dim } from '@infra/utils/ui';
+import { defaultRegistry } from '@modules/ecosystem/index';
+
+import { writeSonarPropertiesTemplateIfMissing } from './sonar-properties-template';
 
 export interface InitCommandOptions {
   projectName?: string;
@@ -347,7 +349,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     }
 
     // Validation commands — use ecosystem's discovered path
-    const validationCommands: Array<{ name: string; command: string }> = [];
+    const validationCommands: { name: string; command: string }[] = [];
     const detectedScripts = await detectProjectScripts(ecoAbsPath, id);
 
     const NONE_SENTINEL = '__none__';
@@ -441,7 +443,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
     }
 
     // Advisors
-    const advisors: Array<{ name: string; command: string }> = [];
+    const advisors: { name: string; command: string }[] = [];
     if (!opts.nonInteractive) {
       process.stdout.write(dim(`  ${__('Advisors')}`) + '\n');
       for (const defaultAdvisor of plugin.defaultAdvisors) {
@@ -505,7 +507,7 @@ export async function runInitCommand(opts: InitCommandOptions): Promise<void> {
       if (!opts.nonInteractive && nearbyDockerfiles.length > 0) {
         process.stdout.write(dim(`  ${__('Docker')}`) + '\n');
         // Override the Dockerfile prompt in collectRunnerConfig with our discovered ones
-        const dfChoices: Array<{ name: string; value: string; description?: string }> = [
+        const dfChoices: { name: string; value: string; description?: string }[] = [
           ...nearbyDockerfiles.map((df) => ({
             name: df.path ? `${df.path}/${df.filename}` : df.filename,
             value: df.path ? `${df.path}/${df.filename}` : df.filename,

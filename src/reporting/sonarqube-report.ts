@@ -1,7 +1,8 @@
-import { CLI_NAME } from '@infra/brand';
-import type { ScanResultJson } from '@core/types/scan';
 import type { SupportedLocale } from '@core/types/locale';
+import type { ScanResultJson } from '@core/types/scan';
+import { CLI_NAME } from '@infra/brand';
 import { getLocale } from '@reporting/i18n';
+
 import { render } from './renderer';
 import sonarqubeHtmlTemplate from './templates/sonarqube-report-html.hbs';
 
@@ -140,7 +141,7 @@ export function generateSonarQubeHtmlReport(
   // Issues grouped by file
   const rawIssues = meta?.issues;
 
-  const fileMap = new Map<string, Array<{ severity: string; severityClass: string; rule: string; line: string; message: string }>>();
+  const fileMap = new Map<string, { severity: string; severityClass: string; rule: string; line: string; message: string }[]>();
   for (const issue of rawIssues ?? []) {
     const colon = issue.component.indexOf(':');
     const file = colon >= 0 ? issue.component.slice(colon + 1) : issue.component;

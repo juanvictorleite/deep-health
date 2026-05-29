@@ -1,4 +1,5 @@
 import { parse as parseTOML } from 'smol-toml';
+
 import type { PythonDependencyGraph, PythonPackageNode } from '@modules/ecosystem/plugins/pip-dep-graph';
 
 function normalizeName(name: string): string {
@@ -48,8 +49,8 @@ function jsonSafe(content: string): Record<string, unknown> | null {
   }
 }
 
-function buildPoetryDependsOn(deps: unknown): Array<{ name: string; constraint?: string }> {
-  const result: Array<{ name: string; constraint?: string }> = [];
+function buildPoetryDependsOn(deps: unknown): { name: string; constraint?: string }[] {
+  const result: { name: string; constraint?: string }[] = [];
   if (typeof deps !== 'object' || deps === null || Array.isArray(deps)) return result;
   for (const [depName, depValue] of Object.entries(deps as Record<string, unknown>)) {
     result.push({ name: normalizeName(depName), constraint: extractPoetryConstraint(depValue) });
@@ -60,7 +61,7 @@ function buildPoetryDependsOn(deps: unknown): Array<{ name: string; constraint?:
 function addPackageToGraph(
   graph: PythonDependencyGraph,
   pkg: unknown,
-  buildDependsOnFn: (p: Record<string, unknown>) => Array<{ name: string; constraint?: string }>,
+  buildDependsOnFn: (p: Record<string, unknown>) => { name: string; constraint?: string }[],
 ): void {
   if (typeof pkg !== 'object' || pkg === null) return;
   const p = pkg as Record<string, unknown>;
@@ -96,8 +97,8 @@ export function parsePoetryLock(content: string): PythonDependencyGraph {
   return parseTomlLockfile(content, addPoetryPackage);
 }
 
-function buildUvDependsOnFromArray(deps: unknown): Array<{ name: string; constraint?: string }> {
-  const result: Array<{ name: string; constraint?: string }> = [];
+function buildUvDependsOnFromArray(deps: unknown): { name: string; constraint?: string }[] {
+  const result: { name: string; constraint?: string }[] = [];
   if (!Array.isArray(deps)) return result;
   for (const dep of deps) {
     if (typeof dep !== 'object' || dep === null) continue;
@@ -122,8 +123,8 @@ export function parseUvLock(content: string): PythonDependencyGraph {
   return parseTomlLockfile(content, addUvPackage);
 }
 
-function buildPipfileDependsOn(requires: unknown): Array<{ name: string; constraint?: string }> {
-  const result: Array<{ name: string; constraint?: string }> = [];
+function buildPipfileDependsOn(requires: unknown): { name: string; constraint?: string }[] {
+  const result: { name: string; constraint?: string }[] = [];
   if (typeof requires !== 'object' || requires === null) return result;
   for (const [depName, constraint] of Object.entries(requires as Record<string, unknown>)) {
     result.push({
@@ -173,8 +174,8 @@ function parsePdmDependencyString(dep: string): { name: string; constraint?: str
   return { name: normalizeName(dep.trim()) };
 }
 
-function buildPdmDependsOn(deps: unknown): Array<{ name: string; constraint?: string }> {
-  const result: Array<{ name: string; constraint?: string }> = [];
+function buildPdmDependsOn(deps: unknown): { name: string; constraint?: string }[] {
+  const result: { name: string; constraint?: string }[] = [];
   if (!Array.isArray(deps)) return result;
   for (const dep of deps) {
     if (typeof dep === 'string') result.push(parsePdmDependencyString(dep));

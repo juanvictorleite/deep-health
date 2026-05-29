@@ -1,9 +1,10 @@
 import { access } from 'node:fs/promises';
 import { resolve } from 'node:path';
+
 import { execa } from 'execa';
+
 import { __ } from '@core/i18n';
 import { success, warn, error, dim } from '@infra/utils/ui';
-import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
 
 export interface DoctorCommandOptions {
   cwd: string;

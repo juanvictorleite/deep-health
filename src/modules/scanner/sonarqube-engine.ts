@@ -1,16 +1,18 @@
-import type { ScannerEngine, ScannerEngineContext } from './types';
-import type { ScanResultJson } from '@core/types/scan';
-import type { SonarQubeScanMetadata, SonarQubeIssue, SonarQubeQualityGateCondition } from '@core/types/sonarqube';
-import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube';
-import { DockerSonarScannerRunner } from '@infra/provisioner/docker-sonar-scanner';
-import { EnvironmentError } from '@core/errors';
-import { logger } from '@infra/utils/logger';
-import { getPlatformInstallHint } from '@infra/utils/platform';
-import { SONARQUBE_PROJECT_KEY_REGEX } from '@core/types/config';
-import { readSonarProperties, sanitizeAndWriteProperties, type SanitizedPropertiesFile } from './sonar-properties';
 import fs from 'node:fs';
 import { rm } from 'node:fs/promises';
+
+import { EnvironmentError } from '@core/errors';
+import { SONARQUBE_PROJECT_KEY_REGEX } from '@core/types/config';
+import type { ScanResultJson } from '@core/types/scan';
+import type { SonarQubeScanMetadata, SonarQubeIssue, SonarQubeQualityGateCondition } from '@core/types/sonarqube';
 import { CLI_NAME } from '@infra/brand';
+import { DockerSonarScannerRunner } from '@infra/provisioner/docker-sonar-scanner';
+import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube';
+import { logger } from '@infra/utils/logger';
+import { getPlatformInstallHint } from '@infra/utils/platform';
+
+import { readSonarProperties, sanitizeAndWriteProperties, type SanitizedPropertiesFile } from './sonar-properties';
+import type { ScannerEngine, ScannerEngineContext } from './types';
 
 // ─── SonarQube API types (minimal) ─────────────────────────────────────────────
 
@@ -23,20 +25,16 @@ interface SonarQubeQualityGateStatus {
 
 interface SonarQubeMeasuresResponse {
   component: {
-    measures?: Array<{
+    measures?: {
       metric: string;
       value?: string;
-    }>;
+    }[];
   };
 }
 
 interface SonarQubeIssuesResponse {
   total?: number;
   issues?: SonarQubeIssue[];
-}
-
-interface SonarQubeUserTokensResponse {
-  userTokens?: Array<{ name: string }>;
 }
 
 interface SonarQubeGenerateTokenResponse {

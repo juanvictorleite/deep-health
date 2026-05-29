@@ -1,6 +1,6 @@
-import { runScanner } from '@modules/scanner/index';
 import { writeOutput, formatScanSummary, formatScanSummaryMarkdown } from '@app/output-writer';
 import type { RunContext } from '@app/run-context';
+import { runScanner } from '@modules/scanner/index';
 
 export interface ScanCommandOptions {
   config: string;

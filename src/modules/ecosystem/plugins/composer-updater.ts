@@ -1,19 +1,21 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig, ValidationCommandConfig, FixerStrategyId } from '@core/types/config';
 import type { AdvisorResult } from '@core/types/report';
-import type { UpdateResultJson } from '@core/types/update';
 import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
+import type { UpdateResultJson } from '@core/types/update';
+import type { AuditFinding } from '@core/types/update';
 import { logger } from '@infra/utils/logger';
+
+import { parseComposerAuditJson, parseComposerAuditAdvisories } from './composer-audit-parser';
+import type { ComposerAuditAdvisory } from './composer-audit-parser';
 import { mergeOsvFirstWins } from '../fixers/index';
 import type { OsvFixOutcome } from '../fixers/index';
 import { runEcosystemEnvironmentProbe } from '../utils/environment-probe';
 import { runUpdaterLifecycle } from '../utils/updater-lifecycle';
-import { parseComposerAuditJson, parseComposerAuditAdvisories } from './composer-audit-parser';
-import type { ComposerAuditAdvisory } from './composer-audit-parser';
-import type { AuditFinding } from '@core/types/update';
 
 const COMPOSER_FILES = ['composer.json', 'composer.lock'];
 
