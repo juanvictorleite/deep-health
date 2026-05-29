@@ -11,26 +11,28 @@ if (nodeMajor < 24) {
 }
 
 import { Command } from 'commander';
-import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
-import { formatCliError } from '@app/diagnostics';
-import { dim } from '@infra/utils/ui';
+
 import { runCloudSetup } from '@app/commands/cloud-setup';
 import { runDoctorCommand } from '@app/commands/doctor';
-import { runInitCommand } from '@app/commands/init';
-import { createRunContext } from '@app/run-context';
-import { runScanCommand, type ScanCommandOptions } from '@app/commands/scan';
-import { runFixCommand, type FixCommandOptions } from '@app/commands/fix';
 import {
   runExecutiveReportCommand,
   type ExecutiveReportCommandOptions,
 } from '@app/commands/executive-report';
+import { runFixCommand, type FixCommandOptions } from '@app/commands/fix';
+import { runInitCommand } from '@app/commands/init';
+import { runScanCommand, type ScanCommandOptions } from '@app/commands/scan';
 import {
   generateBashCompletion,
   generateZshCompletion,
   generateFishCompletion,
 } from '@app/completions';
-import pkg from '../package.json' with { type: 'json' };
+import { formatCliError } from '@app/diagnostics';
+import { createRunContext } from '@app/run-context';
 import { CLI_NAME, DEFAULT_BRANCH_PREFIX } from '@infra/brand';
+import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
+import { dim } from '@infra/utils/ui';
+
+import pkg from '../package.json' with { type: 'json' };
 
 const pkgVersion: string = pkg.version;
 
