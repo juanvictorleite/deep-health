@@ -1,5 +1,6 @@
 
 import { generateConfigJson, normalizeSonarProjectKey } from '@infra/config/generator';
+import { DEFAULT_SONAR_REPORT_METRICS } from '@core/types/config';
 import { ProjectConfigSchema } from '@infra/config/schema';
 import { generateJsonSchema } from '@infra/config/schema-export';
 import { describe, it, expect } from 'vitest';
@@ -568,6 +569,100 @@ describe('generateConfigJson — $schema field', () => {
     // Remove $schema before Zod validation (Zod strict mode rejects unknown keys)
     const result = ProjectConfigSchema.safeParse(parseForSchema(json));
     expect(result.success).toBe(true);
+  });
+});
+
+describe('generateConfigJson — sonarqube_metrics in outputs', () => {
+  it('AC1: enableSonarQube:true produces outputs.sonarqube_metrics deep-equal to DEFAULT_SONAR_REPORT_METRICS', () => {
+    const json = generateConfigJson({
+      enableSonarQube: true,
+      outputs: { formats: ['markdown'], dir: '.security-scan/reports' },
+    });
+    const parsed = JSON.parse(json) as { outputs?: { sonarqube_metrics?: unknown } };
+    expect(parsed.outputs?.sonarqube_metrics).toEqual([...DEFAULT_SONAR_REPORT_METRICS]);
+  });
+
+  it('AC1: sonarqube_metrics values are bugs, vulnerabilities, security_hotspots, coverage', () => {
+    const json = generateConfigJson({ enableSonarQube: true });
+    const parsed = JSON.parse(json) as { outputs?: { sonarqube_metrics?: string[] } };
+    expect(parsed.outputs?.sonarqube_metrics).toEqual([
+      'bugs',
+      'vulnerabilities',
+      'security_hotspots',
+      'coverage',
+    ]);
+  });
+
+  it('AC2: enableSonarQube:true without opts.outputs still produces an outputs block with sonarqube_metrics', () => {
+    const json = generateConfigJson({ enableSonarQube: true });
+    const parsed = JSON.parse(json) as { outputs?: { sonarqube_metrics?: string[] } };
+    expect(parsed.outputs).toBeDefined();
+    expect(parsed.outputs?.sonarqube_metrics).toEqual([...DEFAULT_SONAR_REPORT_METRICS]);
+  });
+
+  it('AC2: generated config with enableSonarQube:true and no opts.outputs passes schema validation', () => {
+    const json = generateConfigJson({ enableSonarQube: true });
+    const result = ProjectConfigSchema.safeParse(parseForSchema(json));
+    expect(result.success).toBe(true);
+  });
+
+  it('AC3: enableSonarQube:false produces no outputs.sonarqube_metrics', () => {
+    const json = generateConfigJson({
+      enableSonarQube: false,
+      outputs: { formats: ['markdown'], dir: '.security-scan/reports' },
+    });
+    const parsed = JSON.parse(json) as { outputs?: { sonarqube_metrics?: unknown } };
+    expect(parsed.outputs?.sonarqube_metrics).toBeUndefined();
+  });
+
+  it('AC3: enableSonarQube omitted produces no outputs.sonarqube_metrics', () => {
+    const json = generateConfigJson({
+      outputs: { formats: ['markdown'], dir: '.security-scan/reports' },
+    });
+    const parsed = JSON.parse(json) as { outputs?: { sonarqube_metrics?: unknown } };
+    expect(parsed.outputs?.sonarqube_metrics).toBeUndefined();
+  });
+
+  it('AC3: without SonarQube enabled, outputs block is only emitted when opts.outputs is provided', () => {
+    const withOutputs = generateConfigJson({ outputs: { formats: ['markdown'] } });
+    const withoutOutputs = generateConfigJson();
+
+    const parsedWith = JSON.parse(withOutputs) as { outputs?: unknown };
+    const parsedWithout = JSON.parse(withoutOutputs) as { outputs?: unknown };
+
+    expect(parsedWith.outputs).toBeDefined();
+    expect(parsedWithout.outputs).toBeUndefined();
+  });
+
+  it('AC3: formats/dir emission unchanged when SonarQube disabled', () => {
+    const json = generateConfigJson({
+      outputs: { formats: ['markdown'], dir: '.security-scan/reports' },
+    });
+    const parsed = JSON.parse(json) as { outputs?: { formats?: string[]; dir?: string } };
+    expect(parsed.outputs?.formats).toEqual(['markdown']);
+    expect(parsed.outputs?.dir).toBe('.security-scan/reports');
+  });
+
+  it('outputs block contains both formats/dir and sonarqube_metrics when SonarQube enabled with outputs', () => {
+    const json = generateConfigJson({
+      enableSonarQube: true,
+      outputs: { formats: ['docx'], dir: './reports' },
+    });
+    const parsed = JSON.parse(json) as {
+      outputs?: { formats?: string[]; dir?: string; sonarqube_metrics?: string[] };
+    };
+    expect(parsed.outputs?.formats).toEqual(['docx']);
+    expect(parsed.outputs?.dir).toBe('./reports');
+    expect(parsed.outputs?.sonarqube_metrics).toEqual([...DEFAULT_SONAR_REPORT_METRICS]);
+  });
+
+  it('key ordering: outputs appears before scanners in generated config', () => {
+    const json = generateConfigJson({ enableSonarQube: true });
+    const outputsIdx = json.indexOf('"outputs"');
+    const scannersIdx = json.indexOf('"scanners"');
+    expect(outputsIdx).toBeGreaterThan(-1);
+    expect(scannersIdx).toBeGreaterThan(-1);
+    expect(outputsIdx).toBeLessThan(scannersIdx);
   });
 });
 

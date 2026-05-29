@@ -1,3 +1,4 @@
+import { DEFAULT_SONAR_REPORT_METRICS } from '@core/types/config';
 import type { OutputFormat } from '@core/types/config';
 import type { SupportedLocale } from '@core/types/locale';
 
@@ -237,6 +238,15 @@ export function generateConfigJson(opts: GenerateConfigOptions = {}): string {
     if (opts.outputs.dir !== undefined) {
       outputsObj['dir'] = opts.outputs.dir;
     }
+  }
+
+  // When SonarQube is enabled, ensure outputs.sonarqube_metrics is populated with
+  // the default metrics so users can see and edit the list in the generated file.
+  if (opts.enableSonarQube) {
+    if (outputsObj === undefined) {
+      outputsObj = {};
+    }
+    outputsObj['sonarqube_metrics'] = [...DEFAULT_SONAR_REPORT_METRICS];
   }
 
   // Assemble the full config object — $schema field goes first for IDE autocomplete
