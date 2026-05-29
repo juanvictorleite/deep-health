@@ -25,3 +25,7 @@ dist-sea/
 dist-bin/
 .agent-runs
 .claude/agent-memory-local
+
+# Tooling artifacts
+.codegraph/
+.cursor/
