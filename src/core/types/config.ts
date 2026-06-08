@@ -217,16 +217,6 @@ export interface EcosystemConfig {
   label?: string;
 }
 
-export interface CloudStorageConfig {
-  provider: "google_drive";
-  folder_id: string;
-  /**
-   * When true, the fix/executive-report commands will fail if cloud upload fails.
-   * Default: false (cloud upload failure is non-fatal — warns to stderr only).
-   */
-  require_upload?: boolean;
-}
-
 /**
  * SonarQube project_key validation.
  *
@@ -553,7 +543,6 @@ export interface ProjectConfig {
   safe_update_policy: SafeUpdatePolicy;
   conflict_resolution: string;
   report_language?: SupportedLocale;
-  cloud_storage?: CloudStorageConfig;
   /** Top-level scan path configuration — controls which paths osv-scanner inspects. */
   scan?: ScanPathsConfig;
   scanners?: ScannersConfig;

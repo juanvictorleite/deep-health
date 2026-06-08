@@ -202,7 +202,7 @@ vi.mock('@reporting/sonarqube-report', () => ({
 }));
 
 vi.mock('@app/report-saver', () => ({
-  saveReport: vi.fn().mockResolvedValue({ localUrl: '/r/f', cloudSkipped: true }),
+  saveReport: vi.fn().mockResolvedValue({ localUrl: '/r/f' }),
   resolveReportsDir: vi.fn(() => '/abs/reports'),
   resolveEngineReportsDir: vi.fn(() => '/abs/reports'),
 }));
@@ -265,7 +265,7 @@ describe('generateAndSaveReportArtifacts() — split mode (AC1, AC2, AC3, AC4)',
     const savedFilenames: string[] = [];
     vi.mocked(saveReport).mockImplementation(async (filename: string) => {
       savedFilenames.push(filename);
-      return { localUrl: `/r/${filename}`, cloudSkipped: true };
+      return { localUrl: `/r/${filename}` };
     });
 
     await generateAndSaveReportArtifacts({
@@ -351,28 +351,6 @@ describe('generateAndSaveReportArtifacts() — split mode (AC1, AC2, AC3, AC4)',
     });
     expect(generateEntryReport).toHaveBeenCalledTimes(1);
     expect(saveReport).toHaveBeenCalledTimes(1);
-  });
-
-  // Returns 1 when cloud upload fails in split mode and require_upload is true
-  it('returns 1 when cloud upload fails in split mode and require_upload is true', async () => {
-    vi.mocked(saveReport).mockResolvedValue({
-      localUrl: '/r/f',
-      cloudError: 'auth failed',
-      cloudSkipped: false,
-    });
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
-
-    const code = await generateAndSaveReportArtifacts({
-      ...baseInput,
-      config: {
-        ...multiEntryConfig,
-        outputs: { formats: ['markdown'] },
-        cloud_storage: { provider: 'google_drive', folder_id: 'fid123456789', require_upload: true },
-      },
-      splitReports: true,
-    });
-    expect(code).toBe(1);
-    stderrSpy.mockRestore();
   });
 
   // Returns 0 when no formats are configured (even in split mode)

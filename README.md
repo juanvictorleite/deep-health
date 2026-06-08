@@ -181,14 +181,6 @@ Options:
   --split-reports     Generate one report per ecosystem entry (overrides outputs.split_reports)
 ```
 
-### `cloud-setup`
-
-Interactive Google Drive folder picker — saves the selected folder ID to `security-scan.config.json` for automatic report distribution.
-
-```bash
-security-scan cloud-setup
-```
-
 ---
 
 ## Configuration
@@ -282,12 +274,6 @@ security-scan cloud-setup
     "formats": ["markdown"],
     "dir": "reports",
     "split_reports": false
-  },
-
-  "cloud_storage": {
-    "provider": "google_drive",
-    "folder_id": "YOUR_FOLDER_ID",
-    "require_upload": false
   }
 }
 ```
@@ -407,7 +393,7 @@ src/
 │   ├── executor/  # Container command runners (npm, pip, composer)
 │   │              # Non-ecosystem validation commands routed via runShell()
 │   ├── provisioner/ # Docker runners with retry backoff (withRetry)
-│   ├── storage/   # Local + Google Drive (optional dependency)
+│   ├── storage/   # Local storage provider
 │   └── utils/     # logger, git-branch, git-commit, retry, docker-platform
 ├── modules/
 │   ├── ecosystem/ # npm, composer, pip plugins
@@ -430,8 +416,6 @@ Ecosystem plugins and scanner engines are registered at runtime, making it strai
 - Only commands starting with `git`, `gh`, or `open` are exempted and run on the host
 
 **Trust boundary:** these strings are authored by the repository owner (same person who checks in `security-scan.config.json`), not by external sources. Variable data (package names, versions, CVE ids) is never interpolated into validation command strings.
-
-**OAuth browser opener** (`cloud-setup`): the Google OAuth URL is opened via `execFile` with `shell: false`, passing the URL as a discrete `argv` element. Shell metacharacters in the URL cannot cause command injection because no shell is involved in the spawn.
 
 > If you use `security-scan` in a context where `security-scan.config.json` is written by untrusted parties, treat those command strings as untrusted input and review them before running the tool.
 

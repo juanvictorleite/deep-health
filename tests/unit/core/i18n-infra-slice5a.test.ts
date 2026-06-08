@@ -1,6 +1,6 @@
 /**
  * PT-BR translation coverage for infrastructure strings added in slice5a:
- * google-drive, google-drive-auth, factory, config/loader, osv-commands, retry
+ * config/loader, osv-commands, retry
  */
 import { __, setLocale } from '@core/i18n';
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -8,207 +8,6 @@ import { describe, it, expect, beforeEach } from 'vitest';
 
 beforeEach(() => {
   setLocale('en');
-});
-
-describe('google-drive translations', () => {
-  it('returns English googleapis-not-installed upload message in EN', () => {
-    setLocale('en');
-    const msg = __('Google Drive upload requires the "googleapis" package, which is not installed. Install it with: npm install googleapis');
-    expect(msg).toContain('googleapis');
-    expect(msg).toContain('npm install googleapis');
-  });
-
-  it('returns PT-BR googleapis-not-installed upload message', () => {
-    setLocale('pt-br');
-    const msg = __('Google Drive upload requires the "googleapis" package, which is not installed. Install it with: npm install googleapis');
-    expect(msg).toContain('googleapis');
-    expect(msg).toContain('npm install googleapis');
-    expect(msg).not.toBe('Google Drive upload requires the "googleapis" package, which is not installed. Install it with: npm install googleapis');
-  });
-
-  it('returns English tokens-not-found message with cliName in EN', () => {
-    setLocale('en');
-    const msg = __("Google Drive tokens not found. Run '{{cliName}} cloud-setup' first to connect Google Drive.", { cliName: 'osv' });
-    expect(msg).toBe("Google Drive tokens not found. Run 'osv cloud-setup' first to connect Google Drive.");
-  });
-
-  it('returns PT-BR tokens-not-found message with cliName', () => {
-    setLocale('pt-br');
-    const msg = __("Google Drive tokens not found. Run '{{cliName}} cloud-setup' first to connect Google Drive.", { cliName: 'osv' });
-    expect(msg).toContain('osv cloud-setup');
-    expect(msg).not.toContain('tokens not found');
-  });
-});
-
-describe('google-drive-auth translations', () => {
-  it('returns English OAuth-credentials-not-configured message in EN', () => {
-    setLocale('en');
-    const msg = __(
-      'Google OAuth credentials are not configured.\n' +
-      'Set the following environment variables before running cloud-setup:\n' +
-      '  DEEP_HEALTH_GOOGLE_CLIENT_ID=<your-client-id>\n' +
-      '  DEEP_HEALTH_GOOGLE_CLIENT_SECRET=<your-client-secret>\n' +
-      'Create OAuth 2.0 credentials (Desktop app) at:\n' +
-      '  https://console.cloud.google.com/apis/credentials',
-    );
-    expect(msg).toContain('Google OAuth credentials are not configured');
-    expect(msg).toContain('DEEP_HEALTH_GOOGLE_CLIENT_ID');
-  });
-
-  it('returns PT-BR OAuth-credentials-not-configured message', () => {
-    setLocale('pt-br');
-    const msg = __(
-      'Google OAuth credentials are not configured.\n' +
-      'Set the following environment variables before running cloud-setup:\n' +
-      '  DEEP_HEALTH_GOOGLE_CLIENT_ID=<your-client-id>\n' +
-      '  DEEP_HEALTH_GOOGLE_CLIENT_SECRET=<your-client-secret>\n' +
-      'Create OAuth 2.0 credentials (Desktop app) at:\n' +
-      '  https://console.cloud.google.com/apis/credentials',
-    );
-    expect(msg).not.toContain('Google OAuth credentials are not configured');
-    expect(msg).toContain('DEEP_HEALTH_GOOGLE_CLIENT_ID');
-  });
-
-  it('returns English OAuth-flow-googleapis-missing message in EN', () => {
-    setLocale('en');
-    const msg = __('Google Drive OAuth flow requires the "googleapis" package, which is not installed. Install it with: npm install googleapis');
-    expect(msg).toContain('OAuth flow');
-    expect(msg).toContain('npm install googleapis');
-  });
-
-  it('returns PT-BR OAuth-flow-googleapis-missing message', () => {
-    setLocale('pt-br');
-    const msg = __('Google Drive OAuth flow requires the "googleapis" package, which is not installed. Install it with: npm install googleapis');
-    expect(msg).not.toContain('OAuth flow requires');
-    expect(msg).toContain('npm install googleapis');
-  });
-
-  it('returns English failed-to-start-server message in EN', () => {
-    setLocale('en');
-    expect(__('Failed to start local OAuth callback server')).toBe('Failed to start local OAuth callback server');
-  });
-
-  it('returns PT-BR failed-to-start-server message', () => {
-    setLocale('pt-br');
-    const msg = __('Failed to start local OAuth callback server');
-    expect(msg).not.toBe('Failed to start local OAuth callback server');
-    expect(msg.length).toBeGreaterThan(0);
-  });
-
-  it('returns English OAuth-timeout message in EN', () => {
-    setLocale('en');
-    expect(__('OAuth timeout: authorization not completed in 5 minutes')).toBe(
-      'OAuth timeout: authorization not completed in 5 minutes',
-    );
-  });
-
-  it('returns PT-BR OAuth-timeout message', () => {
-    setLocale('pt-br');
-    const msg = __('OAuth timeout: authorization not completed in 5 minutes');
-    expect(msg).not.toBe('OAuth timeout: authorization not completed in 5 minutes');
-    expect(msg).toContain('5 minutos');
-  });
-
-  it('returns English Authorization-failed HTML text with error in EN', () => {
-    setLocale('en');
-    const msg = __('Authorization failed: {{error}}', { error: 'access_denied' });
-    expect(msg).toBe('Authorization failed: access_denied');
-  });
-
-  it('returns PT-BR Authorization-failed HTML text with error', () => {
-    setLocale('pt-br');
-    const msg = __('Authorization failed: {{error}}', { error: 'access_denied' });
-    expect(msg).toContain('access_denied');
-    expect(msg).not.toContain('Authorization failed');
-  });
-
-  it('returns English "You can close this tab." in EN', () => {
-    setLocale('en');
-    expect(__('You can close this tab.')).toBe('You can close this tab.');
-  });
-
-  it('returns PT-BR "You can close this tab."', () => {
-    setLocale('pt-br');
-    const msg = __('You can close this tab.');
-    expect(msg).not.toBe('You can close this tab.');
-    expect(msg.length).toBeGreaterThan(0);
-  });
-
-  it('returns English OAuth-authorization-failed error message with error in EN', () => {
-    setLocale('en');
-    const msg = __('OAuth authorization failed: {{error}}', { error: 'access_denied' });
-    expect(msg).toBe('OAuth authorization failed: access_denied');
-  });
-
-  it('returns PT-BR OAuth-authorization-failed error message with error', () => {
-    setLocale('pt-br');
-    const msg = __('OAuth authorization failed: {{error}}', { error: 'access_denied' });
-    expect(msg).toContain('access_denied');
-    expect(msg).not.toContain('OAuth authorization failed');
-  });
-
-  it('returns English "Invalid state parameter" in EN', () => {
-    setLocale('en');
-    expect(__('Invalid state parameter')).toBe('Invalid state parameter');
-  });
-
-  it('returns PT-BR "Invalid state parameter"', () => {
-    setLocale('pt-br');
-    const msg = __('Invalid state parameter');
-    expect(msg).not.toBe('Invalid state parameter');
-    expect(msg.length).toBeGreaterThan(0);
-  });
-
-  it('returns English OAuth-state-mismatch message in EN', () => {
-    setLocale('en');
-    expect(__('OAuth state mismatch — possible CSRF attack')).toBe('OAuth state mismatch — possible CSRF attack');
-  });
-
-  it('returns PT-BR OAuth-state-mismatch message', () => {
-    setLocale('pt-br');
-    const msg = __('OAuth state mismatch — possible CSRF attack');
-    expect(msg).not.toBe('OAuth state mismatch — possible CSRF attack');
-    expect(msg).toContain('CSRF');
-  });
-
-  it('returns English "No authorization code received" in EN', () => {
-    setLocale('en');
-    expect(__('No authorization code received')).toBe('No authorization code received');
-  });
-
-  it('returns PT-BR "No authorization code received"', () => {
-    setLocale('pt-br');
-    const msg = __('No authorization code received');
-    expect(msg).not.toBe('No authorization code received');
-    expect(msg.length).toBeGreaterThan(0);
-  });
-
-  it('returns English "No authorization code in OAuth callback" in EN', () => {
-    setLocale('en');
-    expect(__('No authorization code in OAuth callback')).toBe('No authorization code in OAuth callback');
-  });
-
-  it('returns PT-BR "No authorization code in OAuth callback"', () => {
-    setLocale('pt-br');
-    const msg = __('No authorization code in OAuth callback');
-    expect(msg).not.toBe('No authorization code in OAuth callback');
-    expect(msg.length).toBeGreaterThan(0);
-  });
-});
-
-describe('factory translations', () => {
-  it('returns English unknown-provider message with provider in EN', () => {
-    setLocale('en');
-    const msg = __('Unknown cloud storage provider: {{provider}}', { provider: 'ftp' });
-    expect(msg).toBe('Unknown cloud storage provider: ftp');
-  });
-
-  it('returns PT-BR unknown-provider message with provider', () => {
-    setLocale('pt-br');
-    const msg = __('Unknown cloud storage provider: {{provider}}', { provider: 'ftp' });
-    expect(msg).toContain('ftp');
-    expect(msg).not.toContain('Unknown cloud storage provider');
-  });
 });
 
 describe('config/loader translations', () => {
@@ -338,14 +137,9 @@ describe('retry translations', () => {
   });
 });
 
-describe('all new slice5a keys fall back to English when locale is EN', () => {
-  it('returns English text unchanged for all new infrastructure keys', () => {
+describe('all slice5a keys fall back to English when locale is EN', () => {
+  it('returns English text unchanged for all infrastructure keys', () => {
     setLocale('en');
-    expect(__('Failed to start local OAuth callback server')).toBe('Failed to start local OAuth callback server');
-    expect(__('OAuth timeout: authorization not completed in 5 minutes')).toBe('OAuth timeout: authorization not completed in 5 minutes');
-    expect(__('OAuth state mismatch — possible CSRF attack')).toBe('OAuth state mismatch — possible CSRF attack');
-    expect(__('No authorization code in OAuth callback')).toBe('No authorization code in OAuth callback');
-    expect(__('Unknown cloud storage provider: {{provider}}', { provider: 's3' })).toBe('Unknown cloud storage provider: s3');
     expect(__('scan.paths: "{{path}}" must be relative (no leading /)', { path: '/x' })).toBe('scan.paths: "/x" must be relative (no leading /)');
     expect(__(
       '[retry] Attempt {{attempt}} failed: {{message}}. Retrying in {{delay}}ms ({{attempt}}/{{maxAttempts}})...',

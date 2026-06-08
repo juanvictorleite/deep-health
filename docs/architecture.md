@@ -11,7 +11,6 @@ graph TD
         SCAN["scan.ts"]
         INIT["init.ts"]
         EXEC_RPT["executive-report.ts"]
-        CLOUD["cloud-setup.ts"]
         RPT_ART["report-artifacts.ts<br/>generateAndSaveReportArtifacts()"]
     end
 
@@ -863,7 +862,6 @@ flowchart LR
 
     HTML --> SAVE["saveReport()\napp/report-saver.ts"]
     SAVE --> LOCAL["Local file\n(outputs.dir)"]
-    SAVE --> GDRIVE["Google Drive upload\n(cloud_storage)"]
 
     GEN_RPT --> SONAR_RPT["generateSonarQubeHtmlReport()\n(if SonarQube engine ran)"]
     SONAR_RPT --> SONAR_HTML["SonarQube HTML artifact"]
@@ -910,7 +908,6 @@ flowchart LR
     EXEC --> ARTIFACTS
 
     ARTIFACTS --> LOCAL["Local file\n(outputs.dir)"]
-    ARTIFACTS --> GDRIVE["Google Drive upload\n(cloud_storage, optional)"]
 ```
 
 ---
@@ -1111,6 +1108,3 @@ Unsupported config_version "2". This version of security-scan supports config_ve
 Run "security-scan init --force" to regenerate a compatible config.
 ```
 
-### Optional googleapis
-
-`googleapis` is in `optionalDependencies` and excluded from the bundle. Users who don't use Google Drive don't install it. `cloud-setup` and Drive upload show a clear install instruction if the package is absent.

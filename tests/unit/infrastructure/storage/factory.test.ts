@@ -1,27 +1,45 @@
-/**
- * Tests for src/infrastructure/storage/factory.ts — createStorageProvider
- */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
-vi.mock('@infra/storage/google-drive', () => ({
-  createGoogleDriveProvider: vi.fn().mockResolvedValue({
-    upload: vi.fn().mockResolvedValue({ url: 'https://drive.example.com/file', id: 'abc', provider: 'google_drive' }),
-  }),
-}));
-
-import type { CloudStorageConfig } from '@core/types/config';
 import { createStorageProvider } from '@infra/storage/factory';
+import { LocalStorageProvider } from '@infra/storage/local';
 
 describe('createStorageProvider()', () => {
-  it('returns a GoogleDriveProvider for google_drive provider', async () => {
-    const config: CloudStorageConfig = { provider: 'google_drive', folder_id: 'folder123' };
-    const provider = await createStorageProvider(config, '/cwd');
-    expect(provider).toBeDefined();
-    expect(typeof provider.upload).toBe('function');
+  it('returns a LocalStorageProvider instance', () => {
+    const provider = createStorageProvider('/tmp/reports');
+    expect(provider).toBeInstanceOf(LocalStorageProvider);
   });
 
-  it('throws for unknown provider (exhaustive check)', async () => {
-    const config = { provider: 'unknown_provider', folder_id: 'x' } as unknown as CloudStorageConfig;
-    await expect(createStorageProvider(config, '/cwd')).rejects.toThrow('Unknown cloud storage provider');
+  it('returned provider writes uploads under outputDir', async () => {
+    const outputDir = join(tmpdir(), `factory-test-${Date.now()}`);
+    const provider = createStorageProvider(outputDir);
+    const result = await provider.upload('report.md', '# content');
+    expect(result.url).toContain(outputDir);
+    expect(result.provider).toBe('local');
+  });
+
+  it('returned provider satisfies the StorageProvider interface (upload returns url, id, provider)', async () => {
+    const outputDir = join(tmpdir(), `factory-test-iface-${Date.now()}`);
+    const provider = createStorageProvider(outputDir);
+    const result = await provider.upload('test.md', 'hello');
+    expect(typeof result.url).toBe('string');
+    expect(typeof result.id).toBe('string');
+    expect(typeof result.provider).toBe('string');
+  });
+
+  it('upload writes the file with the given filename', async () => {
+    const outputDir = join(tmpdir(), `factory-test-file-${Date.now()}`);
+    const provider = createStorageProvider(outputDir);
+    const result = await provider.upload('my-report.md', 'body');
+    expect(result.id).toBe('my-report.md');
+    expect(result.url).toContain('my-report.md');
+  });
+
+  it('upload works with Buffer content', async () => {
+    const outputDir = join(tmpdir(), `factory-test-buf-${Date.now()}`);
+    const provider = createStorageProvider(outputDir);
+    const result = await provider.upload('binary.bin', Buffer.from('data'));
+    expect(result.url).toContain('binary.bin');
   });
 });

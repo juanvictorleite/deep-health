@@ -1,111 +1,41 @@
 import { resolve } from "node:path";
 
 import { __ } from "@core/i18n";
-import type { CloudStorageConfig } from "@core/types/config";
 import type { ScanResultJson } from "@core/types/scan";
 import { DEFAULT_REPORTS_SUBDIR } from "@infra/brand";
-import { createStorageProvider } from "@infra/storage/factory";
 import { LocalStorageProvider } from "@infra/storage/local";
-import type { StorageProvider } from "@infra/storage/provider";
 import {
   buildSonarQubeExport,
   sonarQubeExportFilename,
 } from "@reporting/sonarqube-export";
 
-/**
- * Outcome of a saveReport call.
- *
- * - `localUrl`:   URL / path reported by the local storage provider.
- * - `cloudUrl`:   URL reported by the cloud storage provider (undefined when not configured).
- * - `cloudError`: Error message from cloud upload when it failed (undefined when succeeded or not configured).
- * - `cloudSkipped`: true when cloud upload was not configured at all.
- */
 export interface SaveReportOutcome {
   localUrl: string;
-  cloudUrl?: string;
-  cloudError?: string;
-  cloudSkipped: boolean;
 }
 
-/**
- * Save a report to local storage and optionally to cloud storage.
- * Local save failure is always fatal.
- * Cloud failure is non-fatal by default; when `cloudStorageConfig.require_upload` is true,
- * the returned outcome will have `cloudError` set and the caller must treat it as a failure.
- *
- * Returns a SaveReportOutcome describing what was saved and where.
- */
 export async function saveReport(
   filename: string,
   content: string | Buffer,
   reportsDir: string,
-  cloudStorageConfig: CloudStorageConfig | undefined,
-  cwd: string,
 ): Promise<SaveReportOutcome> {
-  const providers: StorageProvider[] = [new LocalStorageProvider(reportsDir)];
-  if (cloudStorageConfig) {
-    try {
-      providers.push(await createStorageProvider(cloudStorageConfig, cwd));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      process.stderr.write(__('Cloud storage init failed: {{msg}}\n', { msg }));
-      if (cloudStorageConfig.require_upload) {
-        return {
-          localUrl: '',
-          cloudError: __('Cloud storage init failed: {{msg}}', { msg }),
-          cloudSkipped: false,
-        };
-      }
-    }
+  const provider = new LocalStorageProvider(reportsDir);
+  try {
+    const result = await provider.upload(filename, content);
+    process.stdout.write(
+      __('Report saved [{{provider}}]: {{url}}\n', { provider: result.provider, url: result.url }),
+    );
+    return { localUrl: result.url };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(__('Failed to save report locally: {{msg}}', { msg }), { cause: err });
   }
-
-  let localUrl = '';
-  for (const provider of providers) {
-    try {
-      const result = await provider.upload(filename, content);
-      process.stdout.write(
-        __('Report saved [{{provider}}]: {{url}}\n', { provider: result.provider, url: result.url }),
-      );
-      if (result.provider === "local") {
-        localUrl = result.url;
-      } else {
-        // Cloud provider succeeded — return full outcome
-        return { localUrl, cloudUrl: result.url, cloudSkipped: false };
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!localUrl) {
-        // Local save failure is always fatal
-        throw new Error(__('Failed to save report locally: {{msg}}', { msg }), { cause: err });
-      }
-      // Cloud failure
-      process.stderr.write(__('Cloud upload failed: {{msg}}\n', { msg }));
-      return { localUrl, cloudError: msg, cloudSkipped: false };
-    }
-  }
-
-  // No cloud provider configured (or only local)
-  return { localUrl, cloudSkipped: !cloudStorageConfig };
 }
 
-/**
- * Build and save the SonarQube detailed export when engine results are available.
- * Deduplicates the identical save block used in both fix and executive-report commands.
- *
- * @param engineResults - aggregated engine results from the orchestrator
- * @param projectName   - used to derive the export filename
- * @param date          - ISO date string (YYYY-MM-DD)
- * @param reportsDir    - absolute path to the local reports directory
- * @param cloudStorageConfig - optional cloud storage config
- * @param cwd           - working directory for cloud provider init
- */
 export async function saveSonarQubeExport(
   engineResults: Record<string, ScanResultJson>,
   projectName: string,
   date: string,
   reportsDir: string,
-  cloudStorageConfig: CloudStorageConfig | undefined,
-  cwd: string,
 ): Promise<void> {
   const sonarExport = buildSonarQubeExport(engineResults);
   if (!sonarExport) return;
@@ -116,8 +46,6 @@ export async function saveSonarQubeExport(
       exportFilename,
       JSON.stringify(sonarExport, null, 2),
       reportsDir,
-      cloudStorageConfig,
-      cwd,
     );
   } catch (err) {
     process.stderr.write(
@@ -126,9 +54,6 @@ export async function saveSonarQubeExport(
   }
 }
 
-/**
- * Convenience helper: resolve the reports directory from cwd + config value.
- */
 export function resolveReportsDir(
   cwd: string,
   configReportsDir: string | undefined,
@@ -136,15 +61,6 @@ export function resolveReportsDir(
   return resolve(cwd, configReportsDir ?? DEFAULT_REPORTS_SUBDIR);
 }
 
-/**
- * When sub_folders is enabled, engine-specific reports are placed in a named
- * sub-folder inside reportsDir.  Consolidated and executive reports always
- * stay at the root level (pass sub_folders=false for those).
- *
- * @param reportsDir   Absolute path to the base reports directory.
- * @param subFolder    Sub-folder name (e.g. 'sonarqube').  Pass undefined or
- *                     empty string to keep files at the root level.
- */
 export function resolveEngineReportsDir(
   reportsDir: string,
   subFolder: string | undefined,

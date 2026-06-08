@@ -484,18 +484,6 @@ const WorkflowConfigSchema = z
   })
   .strict();
 
-const CloudStorageConfigSchema = z
-  .object({
-    provider: z.enum(["google_drive"]),
-    folder_id: z.string().regex(/^[A-Za-z0-9_-]{10,}$/, 'folder_id must be at least 10 alphanumeric, dash, or underscore characters'),
-    /**
-     * When true, fix/executive-report commands will fail if cloud upload fails.
-     * Default: false (cloud upload failure is non-fatal — warns to stderr).
-     */
-    require_upload: z.boolean().default(false),
-  })
-  .strict();
-
 const SafeUpdatePolicySchema = z
   .object({
     allow_patch_and_minor_within_constraints: z.boolean(),
@@ -547,7 +535,6 @@ export const ProjectConfigSchema = z
     safe_update_policy: SafeUpdatePolicySchema,
     conflict_resolution: z.string(),
     report_language: z.enum(["pt-br", "en"]).optional(),
-    cloud_storage: CloudStorageConfigSchema.optional(),
     scan: ScanPathsConfigSchema.optional(),
     scanners: ScannersConfigSchema.optional(),
     outputs: OutputsConfigSchema.optional(),

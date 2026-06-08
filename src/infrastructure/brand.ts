@@ -22,9 +22,6 @@ export const DEFAULT_SONAR_DOTFILE = `.${CLI_NAME}-sonar-project.properties`;
 /** Default prefix for the OS temp directory used for sanitized SonarQube properties. */
 export const DEFAULT_SONAR_TEMPDIR_PREFIX = `${CLI_NAME}-sonar-`;
 
-/** Google Drive config directory name (relative to $XDG_CONFIG_HOME / ~/.config). */
-export const DEFAULT_GDRIVE_CONFIG_DIR = CLI_NAME;
-
 /**
  * Environment variable name that activates the kill-switch (skip all automated fixes).
  * 'SECURITY_SCAN_NO_AUTO_FIX'

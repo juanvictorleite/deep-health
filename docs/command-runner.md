@@ -41,15 +41,15 @@ await runner.run(`git push origin ${branchName}`);  // shell injection risk
 `runArgs()` executes via `execFile` without a shell (`shell: false`). The `file` binary is invoked directly and `args` are passed as a proper `argv` array. Shell metacharacters in any `args` element are inert.
 
 **Use `runArgs()` when:**
-- Any argument contains a value from outside your process: branch names, OAuth tokens, user-supplied strings, environment-derived values
+- Any argument contains a value from outside your process: branch names, URLs, user-supplied strings, environment-derived values
 - You are constructing a command programmatically
 
 ```ts
 // Safe — branchName cannot inject shell commands
 await runner.runArgs('git', ['push', 'origin', branchName], { cwd });
 
-// Safe — OAuth URL opened without shell
-await runner.runArgs('open', [oauthUrl], {});
+// Safe — external URL opened without shell
+await runner.runArgs('open', [externalUrl], {});
 
 // Safe — package name from scan result (external data)
 await runner.runArgs('npm', ['install', packageName, '--save'], { cwd });
@@ -177,7 +177,6 @@ interface CommandResult {
 | `runtime.test_command` | repo owner (Zod-validated) | `run()` — shell | Ecosystem container (per ADR-0001) | Trusted; container-bounded blast radius |
 | `ecosystems[].validationCommands[].command` | repo owner | `run()` → `runShell()` | Ecosystem container | Trusted; container-bounded blast radius |
 | `ecosystems[].advisors[].command` | repo owner | `run()` — shell | Host runner | Trusted, informational only |
-| OAuth URL (`cloud-setup`) | Google OAuth library | `runArgs()` — no shell | Host runner | URL is a discrete argv element; metacharacters are inert |
 | Branch names (git operations) | git output | `runArgs()` — no shell | Host runner | External value; shell-safe by design |
 | Package names (scan result) | OSV JSON | `runArgs()` — no shell | Ecosystem container | External value; shell-safe by design |
 
