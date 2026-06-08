@@ -16,7 +16,6 @@ export interface ExecLocale {
   table_fixed_header: string;
   table_pending_header: string;
   section_evidence_before: string;
-  table_before_header: string;
   /** Generic scan summary: total vulns + per-ecosystem labels */
   scan_summary(total: number, ecoLabels: string): string;
   section_evidence_after: string;

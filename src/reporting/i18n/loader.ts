@@ -71,9 +71,6 @@ export function buildLocale(): Locale {
         '| Type | CVE/GHSA | CVSS | Package | Current Version | Reason |\n|------|----------|------|---------|-----------------|--------|',
       ),
       section_evidence_before: __('Evidence — Before'),
-      table_before_header: __(
-        '| Type | CVE/GHSA | CVSS | Package | Version | Risk |\n|------|----------|------|---------|---------|------|',
-      ),
       scan_summary: (total, ecoLabels) =>
         __('Initial scan (before fixes): **{{total}} vulnerabilities** — {{ecoLabels}}', {
           total,

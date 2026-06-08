@@ -361,21 +361,11 @@ function buildEvidenceAfterSection(ctx: Record<string, unknown>, tr: Record<stri
   return items;
 }
 
-function buildPendingByPkgItems(pendingByPkg: Record<string, unknown>[], tr: Record<string, unknown>) {
-  const items: DocxNode[] = [bodyText(t(tr, 'pending_needs_action_intro', 'The following packages require manual attention:'))];
-  for (const pkg of pendingByPkg) {
-    const line = `• ${str(pkg['package'])} ${str(pkg['currentVersion'])} — ${str(pkg['motivoPt'])} (${str(pkg['risk'])}${str(pkg['cvssDisplay'])})`;
-    items.push(bodyText(line));
-  }
-  return items;
-}
-
 function buildSummarySection(ctx: Record<string, unknown>, tr: Record<string, unknown>) {
   const items: DocxNode[] = [heading2(t(tr, 'section_summary', 'Summary'))];
 
-  const pendingByPkg = (ctx['pendingByPkg'] as Record<string, unknown>[]) ?? [];
-  if (pendingByPkg.length > 0) {
-    items.push(...buildPendingByPkgItems(pendingByPkg, tr));
+  if (ctx['hasPending']) {
+    items.push(bodyText(t(tr, 'pending_needs_action_intro', 'The following packages require manual attention:')));
   } else if (ctx['allFixed']) {
     items.push(bodyText(t(tr, 'all_fixed', 'All vulnerabilities have been resolved.')));
   }

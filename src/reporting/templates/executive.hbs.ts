@@ -44,9 +44,6 @@ export default `\
 
 ### {{t.section_evidence_before}}
 
-{{t.table_before_header}}
-{{#each allVulnsBefore}}| {{ecoLabel}} | {{ghsaId}} | {{cvss}} | {{package}} | {{affectedVersions}} | {{risk}} |
-{{/each}}
 {{scanBeforeSummary}}
 
 ---
@@ -106,11 +103,8 @@ export default `\
 {{t.no_vulns}}
 {{else if allFixed}}
 {{t.all_fixed}}
-{{else if pendingByPkg}}
+{{else if hasPending}}
 {{t.pending_needs_action_intro}}
-
-{{#each pendingByPkg}}- {{package}} ({{currentVersion}}): {{motivoPt}}. {{riskLabel}}: {{risk}}{{cvssDisplay}}.
-{{/each}}
 {{else}}
 {{t.pending_manual}}
 {{/if}}

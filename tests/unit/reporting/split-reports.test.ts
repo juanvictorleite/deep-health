@@ -91,17 +91,22 @@ const baseOpts: ExecutiveReportOptions = {
 describe('buildEntryReportContext()', () => {
   it('only includes vulns from the target entry in the scoped context', () => {
     const ctx = buildEntryReportContext(baseOpts, 'npm:frontend') as Record<string, unknown>;
-    // allVulnsBefore should only have lodash, not express
-    const allVulns = ctx['allVulnsBefore'] as { package: string }[];
-    expect(allVulns.some((v) => v.package === 'lodash')).toBe(true);
-    expect(allVulns.some((v) => v.package === 'express')).toBe(false);
+    // The evidence section should only contain the npm:frontend entry
+    const sections = ctx['evidenceSections'] as { id: string; vulnsAfter: { package: string }[] }[];
+    expect(sections.length).toBe(1);
+    expect(sections[0]!.id).toBe('npm:frontend');
+    // totalBefore reflects only the scoped entry
+    expect(ctx['totalBefore']).toBe(1);
   });
 
   it('only includes vulns from npm:api when scoped to npm:api', () => {
     const ctx = buildEntryReportContext(baseOpts, 'npm:api') as Record<string, unknown>;
-    const allVulns = ctx['allVulnsBefore'] as { package: string }[];
-    expect(allVulns.some((v) => v.package === 'express')).toBe(true);
-    expect(allVulns.some((v) => v.package === 'lodash')).toBe(false);
+    // The evidence section should only contain the npm:api entry
+    const sections = ctx['evidenceSections'] as { id: string; vulnsAfter: { package: string }[] }[];
+    expect(sections.length).toBe(1);
+    expect(sections[0]!.id).toBe('npm:api');
+    // totalBefore reflects only the scoped entry
+    expect(ctx['totalBefore']).toBe(1);
   });
 
   it('returns an empty vuln set when entryKey has no scan data', () => {

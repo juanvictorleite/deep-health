@@ -773,7 +773,7 @@ describe('generateExecutiveReport() — vulnerability deduplication', () => {
   });
 });
 
-describe('generateExecutiveReport() — pendingByPkg and allVulnsBefore branch coverage', () => {
+describe('generateExecutiveReport() — hasPending and pending vuln branch coverage', () => {
   const pendingScan: ScanResultJson = {
     agent: 'osv-scanner', status: 'success', environment: 'local',
     ecosystems: {
@@ -789,12 +789,11 @@ describe('generateExecutiveReport() — pendingByPkg and allVulnsBefore branch c
     error: null,
   };
 
-  it('covers maxCvss stays "0" path (unparseable CVSS) → cvssDisplay empty string', () => {
-    // cvss = 'N/A' → parseFloat('N/A') = NaN → condition false → max stays '0' → cvssDisplay = ''
+  it('pending vuln with unparseable CVSS still generates a valid report', () => {
     const result = generateExecutiveReport({
       ...baseOpts,
       scanBefore: pendingScan,
-      scanAfter: pendingScan, // still pending → pendingByPkg has entry with cvss='N/A'
+      scanAfter: pendingScan,
     });
     expect(typeof result).toBe('string');
   });
