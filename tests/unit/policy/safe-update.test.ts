@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+
 import { classifyPackage } from '@core/policy/safe-update';
 import type { ProtectedPackage } from '@core/types/config';
+import { describe, it, expect } from 'vitest';
 
 const protectedPackages: ProtectedPackage[] = [
   { package: 'laravel/framework', constraint: '^10.8', reason: 'Major upgrade requires project' },

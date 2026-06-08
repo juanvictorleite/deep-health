@@ -9,16 +9,19 @@
  *   - composer project with breaking vuln reports breaking classification
  *   - clean project (no vulns) exits cleanly with no updates
  */
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { runOrchestrator } from '@orchestration/orchestrator';
-import { ScannerEngineRegistry } from '@modules/scanner/registry';
-import { OsvScannerEngine } from '@modules/scanner/osv-engine';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+
 import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
+import { OsvScannerEngine } from '@modules/scanner/osv-engine';
+import { ScannerEngineRegistry } from '@modules/scanner/registry';
 import type { ScannerEngineContext, ScannerEngine } from '@modules/scanner/types';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { runOrchestrator } from '@orchestration/orchestrator';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+
 
 // ─── Mock applyOsvFixViaStaging so tests don't need Docker ───────────────────
 

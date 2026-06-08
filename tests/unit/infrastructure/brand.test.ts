@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import {
   CLI_NAME,
   DEFAULT_REPORTS_SUBDIR,
@@ -6,6 +5,8 @@ import {
   KILL_SWITCH_VAR,
   NPM_DEFAULT_FIXER,
 } from '@infra/brand';
+import { describe, it, expect } from 'vitest';
+
 
 describe('brand', () => {
   it('(a) CLI_NAME is hardcoded to security-scan', () => {

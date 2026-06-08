@@ -1,7 +1,7 @@
+import type { EcosystemConfig } from './config';
+import type { SupportedLocale } from './locale';
 import type { ScanResultJson } from './scan';
 import type { UpdateResultJson } from './update';
-import type { SupportedLocale } from './locale';
-import type { EcosystemConfig } from './config';
 
 /** A single structured finding from a structured advisor (e.g. npm audit --json) */
 export interface AdvisorFinding {
@@ -93,4 +93,9 @@ export interface ExecutiveReportOptions {
    * Residual OSV verification outcome (typed union).
    */
   residualVerification?: ResidualVerification;
+  /**
+   * SonarQube metric keys to display in visual reports (MD/DOCX/HTML).
+   * When omitted, defaults to DEFAULT_SONAR_REPORT_METRICS from config.
+   */
+  sonarqubeMetrics?: string[];
 }

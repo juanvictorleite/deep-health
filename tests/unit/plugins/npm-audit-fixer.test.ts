@@ -16,10 +16,10 @@ vi.mock('node:fs/promises', () => ({
   readFile: mockReadFile,
 }));
 
-import { applyNpmAuditFix } from '@modules/ecosystem/fixers/npm-audit-fixer';
 import type { CommandRunner, CommandResult } from '@core/types/common';
 import type { ScanResultJson } from '@core/types/scan';
 import { logger } from '@infra/utils/logger.js';
+import { applyNpmAuditFix } from '@modules/ecosystem/fixers/npm-audit-fixer';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -27,7 +27,7 @@ import { logger } from '@infra/utils/logger.js';
  * Build a syntactically valid package-lock.json v2 content string whose tree
  * contains the given { name, version } pairs.
  */
-function buildLockfile(pairs: Array<{ name: string; version: string }>, lockfileVersion = 2): string {
+function buildLockfile(pairs: { name: string; version: string }[], lockfileVersion = 2): string {
   const dependencies: Record<string, { version: string }> = {};
   const packages: Record<string, { name?: string; version: string }> = {
     '': { name: 'sample', version: '1.0.0' },
@@ -614,7 +614,7 @@ describe('applyNpmAuditFix — readFile failure after breaking install (lines 19
 
     const scan = buildScan([], [{ pkg: 'ajv', safeVersion: '8.18.0' }]);
 
-    const result = await applyNpmAuditFix({
+    await applyNpmAuditFix({
       runner,
       cwd: '/project',
       scanResult: scan,
@@ -1443,5 +1443,171 @@ describe('applyNpmAuditFix — breaking package not present on disk after instal
     // diskVersions defined → L208 false branch, diskMax defined → L211 false branch
     // diskMax defined → L223 false branch (diskMax ?? targetVersion takes diskMax)
     expect(result).toBeDefined();
+  });
+});
+
+// ─── AC1/AC2: transitive-only (non-root) package upgrades ────────────────────
+// When npm audit fix upgrades a package that is ONLY a transitive dependency (never
+// at root), the old root-only verification missed it. The hybrid rule now compares
+// the full-tree max version for such packages.
+
+describe('applyNpmAuditFix — transitive-only package upgraded (AC1)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('counts a transitive-only package in packagesUpdated when its nested max version increased', async () => {
+    const runner = makeRunner();
+
+    // lockfileVersion 1: 'elliptic' exists ONLY under a nested dependency, never at root.
+    // The top-level dependencies has 'bn.js' but not 'elliptic'.
+    // 'elliptic' appears only inside bn.js's nested dependencies.
+    const preLockfile = JSON.stringify({
+      name: 'sample',
+      lockfileVersion: 1,
+      dependencies: {
+        'bn.js': {
+          version: '4.12.0',
+          dependencies: {
+            elliptic: { version: '6.5.3' },
+          },
+        },
+      },
+    });
+
+    // After npm audit fix: elliptic nested version bumped to 6.5.7
+    const postLockfile = JSON.stringify({
+      name: 'sample',
+      lockfileVersion: 1,
+      dependencies: {
+        'bn.js': {
+          version: '4.12.0',
+          dependencies: {
+            elliptic: { version: '6.5.7' },
+          },
+        },
+      },
+    });
+
+    mockReadFile
+      .mockResolvedValueOnce(preLockfile)
+      .mockResolvedValueOnce(postLockfile);
+
+    const scan = buildScan([{ pkg: 'elliptic', version: '6.5.7' }]);
+
+    const result = await applyNpmAuditFix({
+      runner,
+      cwd: '/project',
+      scanResult: scan,
+      authorizeBreaking: false,
+    });
+
+    // elliptic is purely transitive (absent at root both before and after)
+    // → tree max went from 6.5.3 to 6.5.7 → must be counted
+    expect(result.packagesUpdated).toContain('elliptic@6.5.7');
+    expect(result.breakingInstallError).toBeNull();
+  });
+
+  it('counts a transitive-only package via v2 lockfile nested packages path', async () => {
+    const runner = makeRunner();
+
+    // lockfileVersion 2: 'elliptic' only under a nested node_modules path, not at root level.
+    const preLockfile = JSON.stringify({
+      name: 'sample',
+      lockfileVersion: 2,
+      dependencies: {
+        'bn.js': { version: '4.12.0' },
+      },
+      packages: {
+        '': { name: 'sample', version: '1.0.0' },
+        'node_modules/bn.js': { version: '4.12.0' },
+        'node_modules/bn.js/node_modules/elliptic': { version: '6.5.3' },
+      },
+    });
+
+    const postLockfile = JSON.stringify({
+      name: 'sample',
+      lockfileVersion: 2,
+      dependencies: {
+        'bn.js': { version: '4.12.0' },
+      },
+      packages: {
+        '': { name: 'sample', version: '1.0.0' },
+        'node_modules/bn.js': { version: '4.12.0' },
+        'node_modules/bn.js/node_modules/elliptic': { version: '6.5.7' },
+      },
+    });
+
+    mockReadFile
+      .mockResolvedValueOnce(preLockfile)
+      .mockResolvedValueOnce(postLockfile);
+
+    const scan = buildScan([{ pkg: 'elliptic', version: '6.5.7' }]);
+
+    const result = await applyNpmAuditFix({
+      runner,
+      cwd: '/project',
+      scanResult: scan,
+      authorizeBreaking: false,
+    });
+
+    expect(result.packagesUpdated).toContain('elliptic@6.5.7');
+    expect(result.breakingInstallError).toBeNull();
+  });
+});
+
+describe('applyNpmAuditFix — transitive-only package NOT upgraded (AC2)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('reports transitive-only package as false positive when its nested version did not change', async () => {
+    const runner = makeRunner();
+
+    // lockfileVersion 1: 'ip' exists only as a transitive dep, never at root.
+    // Pre and post lockfiles are identical — npm audit fix did not upgrade it.
+    const preLockfile = JSON.stringify({
+      name: 'sample',
+      lockfileVersion: 1,
+      dependencies: {
+        'request': {
+          version: '2.88.0',
+          dependencies: {
+            ip: { version: '1.1.5' },
+          },
+        },
+      },
+    });
+
+    // After npm audit fix: ip nested version unchanged (still 1.1.5)
+    const postLockfile = JSON.stringify({
+      name: 'sample',
+      lockfileVersion: 1,
+      dependencies: {
+        'request': {
+          version: '2.88.0',
+          dependencies: {
+            ip: { version: '1.1.5' },
+          },
+        },
+      },
+    });
+
+    mockReadFile
+      .mockResolvedValueOnce(preLockfile)
+      .mockResolvedValueOnce(postLockfile);
+
+    const scan = buildScan([{ pkg: 'ip', version: '2.0.1' }]);
+
+    const result = await applyNpmAuditFix({
+      runner,
+      cwd: '/project',
+      scanResult: scan,
+      authorizeBreaking: false,
+    });
+
+    // ip is purely transitive, tree max unchanged → must NOT be counted
+    expect(result.packagesUpdated).toHaveLength(0);
+    expect(result.packagesUpdated.some((p) => p.startsWith('ip@'))).toBe(false);
+
+    // 'no newer version' warning must be logged
+    const warnCalls = (logger.tagged as ReturnType<typeof vi.fn>).mock.calls;
+    expect(warnCalls.some((c) => String(c[2]).includes('no newer version'))).toBe(true);
   });
 });

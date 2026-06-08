@@ -42,25 +42,33 @@ vi.mock('@modules/advisor/index', () => ({
   runAdvisors: vi.fn().mockResolvedValue([]),
 }));
 
-// Mock runEcosystemFix — the orchestrator reads advisorResults from the outcome
-import type { RunEcosystemFixOutcome } from '@orchestration/run-ecosystem-fix';
+// Mock runEcosystemFix — the orchestrator reads advisorResults from the outcome.
+// Use importOriginal so all step-function exports remain available (needed by the
+// default-mode subtask path via progress-reporter.ts). Only runEcosystemFix is
+// overridden; tests use rendererType: 'verbose' to exercise the verbose path that
+// still calls runEcosystemFix directly.
 let mockedOutcome: RunEcosystemFixOutcome = { status: 'skipped', reason: 'no-updates' };
-vi.mock('@orchestration/run-ecosystem-fix', () => ({
-  runEcosystemFix: vi.fn(async () => mockedOutcome),
-}));
+vi.mock('@orchestration/run-ecosystem-fix', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@orchestration/run-ecosystem-fix')>();
+  return {
+    ...actual,
+    runEcosystemFix: vi.fn(async () => mockedOutcome),
+  };
+});
 
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn().mockRejectedValue(new Error('ENOENT')),
 }));
 
-import { runOrchestrator } from '@orchestration/orchestrator';
 import type { CommandRunner, CommandResult, CommandRunnerOptions } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
-import type { ScanResultJson } from '@core/types/scan';
 import type { AdvisorResult, AdvisorFinding } from '@core/types/report';
+import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
 import { ScannerEngineRegistry } from '@modules/scanner/registry';
 import type { ScannerEngine, ScannerEngineContext } from '@modules/scanner/types';
+import { runOrchestrator } from '@orchestration/orchestrator';
+import type { RunEcosystemFixOutcome } from '@orchestration/run-ecosystem-fix';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -208,6 +216,7 @@ describe('runOrchestrator — advisor results from runEcosystemFix outcome (AC3)
       cwd: '/project',
       dryRun: false,
       verbose: false,
+      rendererType: 'verbose',
       registry,
       scannerRegistry: makeScannerRegistry(scanResult),
     });
@@ -235,6 +244,7 @@ describe('runOrchestrator — advisor results from runEcosystemFix outcome (AC3)
       cwd: '/project',
       dryRun: false,
       verbose: false,
+      rendererType: 'verbose',
       registry,
       scannerRegistry: makeScannerRegistry(scanResult),
     });
@@ -258,6 +268,7 @@ describe('runOrchestrator — advisor results from runEcosystemFix outcome (AC3)
       cwd: '/project',
       dryRun: false,
       verbose: false,
+      rendererType: 'verbose',
       registry,
       scannerRegistry: makeScannerRegistry(scanResult),
     });
@@ -286,6 +297,7 @@ describe('runOrchestrator — advisor results from runEcosystemFix outcome (AC3)
       cwd: '/project',
       dryRun: false,
       verbose: false,
+      rendererType: 'verbose',
       registry,
       scannerRegistry: makeScannerRegistry(scanResult),
     });
@@ -306,6 +318,7 @@ describe('runOrchestrator — advisor results from runEcosystemFix outcome (AC3)
       cwd: '/project',
       dryRun: false,
       verbose: false,
+      rendererType: 'verbose',
       registry,
       scannerRegistry: makeScannerRegistry(scanResult),
     });
@@ -329,6 +342,7 @@ describe('runOrchestrator — advisor results from runEcosystemFix outcome (AC3)
       cwd: '/project',
       dryRun: false,
       verbose: false,
+      rendererType: 'verbose',
       registry,
       scannerRegistry: makeScannerRegistry(scanResult),
     });

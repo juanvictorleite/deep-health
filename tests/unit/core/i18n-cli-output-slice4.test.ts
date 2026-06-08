@@ -2,8 +2,9 @@
  * PT-BR translation coverage for CLI output strings added in slice4:
  * cloud-setup, fix, report-saver, google-drive-auth
  */
-import { describe, it, expect, beforeEach } from 'vitest';
 import { __, setLocale } from '@core/i18n';
+import { describe, it, expect, beforeEach } from 'vitest';
+
 
 beforeEach(() => {
   setLocale('en');

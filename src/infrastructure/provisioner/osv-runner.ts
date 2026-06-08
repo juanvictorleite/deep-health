@@ -1,9 +1,9 @@
-import { logger } from '../utils/logger';
+import type { EphemeralContainerRunner, ContainerRunResult } from './types';
+import { execFileTracked } from '../ecosystem-runtime/child-process-tracker';
 import { needsHostGateway, resolvePlatform } from '../utils/docker-platform';
+import { logger } from '../utils/logger';
 import { OSV_DEFAULT_IMAGE, buildOsvDockerRunArgs } from '../utils/osv-commands';
 import { withRetry, isDockerTransientError } from '../utils/retry';
-import { execFileTracked } from '../ecosystem-runtime/child-process-tracker';
-import type { EphemeralContainerRunner, ContainerRunResult } from './types';
 
 // ─── OsvDockerRunnerOptions ─────────────────────────────────────────────────────
 

@@ -8,8 +8,9 @@
  *   AC4 — when duplicate ids exist, every entry must have a label
  *   AC6 — at least 12 test cases
  */
-import { describe, it, expect } from 'vitest';
 import { ProjectConfigSchema } from '@infra/config/schema';
+import { describe, it, expect } from 'vitest';
+
 
 // Minimal valid ProjectConfig input that satisfies all required fields.
 const minimalConfig = {

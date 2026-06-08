@@ -8,21 +8,23 @@
  * NOTE: validateEcosystemsAgainstRegistry (lines 85-95) must be called directly because
  * the Zod schema enforces a fixed fixer enum before cross-validation can fire via loadConfig.
  */
-import { describe, it, expect, vi } from 'vitest';
-import { writeFile, unlink, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
+
 import { randomUUID } from 'node:crypto';
+import { writeFile, unlink, mkdir } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 
 vi.mock('@infra/utils/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn(), tagged: vi.fn() },
 }));
 
-import { loadConfig, validateEcosystemsAgainstRegistry } from '@infra/config/loader';
 import { ConfigLoadError } from '@core/errors';
+import type { ProjectConfig } from '@core/types/config';
+import { loadConfig, validateEcosystemsAgainstRegistry } from '@infra/config/loader';
 import { EcosystemRegistry } from '@modules/ecosystem/registry';
 import type { EcosystemPlugin } from '@modules/ecosystem/types';
-import type { ProjectConfig } from '@core/types/config';
+import { describe, it, expect, vi } from 'vitest';
 
 // Minimal plugin stub
 function makePluginStub(id: string, supportedFixers: string[]): EcosystemPlugin {

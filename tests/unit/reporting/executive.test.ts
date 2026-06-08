@@ -3,10 +3,12 @@
  * Tests uncovered paths: advisor section branches, motivoStr, pendingStatus,
  * residualVerification, conditionStatusIcon, severityIcon.
  */
-import { describe, it, expect } from 'vitest';
-import { generateExecutiveReport, executiveReportFilename, escapeMdTableCell, vulnLink } from '@reporting/executive';
+
 import type { ExecutiveReportOptions } from '@core/types/report';
 import type { ScanResultJson } from '@core/types/scan';
+import { generateExecutiveReportDocx } from '@reporting/docx-executive';
+import { generateExecutiveReport, executiveReportFilename, escapeMdTableCell, vulnLink, buildExecutiveReportContext } from '@reporting/executive';
+import { describe, it, expect } from 'vitest';
 
 const emptyScan: ScanResultJson = {
   agent: 'osv-scanner',
@@ -670,22 +672,6 @@ describe('generateExecutiveReport() — vulnerability deduplication', () => {
     };
   }
 
-  // Helper: extract table rows from a named section header until the next heading (##/###).
-  // Stops at the next markdown heading line, not at horizontal rules.
-  // Searches for the headerFragment using a locale-agnostic approach: find the line containing it.
-  function tableRowsAfterHeader(report: string, headerFragment: string): string[] {
-    const lines = report.split('\n');
-    const start = lines.findIndex((l) => l.includes(headerFragment));
-    if (start === -1) return [];
-    const rows: string[] = [];
-    for (let i = start + 1; i < lines.length; i++) {
-      const l = lines[i]!;
-      if (/^#{2,}/.test(l)) break;
-      if (l.startsWith('|') && !l.includes('---')) rows.push(l);
-    }
-    return rows;
-  }
-
   // The before-section header key is section_evidence_before — locale-dependent.
   // Use the GHSA column value or package name directly from all table rows (locale-agnostic).
   function allTableRows(report: string): string[] {
@@ -787,7 +773,7 @@ describe('generateExecutiveReport() — vulnerability deduplication', () => {
   });
 });
 
-describe('generateExecutiveReport() — pendingByPkg and allVulnsBefore branch coverage', () => {
+describe('generateExecutiveReport() — hasPending and pending vuln branch coverage', () => {
   const pendingScan: ScanResultJson = {
     agent: 'osv-scanner', status: 'success', environment: 'local',
     ecosystems: {
@@ -803,12 +789,11 @@ describe('generateExecutiveReport() — pendingByPkg and allVulnsBefore branch c
     error: null,
   };
 
-  it('covers maxCvss stays "0" path (unparseable CVSS) → cvssDisplay empty string', () => {
-    // cvss = 'N/A' → parseFloat('N/A') = NaN → condition false → max stays '0' → cvssDisplay = ''
+  it('pending vuln with unparseable CVSS still generates a valid report', () => {
     const result = generateExecutiveReport({
       ...baseOpts,
       scanBefore: pendingScan,
-      scanAfter: pendingScan, // still pending → pendingByPkg has entry with cvss='N/A'
+      scanAfter: pendingScan,
     });
     expect(typeof result).toBe('string');
   });
@@ -1743,5 +1728,312 @@ describe('vulnLink()', () => {
   it('CVE- prefix matching is case-sensitive (lowercase cve- is treated as unknown)', () => {
     // 'cve-' does not start with 'CVE-', so it falls back to osv.dev
     expect(vulnLink('cve-2026-45068')).toBe('[cve-2026-45068](https://osv.dev/vulnerability/cve-2026-45068)');
+  });
+});
+
+// ── Blocked vulns section tests (REACHABILITY-ENGINE-001-S2) ─────────────────
+
+describe('generateExecutiveReport() — blocked vulns section (AC1–AC5)', () => {
+  function allTableRows(report: string): string[] {
+    return report.split('\n').filter((l) => l.startsWith('|') && !l.includes('---'));
+  }
+
+  const blockedVuln = {
+    ghsaId: 'GHSA-block-0001',
+    cvss: '8.1',
+    package: 'some-dep',
+    ecosystem: 'npm',
+    currentVersion: '2.0.0',
+    safeVersion: '2.1.0',
+    classification: 'auto_safe' as const,
+    risk: 'high',
+    reason: '',
+    reachable: false as const,
+    blockReason: 'Protected by constraint',
+    blockedBy: ['some-other-dep@^2.0.0'],
+  };
+
+  const pendingVuln = {
+    ghsaId: 'GHSA-pend-0001',
+    cvss: '6.5',
+    package: 'pending-dep',
+    ecosystem: 'npm',
+    currentVersion: '1.0.0',
+    safeVersion: null as string | null,
+    classification: 'breaking' as const,
+    risk: 'medium',
+    reason: 'Major version bump required: 1.0.0 → 2.0.0',
+  };
+
+  const fixedVuln = {
+    ghsaId: 'GHSA-fixed-0001',
+    cvss: '7.5',
+    package: 'fixed-dep',
+    ecosystem: 'npm',
+    currentVersion: '3.0.0',
+    safeVersion: '3.1.0',
+    classification: 'auto_safe' as const,
+    risk: 'high',
+    reason: '',
+  };
+
+  function makeMixedScan(vulns: object[]): ScanResultJson {
+    return {
+      agent: 'osv-scanner',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: vulns.length,
+          auto_safe: vulns.filter((v: any) => v.classification === 'auto_safe').length,
+          breaking: vulns.filter((v: any) => v.classification === 'breaking').length,
+          manual: 0,
+          vulnerabilities: vulns as any[],
+        },
+      },
+      error: null,
+    };
+  }
+
+  // AC1: blocked vulns appear in dedicated blocked section with blockReason and blockedBy columns
+  it('(AC1) blocked vulns appear in the blocked section with blockReason and blockedBy', () => {
+    const scan = makeMixedScan([blockedVuln]);
+    const result = generateExecutiveReport({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+    expect(typeof result).toBe('string');
+
+    // The blocked section intro must appear
+    expect(result).toContain('blocked by dependency constraints');
+
+    // The blocked vuln package must appear in a table row
+    const rows = allTableRows(result);
+    const blockedRows = rows.filter((r) => r.includes('some-dep'));
+    expect(blockedRows.length).toBeGreaterThanOrEqual(1);
+
+    // The blockReason must appear in the row
+    const rowWithReason = blockedRows.find((r) => r.includes('Protected by constraint'));
+    expect(rowWithReason).toBeDefined();
+
+    // The blockedBy must appear in the row
+    const rowWithBlockedBy = blockedRows.find((r) => r.includes('some-other-dep@^2.0.0'));
+    expect(rowWithBlockedBy).toBeDefined();
+  });
+
+  // AC2: blocked vulns do NOT appear in the pending section
+  it('(AC2) blocked vulns do NOT appear in the pending section', () => {
+    const scan = makeMixedScan([blockedVuln]);
+    const ctx = buildExecutiveReportContext({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+
+    const pendingVulns = ctx['pendingVulns'] as Record<string, unknown>[];
+    const blockedVulns = ctx['blockedVulns'] as Record<string, unknown>[];
+
+    // blocked vuln must be in blockedVulns
+    const inBlocked = blockedVulns.some((r) => r['package'] === 'some-dep');
+    expect(inBlocked).toBe(true);
+
+    // blocked vuln must NOT be in pendingVulns
+    const inPending = pendingVulns.some((r) => r['package'] === 'some-dep');
+    expect(inPending).toBe(false);
+  });
+
+  // AC3: when no blocked vulns, blocked section is not rendered
+  it('(AC3) when no blocked vulns, blocked section is not rendered', () => {
+    const scan = makeMixedScan([pendingVuln]);
+    const result = generateExecutiveReport({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+    expect(typeof result).toBe('string');
+
+    // The blocked section intro must NOT appear
+    expect(result).not.toContain('blocked by dependency constraints');
+
+    // Context should have empty blockedVulns
+    const ctx = buildExecutiveReportContext({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+    expect((ctx['blockedVulns'] as unknown[]).length).toBe(0);
+    expect(ctx['hasBlockedVulns']).toBe(false);
+  });
+
+  // AC5: evidence section shows blocked status for reachable === false vulns
+  it('(AC5) evidence section shows blocked status for reachable=false vulns, not pending', () => {
+    const scan = makeMixedScan([blockedVuln]);
+    const result = generateExecutiveReport({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+
+    // The evidence section must contain a "blocked" status, not just "pending"
+    expect(result).toContain('blocked (constraint:');
+
+    // Must not show the generic pending status for the blocked vuln
+    // (pending status words should not appear for the blocked package)
+    const evidenceRows = result.split('\n').filter(
+      (l) => l.startsWith('|') && !l.includes('---') && l.includes('some-dep'),
+    );
+    const blockedStatusRow = evidenceRows.find((r) => r.includes('blocked'));
+    expect(blockedStatusRow).toBeDefined();
+  });
+
+  // allFixed is false when there are blocked vulns (even if no pending)
+  it('allFixed is false when blocked vulns exist (even if no pending)', () => {
+    const scan = makeMixedScan([blockedVuln, fixedVuln]);
+    const ctx = buildExecutiveReportContext({
+      ...baseOpts,
+      scanBefore: scan,
+      scanAfter: scan,
+      updates: {
+        npm: {
+          agent: 'npm',
+          status: 'success',
+          environment: 'local',
+          packages_updated: ['fixed-dep@3.1.0'],
+          validations: [],
+        },
+      },
+    });
+
+    // fixedVulns has fixed-dep, blockedVulns has some-dep, pendingOriginal should be empty
+    expect(ctx['allFixed']).toBe(false);
+  });
+
+  // allFixed is true when only fixed vulns and no blocked or pending
+  it('allFixed is true when fixedVulns > 0 and no blocked or pending', () => {
+    const scan = makeMixedScan([fixedVuln]);
+    const ctx = buildExecutiveReportContext({
+      ...baseOpts,
+      scanBefore: scan,
+      scanAfter: scan,
+      updates: {
+        npm: {
+          agent: 'npm',
+          status: 'success',
+          environment: 'local',
+          packages_updated: ['fixed-dep@3.1.0'],
+          validations: [],
+        },
+      },
+    });
+
+    expect(ctx['allFixed']).toBe(true);
+  });
+
+  // Mixed scenario: fixed + blocked + pending all in correct sections
+  it('mixed scenario — fixed + blocked + pending appear in their correct sections', () => {
+    const scan = makeMixedScan([fixedVuln, blockedVuln, pendingVuln]);
+    const ctx = buildExecutiveReportContext({
+      ...baseOpts,
+      scanBefore: scan,
+      scanAfter: scan,
+      updates: {
+        npm: {
+          agent: 'npm',
+          status: 'success',
+          environment: 'local',
+          packages_updated: ['fixed-dep@3.1.0'],
+          validations: [],
+        },
+      },
+    });
+
+    const fixedVulns = ctx['fixedVulns'] as Record<string, unknown>[];
+    const blockedVulnsCtx = ctx['blockedVulns'] as Record<string, unknown>[];
+    const pendingVulnsCtx = ctx['pendingVulns'] as Record<string, unknown>[];
+
+    // fixed-dep is fixed
+    expect(fixedVulns.some((r) => r['package'] === 'fixed-dep')).toBe(true);
+    // some-dep is blocked
+    expect(blockedVulnsCtx.some((r) => r['package'] === 'some-dep')).toBe(true);
+    // pending-dep is pending
+    expect(pendingVulnsCtx.some((r) => r['package'] === 'pending-dep')).toBe(true);
+
+    // Cross-checks: no cross-section bleed
+    expect(fixedVulns.some((r) => r['package'] === 'some-dep')).toBe(false);
+    expect(fixedVulns.some((r) => r['package'] === 'pending-dep')).toBe(false);
+    expect(blockedVulnsCtx.some((r) => r['package'] === 'fixed-dep')).toBe(false);
+    expect(blockedVulnsCtx.some((r) => r['package'] === 'pending-dep')).toBe(false);
+    expect(pendingVulnsCtx.some((r) => r['package'] === 'some-dep')).toBe(false);
+    expect(pendingVulnsCtx.some((r) => r['package'] === 'fixed-dep')).toBe(false);
+  });
+
+  // Blocked vuln with default blockReason (no blockReason set → 'Dependency constraint')
+  it('blocked vuln with no blockReason falls back to "Dependency constraint"', () => {
+    const vulnNoReason = { ...blockedVuln, blockReason: undefined };
+    const scan = makeMixedScan([vulnNoReason]);
+    const ctx = buildExecutiveReportContext({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+    const blocked = ctx['blockedVulns'] as Record<string, unknown>[];
+    expect(blocked[0]?.['blockReason']).toBe('Dependency constraint');
+  });
+
+  // Blocked vuln with no blockedBy → '—'
+  it('blocked vuln with no blockedBy shows "—"', () => {
+    const vulnNoBlockedBy = { ...blockedVuln, blockedBy: undefined };
+    const scan = makeMixedScan([vulnNoBlockedBy]);
+    const ctx = buildExecutiveReportContext({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+    const blocked = ctx['blockedVulns'] as Record<string, unknown>[];
+    expect(blocked[0]?.['blockedBy']).toBe('—');
+  });
+
+  // AC4: DOCX generation succeeds with blocked vulns present
+  it('(AC4) DOCX generation succeeds with blocked vulns present', async () => {
+    const scan = makeMixedScan([blockedVuln]);
+    const buffer = await generateExecutiveReportDocx({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+    expect(Buffer.isBuffer(buffer)).toBe(true);
+    expect(buffer.length).toBeGreaterThan(0);
+  });
+
+  // Refactor guard: blockedStatusOrNull extracted from computeEvidenceStatusPt (AC4 / Slice-6)
+  it('(AC4-refactor) reachable=false vuln still shows blocked status in evidence after refactor', () => {
+    // This test guards the zero-behavior-change guarantee of the blockedStatusOrNull extraction.
+    const scan = makeMixedScan([blockedVuln]);
+    const result = generateExecutiveReport({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+
+    // The evidence section (after section) must still show blocked status for reachable=false vulns
+    expect(result).toContain('blocked (constraint:');
+    const evidenceRows = result.split('\n').filter(
+      (l) => l.startsWith('|') && !l.includes('---') && l.includes('some-dep'),
+    );
+    expect(evidenceRows.length).toBeGreaterThanOrEqual(1);
+    const statusRow = evidenceRows.find((r) => r.includes('blocked'));
+    expect(statusRow).toBeDefined();
+  });
+
+  it('(AC4-refactor) reachable=undefined vuln does NOT show blocked status (falls through to pending)', () => {
+    // Guards that the refactor did not accidentally block vulns with reachable=undefined
+    const unreachableVuln = { ...pendingVuln };  // no reachable field
+    const scan = makeMixedScan([unreachableVuln]);
+    const result = generateExecutiveReport({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+
+    // blocked status must NOT appear for this package
+    const rows = result.split('\n').filter(
+      (l) => l.startsWith('|') && !l.includes('---') && l.includes('pending-dep'),
+    );
+    const blockedRow = rows.find((r) => r.includes('blocked (constraint:'));
+    expect(blockedRow).toBeUndefined();
+  });
+
+  // Blocked section appears between fixed and pending in markdown output
+  it('blocked section appears between fixed section and pending section in markdown', () => {
+    const scan = makeMixedScan([fixedVuln, blockedVuln, pendingVuln]);
+    const result = generateExecutiveReport({
+      ...baseOpts,
+      scanBefore: scan,
+      scanAfter: scan,
+      updates: {
+        npm: {
+          agent: 'npm',
+          status: 'success',
+          environment: 'local',
+          packages_updated: ['fixed-dep@3.1.0'],
+          validations: [],
+        },
+      },
+    });
+
+    const lines = result.split('\n');
+    const fixedIntroIdx = lines.findIndex((l) => l.includes('found and fixed'));
+    const blockedIntroIdx = lines.findIndex((l) => l.includes('blocked by dependency constraints'));
+    const pendingIntroIdx = lines.findIndex((l) => l.includes('could not be fixed automatically'));
+
+    // All three sections must be present
+    expect(fixedIntroIdx).toBeGreaterThan(-1);
+    expect(blockedIntroIdx).toBeGreaterThan(-1);
+    expect(pendingIntroIdx).toBeGreaterThan(-1);
+
+    // Order: fixed < blocked < pending
+    expect(fixedIntroIdx).toBeLessThan(blockedIntroIdx);
+    expect(blockedIntroIdx).toBeLessThan(pendingIntroIdx);
   });
 });

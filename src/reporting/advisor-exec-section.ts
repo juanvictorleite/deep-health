@@ -1,5 +1,6 @@
 import type { AdvisorResult, AdvisorFinding } from '@core/types/report';
 import { defaultRegistry } from '@modules/ecosystem/index';
+
 import type { ExecLocale } from './i18n/types';
 
 // ── Advisor section builder (executive) ─────────────────────────────────────
@@ -14,10 +15,10 @@ interface AdvisorFindingEntry {
 
 export interface AdvisorExecSectionData {
   present: boolean;
-  ecosystems: Array<{
+  ecosystems: {
     id: string;
     name: string;
-    advisors: Array<{
+    advisors: {
       name: string;
       header: string;
       statusLabel: string;
@@ -26,8 +27,8 @@ export interface AdvisorExecSectionData {
       hasFindings: boolean;
       noFindings: boolean;
       findings: AdvisorFindingEntry[];
-    }>;
-  }>;
+    }[];
+  }[];
 }
 
 export function buildAdvisorExecSection(

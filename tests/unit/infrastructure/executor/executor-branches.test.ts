@@ -9,9 +9,10 @@ vi.mock('execa', () => ({
   execa: vi.fn(),
 }));
 
-import { execa } from 'execa';
-import { LocalExecutor } from '@infra/executor/local-executor';
+
 import { EnvironmentError } from '@core/errors';
+import { LocalExecutor } from '@infra/executor/local-executor';
+import { execa } from 'execa';
 
 const mockExeca = vi.mocked(execa);
 

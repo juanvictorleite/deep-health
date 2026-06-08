@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
+
+import type { ScanResultJson } from '@core/types/scan';
 import {
   buildSonarQubeExport,
   sonarQubeExportFilename,
 } from '@reporting/sonarqube-export';
-import type { ScanResultJson } from '@core/types/scan';
+import { describe, it, expect } from 'vitest';
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────────
 

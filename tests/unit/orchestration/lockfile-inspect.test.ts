@@ -1,9 +1,9 @@
-import { vi, describe, it, expect, beforeEach } from "vitest";
 import { readFile } from "node:fs/promises";
+
+import { vi, describe, it, expect, beforeEach } from "vitest";
 import {
   collectNpmLockfileVersions,
 } from "@modules/ecosystem/utils/lockfile-inspect";
-import { readNpmLockfileVersion } from "@modules/ecosystem/utils/lockfile-utils";
 
 vi.mock("node:fs/promises", () => ({ readFile: vi.fn() }));
 
@@ -268,7 +268,9 @@ describe("readNpmLockfileVersion", () => {
 import {
   collectRootNpmLockfileVersions,
   diffRootNpmLockfileVersions,
+  collectNpmLockfileConstraints,
 } from "@modules/ecosystem/utils/lockfile-inspect";
+import { readNpmLockfileVersion } from "@modules/ecosystem/utils/lockfile-utils";
 
 describe("collectRootNpmLockfileVersions — v1 lockfile (lines 149-160)", () => {
   it("returns versions from dependencies object when no packages key", () => {
@@ -346,6 +348,163 @@ describe("collectRootNpmLockfileVersions — v1 lockfile (lines 149-160)", () =>
     expect(map.get("lodash")).toBe("4.17.21");
     expect(map.has("nested")).toBe(false);
     expect(map.has("a/node_modules/nested")).toBe(false);
+  });
+});
+
+describe("collectNpmLockfileConstraints — v2/v3 lockfiles", () => {
+  it("extracts parent constraints from packages[].dependencies", () => {
+    const lockfile = JSON.stringify({
+      lockfileVersion: 2,
+      packages: {
+        "": { name: "app", version: "1.0.0" },
+        "node_modules/cookie": { version: "0.5.0" },
+        "node_modules/cookies-next": {
+          version: "4.2.1",
+          dependencies: { cookie: "<0.7.0" },
+        },
+      },
+    });
+    const map = collectNpmLockfileConstraints(lockfile);
+    expect(map.get("cookie")?.get("cookies-next")).toBe("<0.7.0");
+  });
+
+  it("maps multiple parents constraining the same dep", () => {
+    const lockfile = JSON.stringify({
+      lockfileVersion: 3,
+      packages: {
+        "": { name: "app", version: "1.0.0" },
+        "node_modules/parent-a": { version: "1.0.0", dependencies: { lodash: "^4.17.0" } },
+        "node_modules/parent-b": { version: "2.0.0", dependencies: { lodash: "^4.16.0" } },
+      },
+    });
+    const map = collectNpmLockfileConstraints(lockfile);
+    const lodashMap = map.get("lodash")!;
+    expect(lodashMap.get("parent-a")).toBe("^4.17.0");
+    expect(lodashMap.get("parent-b")).toBe("^4.16.0");
+  });
+
+  it("skips the root package entry (empty-string key)", () => {
+    const lockfile = JSON.stringify({
+      lockfileVersion: 2,
+      packages: {
+        "": { name: "my-app", version: "1.0.0", dependencies: { lodash: "^4.0.0" } },
+        "node_modules/lodash": { version: "4.17.21" },
+      },
+    });
+    const map = collectNpmLockfileConstraints(lockfile);
+    expect(map.has("lodash")).toBe(false);
+  });
+
+  it("ignores entries with non-object or missing dependencies field", () => {
+    const lockfile = JSON.stringify({
+      lockfileVersion: 2,
+      packages: {
+        "": { name: "app", version: "1.0.0" },
+        "node_modules/no-deps": { version: "1.0.0" },
+        "node_modules/null-deps": { version: "1.0.0", dependencies: null },
+        "node_modules/arr-deps": { version: "1.0.0", dependencies: [] },
+      },
+    });
+    const map = collectNpmLockfileConstraints(lockfile);
+    expect(map.size).toBe(0);
+  });
+
+  it("ignores non-string constraint values", () => {
+    const lockfile = JSON.stringify({
+      lockfileVersion: 2,
+      packages: {
+        "node_modules/parent": {
+          version: "1.0.0",
+          dependencies: { dep: 123, valid: "^1.0.0" },
+        },
+      },
+    });
+    const map = collectNpmLockfileConstraints(lockfile);
+    expect(map.has("dep")).toBe(false);
+    expect(map.get("valid")?.get("parent")).toBe("^1.0.0");
+  });
+
+  it("extracts parent name from nested path (last node_modules/ segment)", () => {
+    const lockfile = JSON.stringify({
+      lockfileVersion: 2,
+      packages: {
+        "node_modules/next/node_modules/postcss": {
+          version: "8.4.31",
+          dependencies: { picocolors: "^1.0.0" },
+        },
+      },
+    });
+    const map = collectNpmLockfileConstraints(lockfile);
+    expect(map.get("picocolors")?.get("postcss")).toBe("^1.0.0");
+  });
+});
+
+describe("collectNpmLockfileConstraints — v1 lockfiles", () => {
+  it("extracts constraints from requires field", () => {
+    const lockfile = JSON.stringify({
+      lockfileVersion: 1,
+      dependencies: {
+        cookie: { version: "0.5.0" },
+        "cookies-next": {
+          version: "4.2.1",
+          requires: { cookie: "<0.7.0" },
+        },
+      },
+    });
+    const map = collectNpmLockfileConstraints(lockfile);
+    expect(map.get("cookie")?.get("cookies-next")).toBe("<0.7.0");
+  });
+
+  it("walks nested dependencies recursively", () => {
+    const lockfile = JSON.stringify({
+      lockfileVersion: 1,
+      dependencies: {
+        "parent-a": {
+          version: "1.0.0",
+          requires: { lodash: "^4.17.0" },
+          dependencies: {
+            "child-b": {
+              version: "2.0.0",
+              requires: { lodash: "^4.16.0" },
+            },
+          },
+        },
+      },
+    });
+    const map = collectNpmLockfileConstraints(lockfile);
+    const lodashMap = map.get("lodash")!;
+    expect(lodashMap.get("parent-a")).toBe("^4.17.0");
+    expect(lodashMap.get("child-b")).toBe("^4.16.0");
+  });
+
+  it("ignores entries without a requires field", () => {
+    const lockfile = JSON.stringify({
+      lockfileVersion: 1,
+      dependencies: {
+        "no-requires": { version: "1.0.0" },
+      },
+    });
+    const map = collectNpmLockfileConstraints(lockfile);
+    expect(map.size).toBe(0);
+  });
+});
+
+describe("collectNpmLockfileConstraints — defensive edge cases", () => {
+  it("returns empty map on malformed JSON", () => {
+    expect(collectNpmLockfileConstraints("NOT JSON").size).toBe(0);
+    expect(collectNpmLockfileConstraints("").size).toBe(0);
+    expect(collectNpmLockfileConstraints("{").size).toBe(0);
+  });
+
+  it("returns empty map when top-level is not an object", () => {
+    expect(collectNpmLockfileConstraints('"string"').size).toBe(0);
+    expect(collectNpmLockfileConstraints("[1,2,3]").size).toBe(0);
+    expect(collectNpmLockfileConstraints("null").size).toBe(0);
+  });
+
+  it("returns empty map when lockfile has no packages or dependencies", () => {
+    const lockfile = JSON.stringify({ name: "sample", lockfileVersion: 3 });
+    expect(collectNpmLockfileConstraints(lockfile).size).toBe(0);
   });
 });
 

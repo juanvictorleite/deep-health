@@ -1,4 +1,5 @@
 import { logger } from '@infra/utils/logger';
+
 import type { FixerCallOptions, FixerCallResult } from './index';
 
 /**

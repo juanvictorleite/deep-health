@@ -42,9 +42,9 @@ vi.mock('node:fs/promises', () => ({
   rm: mockRm,
 }));
 
-import { applyOsvFixViaStaging } from '@orchestration/osv-fix-applier';
 import * as gitUtils from '@infra/utils/fs-backup.js';
 import { logger } from '@infra/utils/logger.js';
+import { applyOsvFixViaStaging } from '@orchestration/osv-fix-applier';
 
 // ── Test helpers ──────────────────────────────────────────────────────────────
 
@@ -66,7 +66,7 @@ function makeInput(overrides: Partial<Parameters<typeof applyOsvFixViaStaging>[0
  * contains the given `{ name, version }` pairs. Used so the applier's lockfile
  * inspector can verify claims against a realistic shape.
  */
-function buildLockfile(pairs: Array<{ name: string; version: string }>, lockfileVersion = 2): string {
+function buildLockfile(pairs: { name: string; version: string }[], lockfileVersion = 2): string {
   const dependencies: Record<string, { version: string }> = {};
   const packages: Record<string, { name?: string; version: string }> = {
     '': { name: 'sample', version: '1.0.0' },
@@ -78,7 +78,7 @@ function buildLockfile(pairs: Array<{ name: string; version: string }>, lockfile
   return JSON.stringify({ name: 'sample', lockfileVersion, dependencies, packages });
 }
 
-function osvFixJsonFor(updates: Array<{ name: string; versionFrom: string; versionTo: string }>): string {
+function osvFixJsonFor(updates: { name: string; versionFrom: string; versionTo: string }[]): string {
   return JSON.stringify({ patches: [{ packageUpdates: updates }] });
 }
 
@@ -648,15 +648,7 @@ describe('applyOsvFixViaStaging — parseOsvFixJson branch coverage', () => {
   it('rootVersion undefined → line 228 ?? claim.versionTo fires', async () => {
     // The lockfile has lodash BUT at root level the version is from rootVersions
     // We need rootVersionsInStaging.get(claim.name) to return undefined.
-    // Build a v1 lockfile (no packages tree) so extractRootPkgVersions returns empty map.
-    const v1Lockfile = JSON.stringify({
-      lockfileVersion: 1,
-      name: 'test',
-      dependencies: {
-        lodash: { version: '4.17.21' },
-      },
-    });
-    // v2 lockfile where lodash is present in packages (for claimIsSatisfied) but
+    // Use a v2 lockfile where lodash is present in packages (for claimIsSatisfied) but
     // root version lookup returns undefined — use a lockfile with no entry at root
     const stagingLockfile = JSON.stringify({
       lockfileVersion: 2,
@@ -678,5 +670,31 @@ describe('applyOsvFixViaStaging — parseOsvFixJson branch coverage', () => {
     }));
     // Claim is satisfied → verified, and rootVersion used (or fallback to claim.versionTo)
     expect(result.packagesUpdated.length).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ── Path-traversal guard integration (AC1) ────────────────────────────────────
+
+describe('applyOsvFixViaStaging — path-traversal guard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('rejects a traversal override before spawning runner or writing files', async () => {
+    await expect(
+      applyOsvFixViaStaging(makeInput({ fixLockfileOverride: '../../etc/passwd' })),
+    ).rejects.toThrow();
+
+    expect(mockOsvDockerRunnerRun).not.toHaveBeenCalled();
+    expect(mockWriteFile).not.toHaveBeenCalled();
+  });
+
+  it('rejects an absolute path override before spawning runner or writing files', async () => {
+    await expect(
+      applyOsvFixViaStaging(makeInput({ fixLockfileOverride: '/etc/passwd' })),
+    ).rejects.toThrow();
+
+    expect(mockOsvDockerRunnerRun).not.toHaveBeenCalled();
+    expect(mockWriteFile).not.toHaveBeenCalled();
   });
 });

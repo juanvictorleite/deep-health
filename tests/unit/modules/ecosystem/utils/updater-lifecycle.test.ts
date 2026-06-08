@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { CommandRunner, CommandResult } from '@core/types/common';
-import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
-import type { ScanResultJson } from '@core/types/scan';
 import { PhaseError } from '@core/errors';
+import type { CommandRunner, CommandResult } from '@core/types/common';
+import type { ScanResultJson } from '@core/types/scan';
+import type { UpdateResultJson } from '@core/types/update';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -97,14 +97,6 @@ function makeRecipe(overrides: Partial<UpdaterRecipe<string>> = {}): UpdaterReci
     ...overrides,
   };
 }
-
-const BASE_SUCCESS_SHAPE: Partial<UpdateResultJson> = {
-  $schema: 'osv-update-result/v1',
-  agent: 'test-agent',
-  status: 'success',
-  packages_skipped: [],
-  error: null,
-};
 
 // ─── Setup ────────────────────────────────────────────────────────────────────
 

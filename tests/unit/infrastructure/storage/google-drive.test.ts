@@ -141,11 +141,8 @@ describe('createGoogleDriveProvider()', () => {
 describe('GoogleDriveProvider.upload() — googleapis not installed', () => {
   // This suite re-imports the module with googleapis mocked to throw,
   // simulating the package being absent (optional dependency not installed).
-  let OriginalGoogleDriveProvider: typeof GoogleDriveProvider;
 
   beforeEach(async () => {
-    // Stash the real constructor so we can restore the module after this suite.
-    OriginalGoogleDriveProvider = GoogleDriveProvider;
     vi.resetModules();
     // Override googleapis to simulate it being absent.
     vi.doMock('googleapis', () => {

@@ -1,6 +1,7 @@
 import { execa } from 'execa';
-import type { CommandRunner, CommandRunnerOptions, CommandResult } from '@core/types/common';
+
 import { EnvironmentError } from '@core/errors';
+import type { CommandRunner, CommandRunnerOptions, CommandResult } from '@core/types/common';
 
 /**
  * Attach a line-by-line listener to a readable stream, calling `cb` for each

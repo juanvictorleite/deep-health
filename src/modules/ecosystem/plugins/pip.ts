@@ -1,9 +1,22 @@
-import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
-import type { VersionSource } from '@infra/utils/infer-version';
+import { basename } from 'node:path';
+
 import type { ProjectConfig, ProtectedPackage } from '@core/types/config';
 import type { UpdateResultJson } from '@core/types/update';
-import { runPipUpdater } from './pip-updater';
 import { resolvePipDockerImage, PIP_DEFAULT_IMAGE } from '@infra/provisioner/pip-runner';
+import type { VersionSource } from '@infra/utils/infer-version';
+
+import { runPipUpdater } from './pip-updater';
+import type { EcosystemPlugin, EcosystemUpdaterContext } from '../types';
+import { detectPipTooling } from './pip-tooling-detector';
+import type { PipToolingDetection } from './pip-tooling-detector';
+
+/** Cached detection from prepareScan — consumed by buildScanArgs within the same scan cycle. */
+let _cachedDetection: PipToolingDetection | undefined;
+
+/** @internal Exposed for testing only. */
+export function _resetDetectionCache(): void {
+  _cachedDetection = undefined;
+}
 
 // ─── Version inference helpers ────────────────────────────────────────────────
 
@@ -82,7 +95,14 @@ export const pipPlugin: EcosystemPlugin = {
     { name: 'audit', command: 'pip-audit --format json', format: 'json' as const },
   ],
 
+  async prepareScan(entryCwd: string): Promise<void> {
+    _cachedDetection = await detectPipTooling(entryCwd).catch(() => undefined);
+  },
+
   buildScanArgs(): string[] {
+    if (_cachedDetection?.lockfile) {
+      return ['--lockfile', basename(_cachedDetection.lockfile)];
+    }
     return ['--lockfile', 'requirements.txt'];
   },
 
@@ -91,6 +111,8 @@ export const pipPlugin: EcosystemPlugin = {
   },
 
   async runUpdater(ctx: EcosystemUpdaterContext): Promise<UpdateResultJson> {
+    // Detect tooling independently for fixer routing (scan-phase cache is separate)
+    const detection = await detectPipTooling(ctx.cwd).catch(() => undefined);
     return runPipUpdater(
       ctx.runner,
       ctx.config,
@@ -104,6 +126,7 @@ export const pipPlugin: EcosystemPlugin = {
       ctx.preRunSnapshots,
       ctx.advisorResults,
       ctx.ecosystemKey,
+      detection,
     );
   },
 

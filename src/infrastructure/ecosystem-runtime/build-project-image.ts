@@ -20,19 +20,21 @@
  * @module
  */
 
-import { CLI_NAME } from '@infra/brand';
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+
 import { __ } from '@core/i18n';
-import { logger } from '../utils/logger';
-import { spawnStreaming } from '../utils/spawn-streaming';
+import { CLI_NAME } from '@infra/brand';
+
 import {
   assertBuildContextWithinBoundary,
   resolveAllowedBuildContextRoot,
 } from './resolve-build-context-boundary';
+import { logger } from '../utils/logger';
+import { spawnStreaming } from '../utils/spawn-streaming';
 
 const execFileAsync = promisify(execFile);
 
@@ -174,7 +176,7 @@ export async function buildProjectImage(
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     throw new Error(
-      __('[ecosystem-runtime/{{logPrefix}}] Dockerfile not found at "{{absoluteDockerfile}}": {{message}}', { logPrefix, absoluteDockerfile, message }),
+      __('[ecosystem-runtime/{{logPrefix}}] Dockerfile not found at "{{absoluteDockerfile}}": {{message}}', { logPrefix, absoluteDockerfile, message }), { cause: err },
     );
   }
 

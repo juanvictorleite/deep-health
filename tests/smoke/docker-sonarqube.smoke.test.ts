@@ -18,8 +18,10 @@
  * Timeout: 60 s per test (container pull + start).
  */
 
-import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+
+
 import { skipIfNoDocker } from '../helpers/docker-skip.js';
 
 // ─── Suite-level skip guard ───────────────────────────────────────────────────
@@ -77,7 +79,6 @@ describe('DockerSonarQubeProvisioner (smoke)', () => {
     async () => {
       provisioner = new DockerSonarQubeProvisioner();
       await provisioner.provision();
-      const name = provisioner.containerName_!;
 
       // Should not throw
       await expect(provisioner.teardown()).resolves.toBeUndefined();

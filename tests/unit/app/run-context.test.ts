@@ -1,9 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { type ConfigLoadError } from '@core/errors';
 import type { ProjectConfig } from '@core/types/config';
 import { ok } from '@core/types/result';
 import type { Result } from '@core/types/result';
-import { ConfigLoadError } from '@core/errors';
+import { loadConfig } from '@infra/config/loader';
+import { LocalExecutor } from '@infra/executor/local-executor';
+import { setLogLevel, setJsonMode } from '@infra/utils/logger';
 import { defaultRegistry } from '@modules/ecosystem/index';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
 
 vi.mock('@infra/config/loader', () => ({
   loadConfig: vi.fn(),
@@ -22,9 +26,6 @@ vi.mock('@infra/utils/logger', () => ({
   setJsonMode: vi.fn(),
 }));
 
-import { loadConfig } from '@infra/config/loader';
-import { LocalExecutor } from '@infra/executor/local-executor';
-import { setLogLevel, setJsonMode } from '@infra/utils/logger';
 import { createRunContext } from '@app/run-context';
 
 const baseConfig: ProjectConfig = {

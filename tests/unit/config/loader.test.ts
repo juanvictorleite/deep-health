@@ -1,14 +1,17 @@
-import { describe, it, expect } from 'vitest';
-import { loadConfig, validateEcosystemsAgainstRegistry } from '@infra/config/loader';
-import { ConfigLoadError } from '@core/errors';
-import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { EcosystemRegistry } from '@modules/ecosystem/registry';
-import { npmPlugin } from '@modules/ecosystem/plugins/npm';
-import { composerPlugin } from '@modules/ecosystem/plugins/composer';
+import { fileURLToPath } from 'node:url';
+
+
+import { ConfigLoadError } from '@core/errors';
 import type { ProjectConfig } from '@core/types/config';
 import type { Result } from '@core/types/result';
-import { withTempConfig, minimalConfigJson, minimalConfigWithObj } from '../../helpers/config-fixtures';
+import { loadConfig, validateEcosystemsAgainstRegistry } from '@infra/config/loader';
+import { composerPlugin } from '@modules/ecosystem/plugins/composer';
+import { npmPlugin } from '@modules/ecosystem/plugins/npm';
+import { EcosystemRegistry } from '@modules/ecosystem/registry';
+import { describe, it, expect } from 'vitest';
+
+import { withTempConfig, minimalConfigWithObj } from '../../helpers/config-fixtures';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = resolve(__dirname, '../../fixtures');

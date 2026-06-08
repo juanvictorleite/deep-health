@@ -2,7 +2,7 @@
  * Tests for src/infrastructure/utils/spawn-streaming.ts
  * Covers timeout behavior, timedOut flag, and normal operation.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 
 // Mock logger to prevent noise
 vi.mock('@infra/utils/logger', () => ({

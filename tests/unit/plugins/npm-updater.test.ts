@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { CommandRunner, CommandResult } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
-import type { ScanResultJson } from '@core/types/scan';
 import type { AdvisorResult } from '@core/types/report';
+import type { ScanResultJson } from '@core/types/scan';
 
 // ── Module-level mocks ───────────────────────────────────────────────────────
 // Hoisted so the factory runs before the module under test is imported.
@@ -2615,8 +2615,6 @@ describe('runNpmUpdater — OSV-first-wins in derivePackagesUpdated', () => {
   });
 
   it('OSV-first-wins: OSV packages appear first, fixer packages complement (no overlap)', async () => {
-    const runner = makeRunner();
-
     // Build post-OSV and post-audit lockfiles for osv-then-audit-fixer
     const postOsvLockfile = JSON.stringify({
       name: 'test', lockfileVersion: 2,

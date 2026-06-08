@@ -7,10 +7,10 @@
 export type Result<T, E> = Ok<T> | Err<E>;
 
 /** The success variant of Result<T, E>. */
-export type Ok<T> = { ok: true; value: T };
+export interface Ok<T> { ok: true; value: T }
 
 /** The failure variant of Result<T, E>. */
-export type Err<E> = { ok: false; error: E };
+export interface Err<E> { ok: false; error: E }
 
 // ─── Constructors ─────────────────────────────────────────────────────────────
 

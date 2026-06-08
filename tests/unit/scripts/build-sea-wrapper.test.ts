@@ -8,11 +8,12 @@
  *
  * For non-Linux targets the script must produce no wrapper and no rename.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { spawnSync } from 'node:child_process';
+
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 const BUILD_SEA_SH = path.resolve(__dirname, '../../../scripts/build-sea.sh');
 
@@ -340,8 +341,6 @@ describe('build-sea.sh — wrapper runtime behaviour (simulated)', () => {
     fs.writeFileSync(realBin, '#!/usr/bin/env sh\necho "EXECUTED"\n');
     fs.chmodSync(realBin, 0o755);
 
-    // Use a PATH that has no ldd — only our tmpDir which has no ldd binary
-    const noLddPath = `${tmpDir}/no-ldd-dir:${process.env.PATH ?? ''}`;
     // Ensure the no-ldd-dir directory exists but has no ldd
     fs.mkdirSync(path.join(tmpDir, 'no-ldd-dir'), { recursive: true });
 
@@ -350,7 +349,7 @@ describe('build-sea.sh — wrapper runtime behaviour (simulated)', () => {
     const minimalBinDir = path.join(tmpDir, 'minimal-bin');
     fs.mkdirSync(minimalBinDir, { recursive: true });
 
-    const result = spawnSync('sh', [wrapper], {
+    spawnSync('sh', [wrapper], {
       env: {
         ...process.env,
         PATH: minimalBinDir,

@@ -54,14 +54,11 @@ vi.mock('node:fs/promises', () => ({
 
 // ── Imports ───────────────────────────────────────────────────────────────────
 
-import { runEcosystemFix } from '@orchestration/run-ecosystem-fix';
-import { applyOsvFixViaStaging } from '@orchestration/osv-fix-applier';
-import type { EcosystemPlugin, EcosystemUpdaterContext } from '@modules/ecosystem/types';
 import type { CommandRunner, CommandResult, CommandRunnerOptions } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
+import type { AdvisorResult, AdvisorFinding } from '@core/types/report';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
-import type { AdvisorResult, AdvisorFinding } from '@core/types/report';
 import type { FixerCallOptions } from '@modules/ecosystem/fixers/index';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -179,6 +176,9 @@ function makeAdvisorResult(
 // runAdvisors is called internally and its results are passed to the updater context.
 
 import { runAdvisors } from '@modules/advisor/index';
+import type { EcosystemPlugin, EcosystemUpdaterContext } from '@modules/ecosystem/types';
+import { applyOsvFixViaStaging } from '@orchestration/osv-fix-applier';
+import { runEcosystemFix } from '@orchestration/run-ecosystem-fix';
 
 describe('runEcosystemFix — advisorResults threading (AC3)', () => {
   beforeEach(() => {
@@ -391,7 +391,6 @@ describe('npm-updater — advisorFindings extraction and fixer call options (AC5
   // We verify the extraction logic through the runNpmUpdater signature.
 
   let runNpmUpdater: typeof import('@modules/ecosystem/plugins/npm-updater').runNpmUpdater;
-  let FIXER_MAP_mock: Record<string, ReturnType<typeof vi.fn>>;
 
   beforeEach(async () => {
     vi.clearAllMocks();
@@ -453,7 +452,6 @@ describe('npm-updater — advisorFindings extraction and fixer call options (AC5
     expect(result.$schema).toBe('osv-update-result/v1');
     void capturedOptions; // captured from future interception use
     void mockFixerFn;
-    void FIXER_MAP_mock;
   });
 
   it('advisorResults with no findings → advisorFindings is undefined (no crash)', async () => {

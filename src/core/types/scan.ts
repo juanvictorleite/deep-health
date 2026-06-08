@@ -15,6 +15,10 @@ export interface VulnerabilityEntry {
   reason: string;
   /** Discriminator for breaking-classified packages. Only set when classification === 'breaking'. */
   breakingReason?: 'major-bump' | 'protected-constraint';
+  /** Set by reachability enrichment. Absent when reachability was not checked. */
+  reachable?: boolean;
+  blockReason?: string;
+  blockedBy?: string[];
 }
 
 export interface EcosystemScanResult {
@@ -26,6 +30,8 @@ export interface EcosystemScanResult {
   breaking_packages: string[];
   manual_packages: string[];
   vulnerabilities: VulnerabilityEntry[];
+  blocked_packages?: string[];
+  blocked?: number;
 }
 
 /**
@@ -43,6 +49,8 @@ export function emptyEcosystem(): EcosystemScanResult {
     breaking_packages: [],
     manual_packages: [],
     vulnerabilities: [],
+    blocked_packages: [],
+    blocked: 0,
   };
 }
 

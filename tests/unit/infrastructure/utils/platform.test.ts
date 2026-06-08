@@ -9,6 +9,7 @@ vi.mock('node:os', () => ({
 }));
 
 import os from 'node:os';
+
 import { getPlatform, getPlatformLabel, getPlatformInstallHint } from '@infra/utils/platform';
 
 const mockPlatform = vi.mocked(os.platform);

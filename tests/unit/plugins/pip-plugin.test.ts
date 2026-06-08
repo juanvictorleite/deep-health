@@ -14,8 +14,9 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 import { readFile } from 'node:fs/promises';
-import { pipPlugin } from '@modules/ecosystem/plugins/pip';
+
 import { inferVersionFromSources } from '@infra/utils/infer-version';
+import { pipPlugin } from '@modules/ecosystem/plugins/pip';
 
 const mockReadFile = vi.mocked(readFile);
 

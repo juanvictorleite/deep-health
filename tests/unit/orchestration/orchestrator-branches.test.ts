@@ -26,10 +26,10 @@ vi.mock('@app/audit-trail', () => ({
   writeAuditTrail: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { ScannerEngineRegistry } from '@modules/scanner/registry';
-import { runOrchestrator } from '@orchestration/orchestrator';
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
+import { ScannerEngineRegistry } from '@modules/scanner/registry';
+import { runOrchestrator } from '@orchestration/orchestrator';
 
 function makeRunner(): CommandRunner {
   return {

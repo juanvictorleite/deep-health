@@ -7,8 +7,9 @@
  *   - EphemeralEcosystemContainer.run() — catch branch edge cases
  *   - EphemeralEcosystemContainer.runStreaming() — close with null code
  */
-import { describe, it, expect, vi, type Mock } from 'vitest';
 import { EventEmitter } from 'node:events';
+
+import { describe, it, expect, vi, type Mock } from 'vitest';
 
 vi.mock('@infra/utils/logger', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },
@@ -24,9 +25,10 @@ vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
 }));
 
-import { resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
 import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
+import { resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
 import { needsHostGateway, resolvePlatform } from '@infra/utils/docker-platform';
+
 import { execFile, spawn } from 'node:child_process';
 
 const directExecRunMode = { kind: 'direct-exec' as const, binary: 'npm' };

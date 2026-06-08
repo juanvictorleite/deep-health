@@ -11,8 +11,9 @@
  * Updated: runner config is now declared inline in ecosystems[].runner
  * (top-level `runners:` block was removed — see ADR-0001 / loader.ts migration checks).
  */
-import { describe, it, expect } from 'vitest';
 import { ProjectConfigSchema } from '@infra/config/schema';
+import { describe, it, expect } from 'vitest';
+
 
 function makeConfig(ecosystemId: string, runner?: Record<string, unknown>) {
   return {

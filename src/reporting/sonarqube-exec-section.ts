@@ -1,4 +1,5 @@
 import type { ScanResultJson, SonarQubeQualityGateCondition, SonarQubeIssue } from '@core/types/scan';
+
 import type { ExecLocale } from './i18n/types';
 
 // ── SonarQube executive section builder ──────────────────────────────────────
@@ -34,7 +35,7 @@ export interface SonarQubeExecSectionData {
   hasConditions: boolean;
   conditions: SonarQubeConditionEntry[];
   conditionsLabel: string;
-  metrics: Array<{ key: string; value: string }> | null;
+  metrics: { key: string; value: string }[] | null;
   hasIssues: boolean;
   noIssues: boolean;
   issueCountLabel: string;
@@ -60,6 +61,7 @@ function conditionStatusIcon(status: string): string {
 export function buildSonarQubeExecSection(
   engineResults: Record<string, ScanResultJson> | undefined,
   locale: ExecLocale,
+  metricsFilter?: string[],
 ): SonarQubeExecSectionData {
   const empty: SonarQubeExecSectionData = {
     present: false, skipped: false, warning: null, qualityGate: null,
@@ -105,7 +107,9 @@ export function buildSonarQubeExecSection(
   const rawMetrics = sonarResult.metadata?.metrics;
   const metricLabels = locale.sonarqube_metric_labels ?? {};
   const metricsForDisplay = rawMetrics
-    ? Object.entries(rawMetrics).map(([key, value]) => ({ key: metricLabels[key] ?? key, value }))
+    ? Object.entries(rawMetrics)
+        .filter(([key]) => metricsFilter === undefined || metricsFilter.includes(key))
+        .map(([key, value]) => ({ key: metricLabels[key] ?? key, value }))
     : null;
 
   // Issues grouped by file

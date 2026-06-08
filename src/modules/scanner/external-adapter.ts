@@ -1,8 +1,9 @@
-import type { ScannerEngine, ScannerEngineContext } from './types';
-import type { ScanResultJson, VulnerabilityEntry } from '@core/types/scan';
-import { emptyEcosystem } from '@core/types/scan';
 import { classifyPackage } from '@core/policy/safe-update';
 import type { ProtectedPackage } from '@core/types/config';
+import type { ScanResultJson, VulnerabilityEntry } from '@core/types/scan';
+import { emptyEcosystem } from '@core/types/scan';
+
+import type { ScannerEngine, ScannerEngineContext } from './types';
 
 /**
  * Normalized vulnerability shape that external scanner adapters must produce.

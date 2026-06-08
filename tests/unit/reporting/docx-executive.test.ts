@@ -4,12 +4,14 @@
  * AC4: DOCX tables have correct structure
  * AC6: executiveReportDocxFilename returns .docx extension
  */
-import { describe, it, expect } from 'vitest';
 import { inflateRawSync } from 'node:zlib';
-import { generateExecutiveReportDocx, executiveReportDocxFilename } from '@reporting/docx-executive';
-import { executiveReportFilename } from '@reporting/executive';
+
+
 import type { ExecutiveReportOptions } from '@core/types/report';
 import type { ScanResultJson } from '@core/types/scan';
+import { generateExecutiveReportDocx, executiveReportDocxFilename } from '@reporting/docx-executive';
+import { executiveReportFilename } from '@reporting/executive';
+import { describe, it, expect } from 'vitest';
 
 /**
  * Extract all text content from a DOCX (ZIP) buffer by inflating each

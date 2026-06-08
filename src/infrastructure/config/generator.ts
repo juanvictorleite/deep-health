@@ -1,5 +1,6 @@
-import type { SupportedLocale } from '@core/types/locale';
+import { DEFAULT_SONAR_REPORT_METRICS } from '@core/types/config';
 import type { OutputFormat } from '@core/types/config';
+import type { SupportedLocale } from '@core/types/locale';
 
 /**
  * Config / init scaffolding generates a declarative security-scan.config.json.
@@ -30,8 +31,8 @@ export interface EcosystemRunnerConfig {
 export interface EcosystemConfigEntry {
   id: string;
   fixerStrategy?: string;
-  validationCommands?: Array<{ name: string; command: string }>;
-  advisors?: Array<{ name: string; command: string }>;
+  validationCommands?: { name: string; command: string }[];
+  advisors?: { name: string; command: string }[];
   runner?: EcosystemRunnerConfig;
   /** Relative path from cwd to the directory containing the lockfile. Omitted for root. */
   path?: string;
@@ -174,28 +175,6 @@ export function normalizeSonarProjectKey(name: string): string {
   return key || 'my-project';
 }
 
-/** Known protected_packages ecosystem entries (id → example values) */
-const ECOSYSTEM_EXAMPLES: Record<
-  string,
-  { examplePackage: string; exampleConstraint: string; exampleReason: string }
-> = {
-  composer: {
-    examplePackage: 'vendor/package',
-    exampleConstraint: '^2.0',
-    exampleReason: 'Major upgrade requires project-wide migration',
-  },
-  npm: {
-    examplePackage: 'some-package',
-    exampleConstraint: '^3.0.0',
-    exampleReason: 'v4 has breaking API changes',
-  },
-  pip: {
-    examplePackage: 'requests',
-    exampleConstraint: '>=2.31',
-    exampleReason: 'Major upgrade requires API migration',
-  },
-};
-
 /** Default ecosystem entries used when ecosystemConfigs is not provided */
 const DEFAULT_ECOSYSTEM_CONFIGS: EcosystemConfigEntry[] = [
   {
@@ -259,6 +238,15 @@ export function generateConfigJson(opts: GenerateConfigOptions = {}): string {
     if (opts.outputs.dir !== undefined) {
       outputsObj['dir'] = opts.outputs.dir;
     }
+  }
+
+  // When SonarQube is enabled, ensure outputs.sonarqube_metrics is populated with
+  // the default metrics so users can see and edit the list in the generated file.
+  if (opts.enableSonarQube) {
+    if (outputsObj === undefined) {
+      outputsObj = {};
+    }
+    outputsObj['sonarqube_metrics'] = [...DEFAULT_SONAR_REPORT_METRICS];
   }
 
   // Assemble the full config object — $schema field goes first for IDE autocomplete

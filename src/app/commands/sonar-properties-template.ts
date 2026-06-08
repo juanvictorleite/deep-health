@@ -7,6 +7,13 @@
  * NO host URL, NO token. Those are CLI-managed (managed mode) or env-var-based
  * (external mode).
  *
+ * Common asset/binary exclusions (always applied, regardless of ecosystem):
+ * - Images: png, jpg, jpeg, gif, svg, webp, ico, bmp, tiff
+ * - Fonts: woff, woff2, ttf, eot, otf
+ * - Media: mp4, webm, mp3, wav, mov, avi
+ * - Other binaries: pdf, zip, gz, tar
+ * - Source maps: map
+ *
  * Ecosystem-aware defaults:
  * - npm      → excludes node_modules, tests, dist, build, coverage, .next, .nuxt,
  *              minified JS/CSS (recursive globs)
@@ -19,10 +26,25 @@
  * starting point that covers most layouts.
  */
 
-import { CLI_NAME } from '@infra/brand';
 import { writeFile, access } from 'node:fs/promises';
 import { resolve } from 'node:path';
+
+import { CLI_NAME } from '@infra/brand';
 import { normalizeSonarProjectKey } from '@infra/config/generator';
+
+const COMMON_SONAR_EXCLUSIONS: string[] = [
+  // Images
+  '**/*.png', '**/*.jpg', '**/*.jpeg', '**/*.gif', '**/*.svg', '**/*.webp',
+  '**/*.ico', '**/*.bmp', '**/*.tiff',
+  // Fonts
+  '**/*.woff', '**/*.woff2', '**/*.ttf', '**/*.eot', '**/*.otf',
+  // Media
+  '**/*.mp4', '**/*.webm', '**/*.mp3', '**/*.wav', '**/*.mov', '**/*.avi',
+  // Other binaries
+  '**/*.pdf', '**/*.zip', '**/*.gz', '**/*.tar',
+  // Source maps
+  '**/*.map',
+];
 
 const ECOSYSTEM_SONAR_EXCLUSIONS: Record<string, string[]> = {
   npm: ['node_modules/**', 'tests/**', 'dist/**', 'build/**', 'coverage/**', '.next/**', '.nuxt/**', '**/*.min.js', '**/*.min.css'],
@@ -53,16 +75,33 @@ export function buildSonarPropertiesTemplate(input: SonarPropertiesTemplateInput
   // Union of ecosystem-specific exclusions, deduplicated, preserving order.
   const seen = new Set<string>();
   const exclusions: string[] = [];
+  let ecosystemMatched = false;
   for (const id of input.ecosystemIds) {
-    for (const pattern of ECOSYSTEM_SONAR_EXCLUSIONS[id] ?? []) {
+    const ecosystemPatterns = ECOSYSTEM_SONAR_EXCLUSIONS[id];
+    if (ecosystemPatterns !== undefined) {
+      ecosystemMatched = true;
+      for (const pattern of ecosystemPatterns) {
+        if (!seen.has(pattern)) {
+          seen.add(pattern);
+          exclusions.push(pattern);
+        }
+      }
+    }
+  }
+  if (!ecosystemMatched) {
+    for (const pattern of DEFAULT_EXCLUSIONS) {
       if (!seen.has(pattern)) {
         seen.add(pattern);
         exclusions.push(pattern);
       }
     }
   }
-  if (exclusions.length === 0) {
-    exclusions.push(...DEFAULT_EXCLUSIONS);
+  // Always append common asset/binary exclusions regardless of ecosystem.
+  for (const pattern of COMMON_SONAR_EXCLUSIONS) {
+    if (!seen.has(pattern)) {
+      seen.add(pattern);
+      exclusions.push(pattern);
+    }
   }
 
   const lines: string[] = [

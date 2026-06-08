@@ -1,13 +1,16 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+
 import type { ZodIssue } from 'zod';
-import { ProjectConfigSchema } from './schema';
-import type { ProjectConfig } from '@core/types/config';
+
 import { ConfigLoadError } from '@core/errors';
-import type { EcosystemRegistry } from '@modules/ecosystem/registry';
-import { CLI_NAME } from '@infra/brand';
-import { type Result, ok, err } from '@core/types/result';
 import { __ } from '@core/i18n';
+import type { ProjectConfig } from '@core/types/config';
+import { type Result, ok, err } from '@core/types/result';
+import { CLI_NAME } from '@infra/brand';
+import type { EcosystemRegistry } from '@modules/ecosystem/registry';
+
+import { ProjectConfigSchema } from './schema';
 
 export const DEFAULT_CONFIG_PATH = 'security-scan.config.json';
 
@@ -166,7 +169,7 @@ export async function loadConfig(
   let raw: string;
   try {
     raw = await readFile(absolutePath, 'utf-8');
-  } catch (_err) {
+  } catch {
     return err(new ConfigLoadError(
       `Cannot read config file: ${absolutePath}\n` +
       `  Hint: Run "${CLI_NAME} init" to generate a starter config, ` +
@@ -178,7 +181,7 @@ export async function loadConfig(
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
-  } catch (_err) {
+  } catch {
     return err(new ConfigLoadError(
       `Invalid JSON in config file: ${absolutePath}\n` +
       `  Hint: Validate your JSON syntax with a linter or online tool (e.g. https://jsonlint.com/).`,

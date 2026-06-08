@@ -35,8 +35,8 @@ vi.mock('node:net', () => ({
   createServer: mockNetCreateServer,
 }));
 
-import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube';
 import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common';
+import { DockerSonarQubeProvisioner } from '@infra/provisioner/docker-sonarqube';
 
 afterEach(() => {
   vi.clearAllMocks();

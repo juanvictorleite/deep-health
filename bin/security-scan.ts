@@ -11,19 +11,28 @@ if (nodeMajor < 24) {
 }
 
 import { Command } from 'commander';
-import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
-import { formatCliError } from '@app/diagnostics';
+
 import { runCloudSetup } from '@app/commands/cloud-setup';
-import { runInitCommand } from '@app/commands/init';
-import { createRunContext } from '@app/run-context';
-import { runScanCommand, type ScanCommandOptions } from '@app/commands/scan';
-import { runFixCommand, type FixCommandOptions } from '@app/commands/fix';
+import { runDoctorCommand } from '@app/commands/doctor';
 import {
   runExecutiveReportCommand,
   type ExecutiveReportCommandOptions,
 } from '@app/commands/executive-report';
-import pkg from '../package.json' with { type: 'json' };
+import { runFixCommand, type FixCommandOptions } from '@app/commands/fix';
+import { runInitCommand } from '@app/commands/init';
+import { runScanCommand, type ScanCommandOptions } from '@app/commands/scan';
+import {
+  generateBashCompletion,
+  generateZshCompletion,
+  generateFishCompletion,
+} from '@app/completions';
+import { formatCliError } from '@app/diagnostics';
+import { createRunContext } from '@app/run-context';
 import { CLI_NAME, DEFAULT_BRANCH_PREFIX } from '@infra/brand';
+import { DEFAULT_CONFIG_PATH } from '@infra/config/loader';
+import { dim } from '@infra/utils/ui';
+
+import pkg from '../package.json' with { type: 'json' };
 
 const pkgVersion: string = pkg.version;
 
@@ -38,7 +47,7 @@ const commonOptions = (cmd: Command) =>
   cmd
     .option(
       '-c, --config <path>',
-      'Path to project-config.yml',
+      'Path to security-scan.config.json',
       DEFAULT_CONFIG_PATH,
     )
     .option('--cwd <path>', 'Working directory', process.cwd())
@@ -59,12 +68,14 @@ const commonOptions = (cmd: Command) =>
 // Update this command only when new ecosystems need first-class `init` UX.
 program
   .command('init')
-  .description('Generate a project-config.yml template in the current project')
+  .description('Initialize project configuration (interactive setup)')
   .option('--project-name <name>', 'Project name')
   .option('--client <name>', 'Client name')
   .option('--cwd <path>', 'Working directory', process.cwd())
   .option('--output <path>', 'Output path (default: ./project-config.yml)')
   .option('--force', 'Overwrite existing file', false)
+  .option('--non-interactive', 'Skip interactive prompts (for CI/scripting)', false)
+  .option('--json', 'Output structured JSON result (requires --non-interactive)', false)
   .action(async (opts) => {
     try {
       await runInitCommand(opts);
@@ -77,7 +88,7 @@ program
 
 // scan command
 commonOptions(
-  program.command('scan').description('Run vulnerability scan only (Phase 1)'),
+  program.command('scan').description('Scan for known vulnerabilities (CVEs)'),
 ).action(async (opts: ScanCommandOptions) => {
   await runCliAction(() =>
     createRunContext(opts).then((ctx) => runScanCommand(ctx, opts)),
@@ -142,6 +153,51 @@ commonOptions(
   );
 });
 
+// doctor command
+program
+  .command('doctor')
+  .description('Check environment dependencies and configuration')
+  .option('--cwd <path>', 'Working directory', process.cwd())
+  .option(
+    '-c, --config <path>',
+    'Path to config file',
+    DEFAULT_CONFIG_PATH,
+  )
+  .action(async (opts: { cwd: string; config: string }) => {
+    try {
+      const exitCode = await runDoctorCommand(opts);
+      process.exit(exitCode);
+    } catch (err) {
+      const { message, exitCode } = formatCliError(err);
+      process.stderr.write(`${message}\n`);
+      process.exit(exitCode);
+    }
+  });
+
+// completion command — no commonOptions; produces shell completion scripts
+program
+  .command('completion')
+  .description('Generate shell completion scripts for bash, zsh, or fish')
+  .argument('[shell]', 'Shell to generate completion for (bash, zsh, fish)')
+  .action((shell: string | undefined) => {
+    const validShells = ['bash', 'zsh', 'fish'];
+    if (!shell || !validShells.includes(shell)) {
+      process.stdout.write(`Usage: ${CLI_NAME} completion <bash|zsh|fish>\n`);
+      process.stdout.write(`Example: ${CLI_NAME} completion bash >> ~/.bashrc\n`);
+      process.exit(1);
+    }
+
+    let script: string;
+    if (shell === 'bash') {
+      script = generateBashCompletion(CLI_NAME);
+    } else if (shell === 'zsh') {
+      script = generateZshCompletion(CLI_NAME);
+    } else {
+      script = generateFishCompletion(CLI_NAME);
+    }
+    process.stdout.write(script);
+  });
+
 // cloud-setup command
 program
   .command('cloud-setup')
@@ -159,6 +215,20 @@ program
       runCloudSetup({ configPath: opts.config, cwd: opts.cwd }),
     );
   });
+
+program.addHelpText(
+  'after',
+  [
+    '',
+    'Examples:',
+    `  ${CLI_NAME} init                              # Interactive project setup`,
+    `  ${CLI_NAME} scan --cwd ./my-project           # Scan for CVEs`,
+    `  ${CLI_NAME} fix --cwd ./my-project            # Scan + fix + report`,
+    `  ${CLI_NAME} fix --authorize-breaking composer # Allow breaking changes for composer`,
+    `  ${CLI_NAME} fix --open-pr                     # Fix and open a GitHub PR`,
+    `  ${CLI_NAME} doctor                            # Check environment prerequisites`,
+  ].join('\n'),
+);
 
 /**
  * Shared error/exit wrapper for all main CLI actions.
@@ -178,6 +248,12 @@ async function runCliAction(fn: () => Promise<number>): Promise<void> {
   } catch (err) {
     const result = formatCliError(err);
     process.stderr.write(`${result.message}\n`);
+    if (result.hints && result.hints.length > 0) {
+      process.stderr.write('\n');
+      for (const hint of result.hints) {
+        process.stderr.write(`${dim(hint)}\n`);
+      }
+    }
     exitCode = result.exitCode;
   }
 

@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
-import { detectGitBranch } from '@infra/utils/git-branch';
+
 import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common';
+import { detectGitBranch } from '@infra/utils/git-branch';
+import { describe, it, expect, vi } from 'vitest';
 
 // ─── Mock CommandRunner ──────────────────────────────────────────────────────
 
@@ -44,7 +45,7 @@ class ThrowingRunner implements CommandRunner {
     throw new Error('runner.run() threw unexpectedly');
   }
 
-  async runArgs(file: string, args: string[], _opts?: CommandRunnerOptions): Promise<CommandResult> {
+  async runArgs(_file: string, _args: string[], _opts?: CommandRunnerOptions): Promise<CommandResult> {
     throw new Error('runner.runArgs() threw unexpectedly');
   }
 }

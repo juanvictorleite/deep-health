@@ -1,7 +1,7 @@
-import { runScanner } from "@modules/scanner/index";
-import { runOrchestrator } from "@orchestration/orchestrator";
 import { generateAndSaveReportArtifacts } from "@app/report-artifacts";
 import type { RunContext } from "@app/run-context";
+import { runScanner } from "@modules/scanner/index";
+import { runOrchestrator } from "@orchestration/orchestrator";
 
 export interface ExecutiveReportCommandOptions {
   config: string;

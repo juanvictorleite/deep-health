@@ -2,7 +2,9 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
+
 import { __ } from '@core/i18n';
+
 import { logger } from '../utils/logger';
 
 const execFileAsync = promisify(execFile);

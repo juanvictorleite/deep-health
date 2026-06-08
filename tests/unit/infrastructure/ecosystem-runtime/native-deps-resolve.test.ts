@@ -22,11 +22,11 @@ vi.mock('@infra/ecosystem-runtime/command-runner', () => ({
   EcosystemContainerCommandRunner: vi.fn().mockImplementation(function () { return {}; }),
 }));
 
-import { resolveEcosystemRuntime } from '@infra/ecosystem-runtime/resolve';
-import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
-import type { EcosystemPlugin } from '@modules/ecosystem/types';
-import type { ProjectConfig, RunnerConfig } from '@core/types/config';
 import type { CommandRunner } from '@core/types/common';
+import type { ProjectConfig, RunnerConfig } from '@core/types/config';
+import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
+import { resolveEcosystemRuntime } from '@infra/ecosystem-runtime/resolve';
+import type { EcosystemPlugin } from '@modules/ecosystem/types';
 
 const MockContainer = vi.mocked(EphemeralEcosystemContainer);
 

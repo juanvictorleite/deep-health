@@ -1,15 +1,16 @@
+import type { EcosystemConfig } from '@core/types/config';
+import { ecosystemEntryKey } from '@core/types/config';
 import type { ExecutiveReportOptions, ResidualVerification } from '@core/types/report';
 import type { VulnerabilityEntry, ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
-import type { EcosystemConfig } from '@core/types/config';
-import { ecosystemEntryKey } from '@core/types/config';
-import type { Locale } from './i18n/index';
 import { defaultRegistry } from '@modules/ecosystem/index';
+
+import { buildAdvisorExecSection } from './advisor-exec-section';
+import type { Locale } from './i18n/index';
 import { getLocale } from './i18n/index';
 import { render } from './renderer';
-import executiveTemplate from './templates/executive.hbs';
 import { buildSonarQubeExecSection } from './sonarqube-exec-section';
-import { buildAdvisorExecSection } from './advisor-exec-section';
+import executiveTemplate from './templates/executive.hbs';
 
 // ── deduplication ───────────────────────────────────────────────────────────
 
@@ -43,7 +44,7 @@ function dedupVulns(entries: VulnerabilityEntry[]): AggregatedVulnEntry[] {
       return best;
     }, null);
 
-    const safeVersion = group.find((v) => v.safeVersion != null)?.safeVersion ?? null;
+    const safeVersion = group.find((v) => v.safeVersion !== null && v.safeVersion !== undefined)?.safeVersion ?? null;
 
     const worstClass = group.reduce<VulnerabilityClass>((worst, v) => {
       return (CLASS_RANK[v.classification] ?? 0) > (CLASS_RANK[worst] ?? 0) ? v.classification : worst;
@@ -129,7 +130,7 @@ function pendingStatus(vuln: VulnerabilityEntry, locale: Locale): string {
 
 // ── private context-builder helpers ─────────────────────────────────────────
 
-type EcoEntry = { key: string; entry?: EcosystemConfig; pluginId: string; reportLabel: string; name: string };
+interface EcoEntry { key: string; entry?: EcosystemConfig; pluginId: string; reportLabel: string; name: string }
 
 /** Resolve the list of ecosystem entries from opts (new per-entry mode or registry fallback). */
 function resolveEcoEntries(opts: ExecutiveReportOptions): EcoEntry[] {
@@ -157,7 +158,7 @@ function resolveEcoEntries(opts: ExecutiveReportOptions): EcoEntry[] {
   }));
 }
 
-type EcoScanEntry = { vulnerabilities_total: number; auto_safe: number; breaking: number; manual: number; auto_safe_packages: string[]; breaking_packages: string[]; manual_packages: string[]; vulnerabilities: VulnerabilityEntry[] };
+interface EcoScanEntry { vulnerabilities_total: number; auto_safe: number; breaking: number; manual: number; auto_safe_packages: string[]; breaking_packages: string[]; manual_packages: string[]; vulnerabilities: VulnerabilityEntry[] }
 
 /** Create an empty ecosystem scan entry for when none exists yet. */
 function emptyEcoScanEntry(): EcoScanEntry {
@@ -330,19 +331,39 @@ function buildPendingVulnRows(
   return dedupVulns(pendingOriginal).map((v) => mapPendingVulnRow(v, ecoEntries, locale));
 }
 
-/** Build the allVulnsBefore rows array. */
-function buildAllVulnsBeforeRows(
-  allVulnsBefore: VulnerabilityEntry[],
+/** Map a single AggregatedVulnEntry (reachable === false) to a blocked-vuln row object. */
+function mapBlockedVulnRow(
+  v: AggregatedVulnEntry,
   ecoEntries: EcoEntry[],
-): Record<string, unknown>[] {
-  return dedupVulns(allVulnsBefore).map((v) => ({
-    ecoLabel: resolveReportLabel(ecoEntries, v.ecosystem),
+): Record<string, unknown> {
+  const reportLabel = resolveReportLabel(ecoEntries, v.ecosystem);
+  return {
+    ecoLabel: reportLabel,
+    ghsaLink: v.ghsaIds.length > 0 ? v.ghsaIds.map((id) => vulnLink(id)).join(', ') : '—',
     ghsaId: v.ghsaIds.join(', '),
     cvss: v.cvss,
     package: v.package,
     affectedVersions: escapeMdTableCell(v.affectedVersions.join(', ')),
-    risk: v.risk,
-  }));
+    blockReason: v.blockReason ?? 'Dependency constraint',
+    blockedBy: v.blockedBy?.join(', ') ?? '—',
+  };
+}
+
+/** Build the blockedVulns rows array (reachable === false entries). */
+function buildBlockedVulnRows(
+  allVulnsBefore: VulnerabilityEntry[],
+  ecoEntries: EcoEntry[],
+): Record<string, unknown>[] {
+  return dedupVulns(
+    allVulnsBefore.filter((v) => v.reachable === false),
+  ).map((v) => mapBlockedVulnRow(v, ecoEntries));
+}
+
+/** Returns blocked_status string when v.reachable === false, null otherwise. */
+function blockedStatusOrNull(v: VulnerabilityEntry, locale: Locale): string | null {
+  if (v.reachable !== false) return null;
+  const blockedBy = v.blockedBy?.join(', ') ?? '—';
+  return locale.exec.blocked_status(blockedBy);
 }
 
 /** Compute the statusPt string for a single vuln row in an evidence section. */
@@ -354,6 +375,8 @@ function computeEvidenceStatusPt(
   installedVersions: Map<string, string>,
   locale: Locale,
 ): string {
+  const blocked = blockedStatusOrNull(v, locale);
+  if (blocked) return blocked;
   if (!fixed) return pendingStatus(v, locale);
   const fixedVersionLabel = locale.exec.fixed_version(installedVersions.get(v.package) ?? v.safeVersion ?? '—');
   if (isUnverified && residualCount !== null && residualCount > 0) {
@@ -362,7 +385,7 @@ function computeEvidenceStatusPt(
   return fixedVersionLabel;
 }
 
-type RawVulnAfterRow = { ghsaId: string | null; cvss: string; package: string; currentVersion: string; statusPt: string; risk: string };
+interface RawVulnAfterRow { ghsaId: string | null; cvss: string; package: string; currentVersion: string; statusPt: string; risk: string }
 
 /** Deduplicate rawVulnsAfter rows by (package, statusPt), merging versions and ghsaIds. */
 function deduplicateAfterRows(rawVulnsAfter: RawVulnAfterRow[]): Record<string, unknown>[] {
@@ -480,33 +503,6 @@ function buildSummaryLabels(
   return { ecoBeforeLabels, ecoAfterLabels };
 }
 
-/** Build the pendingByPkg array for the Summary section. */
-function buildPendingByPkg(pendingOriginal: VulnerabilityEntry[], locale: Locale): Record<string, unknown>[] {
-  const pendingByPkgMap = new Map<string, VulnerabilityEntry[]>();
-  for (const v of pendingOriginal) {
-    const key = `${v.ecosystem}:${v.package}`;
-    const arr = pendingByPkgMap.get(key) ?? [];
-    arr.push(v);
-    pendingByPkgMap.set(key, arr);
-  }
-  return [...pendingByPkgMap.values()].map((vulns) => {
-    const v = vulns[0]!;
-    const maxCvss = vulns.reduce((max, x) => {
-      const n = parseFloat(x.cvss);
-      const m = parseFloat(max);
-      return !isNaN(n) && n > (isNaN(m) ? 0 : m) ? x.cvss : max;
-    }, '0');
-    return {
-      package: v.package,
-      currentVersion: v.currentVersion,
-      motivoPt: motivoStr(v, locale),
-      riskLabel: 'Risk',
-      risk: v.risk,
-      cvssDisplay: maxCvss !== '0' ? ` CVSS ${maxCvss}` : '',
-    };
-  });
-}
-
 // ── context builder ──────────────────────────────────────────────────────────
 
 export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Record<string, unknown> {
@@ -526,7 +522,10 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
 
   const fixedVulns = buildFixedVulnRows(allVulnsBefore, ecoEntries, updatedNamesByEco, residualVerification, installedVersionsByEco);
 
+  const blockedVulns = buildBlockedVulnRows(allVulnsBefore, ecoEntries);
+
   const pendingOriginal = allVulnsBefore.filter((v) => {
+    if (v.reachable === false) return false;
     if (v.classification !== 'auto_safe') return true;
     const names = updatedNamesByEco.get(v.ecosystem) ?? new Set();
     return !names.has(v.package);
@@ -543,9 +542,8 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
 
   const { ecoBeforeLabels, ecoAfterLabels } = buildSummaryLabels(ecoEntries, effectiveScanBefore, pendingOriginal, locale);
   const totalBefore = allVulnsBefore.length;
-  const pendingByPkg = buildPendingByPkg(pendingOriginal, locale);
 
-  const sonarSection = buildSonarQubeExecSection(opts.engineResults, locale.exec);
+  const sonarSection = buildSonarQubeExecSection(opts.engineResults, locale.exec, opts.sonarqubeMetrics);
   const advisorSection = buildAdvisorExecSection(opts.advisorResults, locale.exec);
 
   return {
@@ -559,14 +557,15 @@ export function buildExecutiveReportContext(opts: ExecutiveReportOptions): Recor
     scannerEngines: opts.scannerEngines && opts.scannerEngines.length > 0 ? opts.scannerEngines.join(', ') : null,
     noVulns: totalBefore === 0,
     fixedVulns,
+    blockedVulns,
+    hasBlockedVulns: blockedVulns.length > 0,
     pendingVulns,
-    allVulnsBefore: buildAllVulnsBeforeRows(allVulnsBefore, ecoEntries),
     totalBefore,
     scanBeforeSummary: locale.exec.scan_summary(totalBefore, ecoBeforeLabels),
     evidenceSections,
     scanAfterSummary: locale.exec.scan_after_summary_generic(pendingOriginal.length, ecoAfterLabels),
-    allFixed: fixedVulns.length > 0 && pendingOriginal.length === 0,
-    pendingByPkg,
+    allFixed: fixedVulns.length > 0 && pendingOriginal.length === 0 && blockedVulns.length === 0,
+    hasPending: pendingOriginal.length > 0,
     sonarSection,
     advisorSection,
   };

@@ -1,6 +1,7 @@
 import semver from 'semver';
-import type { ProtectedPackage } from '../types/config';
+
 import type { VulnerabilityClass } from '../types/common';
+import type { ProtectedPackage } from '../types/config';
 
 export interface PackageVulnerability {
   name: string;
@@ -15,6 +16,9 @@ export interface ClassifiedPackage {
   classification: VulnerabilityClass;
   reason?: string;
   breakingReason?: 'major-bump' | 'protected-constraint';
+  reachable?: boolean;
+  blockReason?: string;
+  blockedBy?: string[];
 }
 
 export function classifyPackage(

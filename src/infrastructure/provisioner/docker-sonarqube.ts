@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { createServer } from 'node:net';
-import type { ServiceProvisioner, DockerSonarQubeProvisionerOptions } from './types';
+import { promisify } from 'node:util';
+
 import { __ } from '@core/i18n';
+
+import type { ServiceProvisioner, DockerSonarQubeProvisionerOptions } from './types';
 import { logger } from '../utils/logger';
 import { registerShutdownHook } from '../utils/shutdown-hooks';
 

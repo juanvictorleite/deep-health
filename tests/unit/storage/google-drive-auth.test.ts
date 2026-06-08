@@ -28,8 +28,9 @@ const mocks = vi.hoisted(() => {
   async function simulateRequest(url: string): Promise<{ writeHead: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> }> {
     const writeHead = vi.fn();
     const end = vi.fn();
-    // Poll until requestHandlerFn is set
+    // Poll until requestHandlerFn is set — mutation happens via the serverOnFn callback (async side-effect)
     const deadline = Date.now() + 3000;
+    // oxlint-disable-next-line no-unmodified-loop-condition
     while (requestHandlerFn === null && Date.now() < deadline) {
       await new Promise<void>((res) => setImmediate(res));
     }
@@ -292,7 +293,8 @@ describe('runOAuthFlow', () => {
 
   it('rejects wrapping non-Error from getToken (line 196 String branch)', async () => {
     mocks.getToken.mockImplementationOnce(() =>
-      // eslint-disable-next-line prefer-promise-reject-errors
+      // Intentionally throw a non-Error to exercise the String(err) branch in runOAuthFlow
+      // oxlint-disable-next-line no-throw-literal
       Promise.resolve().then(() => { throw 'plain string error'; }),
     );
 
@@ -323,6 +325,7 @@ describe('runOAuthFlow', () => {
       // Wait for runOAuthFlow to reach and execute new Promise(...) body,
       // which registers the setTimeout callback we captured above.
       const deadline = Date.now() + 3000;
+      // oxlint-disable-next-line no-unmodified-loop-condition
       while (timeoutCallback === null && Date.now() < deadline) {
         await new Promise<void>((res) => setImmediate(res));
       }

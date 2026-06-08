@@ -1,7 +1,7 @@
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
-import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 import type { ScanResultJson } from '@core/types/scan';
+import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 
 /**
  * Context passed to every ScannerEngine at execution time.

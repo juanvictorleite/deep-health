@@ -1,9 +1,10 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
-import { logger } from '@infra/utils/logger';
 import { DEFAULT_AUDIT_SUBDIR } from '@infra/brand';
+import { logger } from '@infra/utils/logger';
 
 export interface AuditTrailRecord {
   /** ISO 8601 timestamp of the run start */

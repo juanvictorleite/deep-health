@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+
 import { SUPPRESS_LOCALSTORAGE_WARNING_BANNER } from "../../../tsup.config";
 
 // Evaluate the banner string in a controlled scope that receives an isolated
@@ -6,6 +7,7 @@ import { SUPPRESS_LOCALSTORAGE_WARNING_BANNER } from "../../../tsup.config";
 function applyBanner(mockProcess: { emit: (...args: unknown[]) => unknown }) {
   // The banner uses `process` as a free variable. Wrap the evaluation inside a
   // function that shadows `process` with our mock so it operates on the mock.
+  // oxlint-disable-next-line no-new-func -- intentional: the banner under test is itself a dynamic function string that must be evaluated to verify its filtering logic
   const fn = new Function("process", SUPPRESS_LOCALSTORAGE_WARNING_BANNER);
   fn(mockProcess);
 }
@@ -17,8 +19,7 @@ function makeWarning(name: string, message: string): NodeJS.WarningMessage & { n
 }
 
 describe("SUPPRESS_LOCALSTORAGE_WARNING_BANNER", () => {
-  let originalEmit: NodeJS.Process["emit"];
-  let delegateCalls: Array<[string, ...unknown[]]>;
+  let delegateCalls: [string, ...unknown[]][];
   let mockProcess: { emit: (...args: unknown[]) => unknown };
 
   beforeEach(() => {

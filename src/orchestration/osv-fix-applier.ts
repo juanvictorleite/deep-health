@@ -1,11 +1,14 @@
-import { CLI_NAME } from '@infra/brand';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
 import os from 'node:os';
+import { join, resolve } from 'node:path';
+
 import semver from 'semver';
+
+import { CLI_NAME } from '@infra/brand';
 import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
 import { backupFiles } from '@infra/utils/fs-backup';
 import { logger } from '@infra/utils/logger';
+import { assertLockfilePathWithinCwd } from '@infra/utils/path-safety';
 import { collectNpmLockfileVersions, collectRootNpmLockfileVersions } from '@modules/ecosystem/utils/lockfile-inspect';
 
 export interface OsvFixApplyInput {
@@ -32,7 +35,7 @@ export interface OsvFixApplyResult {
    * Packages whose `versionTo` was verified to be present in the host lockfile
    * after the fix was written. Never contains unverifiable claims from osv-scanner.
    */
-  packagesUpdated: Array<{ name: string; versionFrom: string; versionTo: string }>;
+  packagesUpdated: { name: string; versionFrom: string; versionTo: string }[];
   /** Pre-fix snapshot of all osvFixSpec.backupFiles, for downstream rollback */
   backups: Map<string, string>;
   rawFixStdout: string;
@@ -125,6 +128,11 @@ export async function applyOsvFixViaStaging(
   // When scan.paths is configured the caller may supply a path-qualified lockfile
   // (e.g. 'app/package-lock.json').  Fall back to plugin default when absent.
   const effectiveFixLockfile = fixLockfileOverride ?? osvFixSpec.fixLockfile;
+
+  // Defense-in-depth: reject any lockfile path that would escape the project cwd
+  // (absolute paths, '../' traversal, or empty string). Throws ConfigLoadError
+  // before any runner is spawned or any file is written.
+  assertLockfilePathWithinCwd(effectiveFixLockfile, cwd);
 
   if (fixLockfileOverride && fixLockfileOverride !== osvFixSpec.fixLockfile) {
     logger.debug(

@@ -8,10 +8,10 @@
  *  - `minimalConfigWithObj(extra)` — merges extra fields (as a plain object) into the minimal base config
  */
 
-import { writeFile, unlink } from 'node:fs/promises';
-import { resolve } from 'node:path';
-import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
+import { writeFile, unlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { resolve } from 'node:path';
 
 /** Minimal valid config object used as the base for all fixtures. */
 const MINIMAL_CONFIG_OBJ = {

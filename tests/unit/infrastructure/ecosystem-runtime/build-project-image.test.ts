@@ -13,9 +13,8 @@
  *  - imageTag option used directly when provided
  */
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+
 import os from 'node:os';
-import fs from 'node:fs/promises';
-import path from 'node:path';
 
 // ── Mock child_process ─────────────────────────────────────────────────────────
 
@@ -66,6 +65,9 @@ vi.mock('@infra/ecosystem-runtime/resolve-build-context-boundary', () => ({
 }));
 
 import { execFile } from 'node:child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
 import { CLI_NAME } from '@infra/brand';
 import { buildProjectImage } from '@infra/ecosystem-runtime/build-project-image';
 import {

@@ -1,18 +1,56 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
+
 import semver from 'semver';
+
 import type { CommandRunner, VulnerabilityClass } from '@core/types/common';
 import type { FixerStrategyId, ValidationCommandConfig } from '@core/types/config';
-import type { UpdateResultJson } from '@core/types/update';
-import type { ScanResultJson, VulnerabilityEntry } from '@core/types/scan';
 import type { AdvisorResult } from '@core/types/report';
+import type { ScanResultJson, VulnerabilityEntry } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
+import type { UpdateResultJson } from '@core/types/update';
 import { logger } from '@infra/utils/logger';
+
+import type { PipToolingDetection } from './pip-tooling-detector';
 import { mergeOsvFirstWins } from '../fixers/index';
 import type { OsvFixOutcome } from '../fixers/index';
 import { runUpdaterLifecycle } from '../utils/updater-lifecycle';
 
 const PIP_FILES = ['requirements.txt'];
+
+const UV_REGISTRY_ENV_KEYS = [
+  'PIP_INDEX_URL',
+  'PIP_EXTRA_INDEX_URL',
+  'UV_INDEX_URL',
+  'UV_EXTRA_INDEX_URL',
+] as const;
+
+function pickRegistryEnvVars(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of UV_REGISTRY_ENV_KEYS) {
+    const val = process.env[key];
+    if (val !== undefined) env[key] = val;
+  }
+  return env;
+}
+
+export function resolveBackupFiles(det?: PipToolingDetection): string[] {
+  if (!det || det.tooling === 'bare-pip') return PIP_FILES;
+  if (det.tooling === 'pip-tools') return ['requirements.txt', 'requirements.in'];
+  if (det.lockfile) return ['requirements.txt', basename(det.lockfile)];
+  return PIP_FILES;
+}
+
+export function resolveBootstrapSpec(det?: PipToolingDetection): { binary: string; args: string[]; label: string } {
+  if (!det || det.tooling === 'bare-pip' || det.tooling === 'pip-tools') {
+    return { binary: 'pip', args: ['install', '-r', 'requirements.txt'], label: 'pip install -r requirements.txt (revert)' };
+  }
+  if (det.tooling === 'poetry') return { binary: 'poetry', args: ['install', '--no-interaction'], label: 'poetry install (revert)' };
+  if (det.tooling === 'uv') return { binary: 'uv', args: ['pip', 'install', '-r', 'requirements.txt'], label: 'uv pip install -r requirements.txt (revert)' };
+  if (det.tooling === 'pipenv') return { binary: 'pipenv', args: ['install'], label: 'pipenv install (revert)' };
+  if (det.tooling === 'pdm') return { binary: 'pdm', args: ['install', '--no-isolation'], label: 'pdm install (revert)' };
+  return { binary: 'pip', args: ['install', '-r', 'requirements.txt'], label: 'pip install -r requirements.txt (revert)' };
+}
 
 /** Typed result from applyFix — discriminates pip-audit vs pip-install path. */
 export type PipFixerResult =
@@ -253,8 +291,11 @@ export function parsePipInstalledVersions(stdout: string): Map<string, string> {
  * Build the `packages_updated` array for pip using installed versions from pip stdout.
  *
  * For each auto_safe package (e.g. "pillow==8.0.1"), look up the name in the
- * installed-versions map and use the real installed version. Falls back to the
- * scan's safeVersion when the package is not found in the map.
+ * installed-versions map and use the real installed version.
+ *
+ * Packages NOT present in `installedVersions` are silently skipped — they were
+ * excluded by the greedy subset algorithm (findCompatibleSubset) and were never
+ * actually installed.
  *
  * Returns an empty array when `installedVersions` is empty (nothing was installed).
  */
@@ -271,16 +312,8 @@ export function buildPipPackagesUpdated(
     if (installedVersion !== undefined) {
       // Use the real installed version
       updated.push(`${name}@${installedVersion}`);
-    } else {
-      // Fallback: extract safeVersion from scan string (e.g. "pillow==8.0.1" → "pillow@8.0.1")
-      const versionMatch = pkg.match(/==([^\s,;]+)/);
-      const safeVersion = versionMatch ? versionMatch[1] : undefined;
-      if (safeVersion) {
-        updated.push(`${name}@${safeVersion}`);
-      } else {
-        updated.push(name);
-      }
     }
+    // Packages not in installedVersions were excluded by the greedy subset — skip them.
   }
   return updated;
 }
@@ -413,6 +446,128 @@ async function applyPipInstall(
   return { ok: true, value: { mode: 'pip-install', stdout: updateResult.stdout ?? '' } };
 }
 
+async function applyPoetryUpdate(
+  runner: CommandRunner,
+  cwd: string,
+  packageNames: string[],
+): Promise<{ ok: true; value: PipFixerResult } | { ok: false; error: string }> {
+  logger.info(`Updating packages via poetry: ${packageNames.join(' ')}`);
+  const result = await runner.runArgs(
+    'poetry',
+    ['update', ...packageNames, '--no-interaction'],
+    { cwd, stream: true },
+  );
+  if (result.exitCode !== 0) {
+    return { ok: false, error: `poetry update failed: ${result.stderr ?? ''}` };
+  }
+  return { ok: true, value: { mode: 'pip-install', stdout: result.stdout ?? '' } };
+}
+
+async function applyUvUpdate(
+  runner: CommandRunner,
+  cwd: string,
+  specs: string[],
+): Promise<{ ok: true; value: PipFixerResult } | { ok: false; error: string }> {
+  logger.info(`Updating packages via uv: ${specs.join(' ')}`);
+  const envVars = pickRegistryEnvVars();
+  const env = Object.keys(envVars).length > 0 ? envVars : undefined;
+  const result = await runner.runArgs(
+    'uv',
+    ['pip', 'install', ...specs],
+    { cwd, stream: true, env },
+  );
+  if (result.exitCode !== 0) {
+    return { ok: false, error: `uv pip install failed: ${result.stderr ?? ''}` };
+  }
+  return { ok: true, value: { mode: 'pip-install', stdout: result.stdout ?? '' } };
+}
+
+async function applyPipenvUpdate(
+  runner: CommandRunner,
+  cwd: string,
+  specs: string[],
+): Promise<{ ok: true; value: PipFixerResult } | { ok: false; error: string }> {
+  logger.info(`Updating packages via pipenv: ${specs.join(' ')}`);
+  const result = await runner.runArgs(
+    'pipenv',
+    ['install', ...specs],
+    { cwd, stream: true },
+  );
+  if (result.exitCode !== 0) {
+    return { ok: false, error: `pipenv install failed: ${result.stderr ?? ''}` };
+  }
+  return { ok: true, value: { mode: 'pip-install', stdout: result.stdout ?? '' } };
+}
+
+async function applyPdmUpdate(
+  runner: CommandRunner,
+  cwd: string,
+  packageNames: string[],
+): Promise<{ ok: true; value: PipFixerResult } | { ok: false; error: string }> {
+  logger.info(`Updating packages via pdm: ${packageNames.join(' ')}`);
+  const result = await runner.runArgs(
+    'pdm',
+    ['update', ...packageNames, '--no-isolation'],
+    { cwd, stream: true },
+  );
+  if (result.exitCode !== 0) {
+    return { ok: false, error: `pdm update failed: ${result.stderr ?? ''}` };
+  }
+  return { ok: true, value: { mode: 'pip-install', stdout: result.stdout ?? '' } };
+}
+
+async function applyPipToolsUpdate(
+  runner: CommandRunner,
+  cwd: string,
+  specs: string[],
+): Promise<{ ok: true; value: PipFixerResult } | { ok: false; error: string }> {
+  logger.info(`Updating packages via pip-tools: ${specs.join(' ')}`);
+  const upgradeArgs = specs.map((s) => `--upgrade-package=${s}`);
+  const compileResult = await runner.runArgs(
+    'pip-compile',
+    [...upgradeArgs, '-o', 'requirements.txt', 'requirements.in'],
+    { cwd, stream: true },
+  );
+  if (compileResult.exitCode !== 0) {
+    return { ok: false, error: `pip-compile failed: ${compileResult.stderr ?? ''}` };
+  }
+  const syncResult = await runner.runArgs(
+    'pip-sync',
+    ['requirements.txt'],
+    { cwd, stream: true },
+  );
+  if (syncResult.exitCode !== 0) {
+    return { ok: false, error: `pip-sync failed: ${syncResult.stderr ?? ''}` };
+  }
+  return { ok: true, value: { mode: 'pip-install', stdout: syncResult.stdout ?? '' } };
+}
+
+async function applyToolingFix(
+  runner: CommandRunner,
+  cwd: string,
+  detection: PipToolingDetection,
+  packageNames: string[],
+  specs: string[],
+): Promise<{ ok: true; value: PipFixerResult } | { ok: false; error: string }> {
+  try {
+    switch (detection.tooling) {
+      case 'poetry': return await applyPoetryUpdate(runner, cwd, packageNames);
+      case 'uv': return await applyUvUpdate(runner, cwd, specs);
+      case 'pipenv': return await applyPipenvUpdate(runner, cwd, specs);
+      case 'pdm': return await applyPdmUpdate(runner, cwd, packageNames);
+      case 'pip-tools': return await applyPipToolsUpdate(runner, cwd, specs);
+      default: return await applyPipInstall(runner, cwd, specs);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('ENOENT') || msg.includes('not found')) {
+      logger.warn(`${detection.tooling} not available — falling back to pip install`);
+      return applyPipInstall(runner, cwd, specs);
+    }
+    throw err;
+  }
+}
+
 /**
  * Run pip install --dry-run --quiet to test whether the given specs are installable.
  *
@@ -475,10 +630,67 @@ async function resolveSpec(
 }
 
 /**
+ * Find the largest compatible subset of specs using greedy addition.
+ *
+ * Start with an empty compatible set. For each spec, try adding it to the current
+ * compatible set with a batch dry-run. Keep specs that pass, exclude specs that fail.
+ */
+export async function findCompatibleSubset(
+  runner: CommandRunner,
+  cwd: string,
+  validated: string[],
+): Promise<{ compatible: string[]; excluded: string[] }> {
+  const compatible: string[] = [];
+  const excluded: string[] = [];
+
+  for (const spec of validated) {
+    const result = await dryRunCheck(runner, cwd, [...compatible, spec]);
+    if (result === 'pass' || result === 'unsupported') {
+      compatible.push(spec);
+    } else {
+      excluded.push(spec);
+    }
+  }
+
+  return { compatible, excluded };
+}
+
+/**
+ * Re-batch validated specs to detect cross-package conflicts.
+ *
+ * If the re-batch dry-run fails, runs greedy subset selection via findCompatibleSubset.
+ * Returns the final { validated, skipped } after resolving any cross-conflicts.
+ */
+async function applyReBatchValidation(
+  runner: CommandRunner,
+  cwd: string,
+  validated: string[],
+  skipped: { pkg: string; reason: string }[],
+): Promise<{ validated: string[]; skipped: { pkg: string; reason: string }[] }> {
+  const reBatchResult = await dryRunCheck(runner, cwd, validated);
+  if (reBatchResult !== 'fail') {
+    return { validated, skipped };
+  }
+
+  logger.warn(`Cross-package conflict detected: re-batch of ${validated.length} validated specs failed. Running greedy subset selection.`);
+  const { compatible, excluded } = await findCompatibleSubset(runner, cwd, validated);
+  if (compatible.length === 0) {
+    // Fallback: let the actual install attempt and report the real error
+    return { validated, skipped };
+  }
+  for (const spec of excluded) {
+    const pkgName = spec.split('==')[0] ?? spec;
+    skipped.push({ pkg: pkgName, reason: 'Cross-package conflict detected in batch validation' });
+  }
+  return { validated: compatible, skipped };
+}
+
+/**
  * Validate a list of version-pinned pip specs using --dry-run before the actual install.
  *
  * Fast path: batch dry-run. If all pass, return them all as validated.
  * Slow path: per-package dry-run + fallback version tries when batch fails.
+ * Cross-conflict check: re-batch validated specs; if re-batch fails use greedy subset.
  * Graceful degradation: if pip does not support --dry-run, return all as validated.
  */
 async function validatePipSpecs(
@@ -506,7 +718,50 @@ async function validatePipSpecs(
     }
   }
 
+  // Re-batch check: when multiple specs passed per-package validation individually,
+  // they might still conflict with each other (cross-package conflict).
+  if (validated.length > 1) {
+    return applyReBatchValidation(runner, cwd, validated, skipped);
+  }
+
   return { validated, skipped };
+}
+
+/**
+ * Build a map of lowercase package name → maximum CVSS score from the
+ * provided vulnerability list, filtered to the given classifications.
+ *
+ * Non-numeric CVSS values (e.g. '—', '') are treated as 0.
+ */
+export function buildMaxCvssMap(
+  vulnerabilities: VulnerabilityEntry[],
+  classifications: Set<VulnerabilityClass>,
+): Map<string, number> {
+  const result = new Map<string, number>();
+  for (const vuln of vulnerabilities) {
+    if (!classifications.has(vuln.classification)) continue;
+    const pkgName = vuln.package.toLowerCase();
+    const score = parseFloat(vuln.cvss);
+    const numeric = Number.isNaN(score) ? 0 : score;
+    const current = result.get(pkgName);
+    if (current === undefined || numeric > current) result.set(pkgName, numeric);
+  }
+  return result;
+}
+
+/**
+ * Return a new array of package specs sorted descending by CVSS score.
+ *
+ * Package name is extracted by splitting on '==' and taking the first segment.
+ * Specs not present in cvssMap sort last (treated as CVSS 0).
+ * Sort is stable — equal-CVSS specs retain their original relative order.
+ */
+export function sortSpecsByCvss(specs: string[], cvssMap: Map<string, number>): string[] {
+  return [...specs].sort((a, b) => {
+    const scoreA = cvssMap.get((a.split('==')[0] ?? a).toLowerCase()) ?? 0;
+    const scoreB = cvssMap.get((b.split('==')[0] ?? b).toLowerCase()) ?? 0;
+    return scoreB - scoreA;
+  });
 }
 
 export async function runPipUpdater(
@@ -522,6 +777,7 @@ export async function runPipUpdater(
   preRunSnapshots?: Map<string, string>,
   _advisorResults?: AdvisorResult[],
   ecosystemKey = 'pip',
+  detection?: PipToolingDetection,
 ): Promise<UpdateResultJson> {
   logger.info('Running pip safe updates...');
 
@@ -549,7 +805,7 @@ export async function runPipUpdater(
   // Version-pinned specs for pip install (e.g. 'pillow==9.5.0') — no -U flag.
   // Primary: use computeMaxSafeVersions result (picks max safeVersion across all vulns).
   // Fallback: toPipInstallSpec from scan entry string (for backward compat when vulnerabilities[] is empty).
-  const packageSpecsToInstall = [
+  let packageSpecsToInstall = [
     ...new Set(
       packageNamesToUpdate.map((pkgName) => {
         const maxSafeVersion = maxSafeVersions.get(pkgName);
@@ -565,16 +821,20 @@ export async function runPipUpdater(
     ),
   ];
 
+  // Sort specs by CVSS severity descending so the greedy subset algorithm
+  // in findCompatibleSubset prioritises the most critical security fixes.
+  const cvssMap = buildMaxCvssMap(pipEcosystem.vulnerabilities, classifications);
+  packageSpecsToInstall = sortSpecsByCvss(packageSpecsToInstall, cvssMap);
+
+  const backupFiles = resolveBackupFiles(detection);
+  const revertSpec = resolveBootstrapSpec(detection);
+
   return runUpdaterLifecycle<PipFixerResult>(
     {
       agentName: 'pip-safe-update',
       ecosystemKey,
-      backupPaths: PIP_FILES,
-      bootstrapSpec: {
-        binary: 'pip',
-        args: ['install', '-r', 'requirements.txt'],
-        label: 'pip install -r requirements.txt (revert)',
-      },
+      backupPaths: backupFiles,
+      bootstrapSpec: revertSpec,
 
       async probe(ctx) {
         if (packageNamesToUpdate.length === 0) {
@@ -599,6 +859,19 @@ export async function runPipUpdater(
       },
 
       async applyFix(ctx) {
+        // Non-bare-pip tooling: route to native tool, skip pip-audit
+        if (detection && detection.tooling !== 'bare-pip') {
+          const result = await applyToolingFix(
+            ctx.runner, ctx.cwd, detection, packageNamesToUpdate, packageSpecsToInstall,
+          );
+          if (result.ok && detection.tooling === 'uv') {
+            // uv pip install does not rewrite requirements.txt automatically
+            const installedVersions = parsePipInstalledVersions(result.value.stdout);
+            await rewriteRequirementsTxt(ctx.cwd, installedVersions);
+          }
+          return result;
+        }
+
         const pipAuditAvailable = await isPipAuditAvailable(ctx.runner, ctx.cwd);
 
         if (pipAuditAvailable) {

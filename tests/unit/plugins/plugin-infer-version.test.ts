@@ -18,10 +18,11 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 import { readFile } from 'node:fs/promises';
-import { npmPlugin } from '@modules/ecosystem/plugins/npm';
-import { composerPlugin } from '@modules/ecosystem/plugins/composer';
-import { pipPlugin } from '@modules/ecosystem/plugins/pip';
+
 import { inferVersionFromSources } from '@infra/utils/infer-version';
+import { composerPlugin } from '@modules/ecosystem/plugins/composer';
+import { npmPlugin } from '@modules/ecosystem/plugins/npm';
+import { pipPlugin } from '@modules/ecosystem/plugins/pip';
 
 const mockReadFile = vi.mocked(readFile);
 

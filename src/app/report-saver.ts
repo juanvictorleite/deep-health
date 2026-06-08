@@ -1,15 +1,16 @@
 import { resolve } from "node:path";
+
+import { __ } from "@core/i18n";
+import type { CloudStorageConfig } from "@core/types/config";
+import type { ScanResultJson } from "@core/types/scan";
 import { DEFAULT_REPORTS_SUBDIR } from "@infra/brand";
-import { LocalStorageProvider } from "@infra/storage/local";
 import { createStorageProvider } from "@infra/storage/factory";
+import { LocalStorageProvider } from "@infra/storage/local";
+import type { StorageProvider } from "@infra/storage/provider";
 import {
   buildSonarQubeExport,
   sonarQubeExportFilename,
 } from "@reporting/sonarqube-export";
-import type { CloudStorageConfig } from "@core/types/config";
-import type { StorageProvider } from "@infra/storage/provider";
-import type { ScanResultJson } from "@core/types/scan";
-import { __ } from "@core/i18n";
 
 /**
  * Outcome of a saveReport call.
@@ -75,7 +76,7 @@ export async function saveReport(
       const msg = err instanceof Error ? err.message : String(err);
       if (!localUrl) {
         // Local save failure is always fatal
-        throw new Error(__('Failed to save report locally: {{msg}}', { msg }));
+        throw new Error(__('Failed to save report locally: {{msg}}', { msg }), { cause: err });
       }
       // Cloud failure
       process.stderr.write(__('Cloud upload failed: {{msg}}\n', { msg }));

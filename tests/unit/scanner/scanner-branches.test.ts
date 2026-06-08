@@ -9,11 +9,11 @@ vi.mock('@infra/utils/git-branch', () => ({
   detectGitBranch: vi.fn().mockResolvedValue('main'),
 }));
 
-import { ScannerEngineRegistry } from '@modules/scanner/registry';
-import { bootstrapDefaultEngines, runScanner, defaultScannerRegistry, OSV_ENGINE_ID } from '@modules/scanner/index';
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
+import { bootstrapDefaultEngines, runScanner, defaultScannerRegistry, OSV_ENGINE_ID } from '@modules/scanner/index';
+import { ScannerEngineRegistry } from '@modules/scanner/registry';
 
 function makeRunner(): CommandRunner {
   return {

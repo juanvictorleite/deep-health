@@ -9,13 +9,20 @@
  *   AC5 — EcosystemConfigEntry path/label emitted in JSON
  *   AC6 — inferVersion and detectProjectScripts use discovery path
  */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('node:fs/promises', () => ({
   writeFile: vi.fn(),
   access: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
   mkdir: vi.fn(),
   readFile: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
+}));
+
+// Treat all tests in this suite as interactive so the TTY guard never fires.
+vi.mock('@infra/utils/tty', () => ({
+  isCI: vi.fn(() => false),
+  isInteractive: vi.fn(() => true),
+  assertInteractive: vi.fn(),
 }));
 
 vi.mock('@infra/config/generator', () => ({
@@ -58,13 +65,13 @@ vi.mock('@infra/utils/logger', () => ({
   },
 }));
 
+import { runInitCommand } from '@app/commands/init';
 import { generateConfigJson } from '@infra/config/generator';
-import { prompt } from '@infra/utils/prompt';
-import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
 import { discoverProject } from '@infra/utils/detect-ecosystems';
 import { detectProjectScripts } from '@infra/utils/detect-scripts';
-import { runInitCommand } from '@app/commands/init';
+import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
 import { logger } from '@infra/utils/logger';
+import { prompt } from '@infra/utils/prompt';
 
 const mockLoggerInfo = vi.mocked(logger.info);
 const mockGenerateConfigJson = vi.mocked(generateConfigJson);
@@ -767,7 +774,7 @@ describe('generateConfigJson — path and label fields (AC5)', () => {
       ],
     });
 
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string; path?: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string; path?: string }[] };
     const npmEntry = parsed.ecosystems.find((e) => e.id === 'npm');
     expect(npmEntry?.path).toBe('web');
   });
@@ -781,7 +788,7 @@ describe('generateConfigJson — path and label fields (AC5)', () => {
       ],
     });
 
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string; path?: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string; path?: string }[] };
     const npmEntry = parsed.ecosystems.find((e) => e.id === 'npm');
     expect(npmEntry?.path).toBeUndefined();
   });
@@ -795,7 +802,7 @@ describe('generateConfigJson — path and label fields (AC5)', () => {
       ],
     });
 
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string; path?: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string; path?: string }[] };
     const npmEntry = parsed.ecosystems.find((e) => e.id === 'npm');
     expect(npmEntry?.path).toBeUndefined();
   });
@@ -809,7 +816,7 @@ describe('generateConfigJson — path and label fields (AC5)', () => {
       ],
     });
 
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string; label?: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string; label?: string }[] };
     const npmEntry = parsed.ecosystems.find((e) => e.id === 'npm');
     expect(npmEntry?.label).toBe('frontend');
   });
@@ -823,7 +830,7 @@ describe('generateConfigJson — path and label fields (AC5)', () => {
       ],
     });
 
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string; label?: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string; label?: string }[] };
     const npmEntry = parsed.ecosystems.find((e) => e.id === 'npm');
     expect(npmEntry?.label).toBeUndefined();
   });
@@ -838,7 +845,7 @@ describe('generateConfigJson — path and label fields (AC5)', () => {
       ],
     });
 
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string; path?: string; label?: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string; path?: string; label?: string }[] };
     const npmEntry = parsed.ecosystems.find((e) => e.id === 'npm');
     const pipEntry = parsed.ecosystems.find((e) => e.id === 'pip');
     expect(npmEntry?.path).toBe('web');
@@ -857,7 +864,7 @@ describe('generateConfigJson — path and label fields (AC5)', () => {
       ],
     });
 
-    const parsed = JSON.parse(json) as { ecosystems: Array<{ id: string; path?: string; label?: string }> };
+    const parsed = JSON.parse(json) as { ecosystems: { id: string; path?: string; label?: string }[] };
     const npmEntries = parsed.ecosystems.filter((e) => e.id === 'npm');
     expect(npmEntries.length).toBe(2);
     // root entry: no path, but has label
@@ -1070,7 +1077,7 @@ describe('init command — discovery summary display', () => {
     const summaryCalls = mockLoggerInfo.mock.calls.filter((args) =>
       typeof args[0] === 'string' && args[0].toLowerCase().includes('ecosystem'),
     );
-    expect(summaryCalls.length).toBe(true ? 0 : 0); // explicit: no summary
+    expect(summaryCalls.length).toBe(0); // explicit: no summary
     expect(summaryCalls.length).toBe(0);
   });
 
@@ -1094,5 +1101,196 @@ describe('init command — discovery summary display', () => {
     const infoMessages = mockLoggerInfo.mock.calls.map((args) => String(args[0]));
     const hasSummary = infoMessages.some((m) => m.toLowerCase().includes('ecosystem'));
     expect(hasSummary).toBe(true);
+  });
+});
+
+// ─── AC3/AC4: --json flag ─────────────────────────────────────────────────────
+
+describe('init command — --json flag', () => {
+  let stdoutSpy: ReturnType<typeof vi.spyOn>;
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockDiscoverProject.mockResolvedValue({ ecosystems: [npmRootDiscovery], dockerfiles: [] });
+    setupNonInteractiveMocks();
+    stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    stdoutSpy.mockRestore();
+    stderrSpy.mockRestore();
+  });
+
+  it('outputs valid JSON to stdout when --json and --non-interactive are both set', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      json: true,
+      projectName: 'My Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    // Collect all stdout writes
+    const stdoutOutput = stdoutSpy.mock.calls
+      .map((args) => String(args[0]))
+      .join('');
+
+    const parsed = JSON.parse(stdoutOutput) as Record<string, unknown>;
+    expect(parsed).toHaveProperty('configPath');
+    expect(parsed).toHaveProperty('schemaPath');
+    expect(parsed).toHaveProperty('sonarPropertiesCreated');
+    expect(parsed).toHaveProperty('ecosystems');
+    expect(Array.isArray(parsed['ecosystems'])).toBe(true);
+  });
+
+  it('JSON result contains configPath ending with the output filename', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      json: true,
+      projectName: 'My Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const stdoutOutput = stdoutSpy.mock.calls
+      .map((args) => String(args[0]))
+      .join('');
+    const parsed = JSON.parse(stdoutOutput) as { configPath: string };
+    expect(parsed.configPath).toContain('security-scan.config.json');
+  });
+
+  it('JSON result contains schemaPath ending with config-schema.json', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      json: true,
+      projectName: 'My Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const stdoutOutput = stdoutSpy.mock.calls
+      .map((args) => String(args[0]))
+      .join('');
+    const parsed = JSON.parse(stdoutOutput) as { schemaPath: string };
+    expect(parsed.schemaPath).toContain('config-schema.json');
+  });
+
+  it('JSON result has sonarPropertiesCreated: false when SonarQube is not enabled', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      json: true,
+      projectName: 'My Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const stdoutOutput = stdoutSpy.mock.calls
+      .map((args) => String(args[0]))
+      .join('');
+    const parsed = JSON.parse(stdoutOutput) as { sonarPropertiesCreated: boolean };
+    expect(parsed.sonarPropertiesCreated).toBe(false);
+  });
+
+  it('JSON result includes discovered ecosystem plugin ids', async () => {
+    mockDiscoverProject.mockResolvedValue({
+      ecosystems: [npmRootDiscovery],
+      dockerfiles: [],
+    });
+
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      json: true,
+      projectName: 'My Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const stdoutOutput = stdoutSpy.mock.calls
+      .map((args) => String(args[0]))
+      .join('');
+    const parsed = JSON.parse(stdoutOutput) as { ecosystems: string[] };
+    expect(parsed.ecosystems).toContain('npm');
+  });
+
+  it('informational "Created:" messages go to stderr, not stdout, when --json is active', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      json: true,
+      projectName: 'My Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    // All stderr writes should contain "Created:" messages
+    const stderrOutput = stderrSpy.mock.calls
+      .map((args) => String(args[0]))
+      .join('');
+    expect(stderrOutput).toContain('Created:');
+
+    // stdout should contain only valid JSON (no "Created:" in stdout)
+    const stdoutOutput = stdoutSpy.mock.calls
+      .map((args) => String(args[0]))
+      .join('');
+    // Parse succeeds — no "Created:" mixed in
+    expect(() => JSON.parse(stdoutOutput)).not.toThrow();
+    expect(stdoutOutput).not.toContain('Created:');
+  });
+
+  it('does not write Next steps to stdout when --json is active', async () => {
+    await runInitCommand({
+      cwd: '/repo',
+      force: true,
+      nonInteractive: true,
+      json: true,
+      projectName: 'My Project',
+      client: 'Client',
+      output: 'security-scan.config.json',
+    });
+
+    const stdoutOutput = stdoutSpy.mock.calls
+      .map((args) => String(args[0]))
+      .join('');
+    expect(stdoutOutput).not.toContain('Next steps');
+  });
+
+  it('throws an error when --json is used without --non-interactive', async () => {
+    await expect(
+      runInitCommand({
+        cwd: '/repo',
+        force: true,
+        json: true,
+        nonInteractive: false,
+        projectName: 'My Project',
+        client: 'Client',
+        output: 'security-scan.config.json',
+      }),
+    ).rejects.toThrow('--json flag requires --non-interactive');
+  });
+
+  it('throws an error when --json is used with nonInteractive undefined', async () => {
+    await expect(
+      runInitCommand({
+        cwd: '/repo',
+        force: true,
+        json: true,
+        projectName: 'My Project',
+        client: 'Client',
+        output: 'security-scan.config.json',
+      }),
+    ).rejects.toThrow('--json flag requires --non-interactive');
   });
 });

@@ -1,21 +1,21 @@
+import { saveReport, resolveReportsDir, resolveEngineReportsDir } from '@app/report-saver';
+import type { CommandRunner } from '@core/types/common';
+import type { ProjectConfig, EcosystemConfig } from '@core/types/config';
+import { ecosystemEntryKey, DEFAULT_SONAR_REPORT_METRICS } from '@core/types/config';
+import type { SupportedLocale } from '@core/types/locale';
+import type { AdvisorResult, ResidualVerification, ExecutiveReportOptions } from '@core/types/report';
+import type { ScanResultJson } from '@core/types/scan';
+import type { UpdateResultJson } from '@core/types/update';
 import { CLI_NAME } from '@infra/brand';
 import { runScanner } from '@modules/scanner/index';
+import { generateExecutiveReportDocx, executiveReportDocxFilename } from '@reporting/docx-executive';
 import {
   generateExecutiveReport,
   generateEntryReport,
   executiveReportFilename,
   splitReportFilename,
 } from '@reporting/executive';
-import { generateExecutiveReportDocx, executiveReportDocxFilename } from '@reporting/docx-executive';
 import { generateSonarQubeHtmlReport, sonarqubeHtmlReportFilename } from '@reporting/sonarqube-report';
-import { saveReport, resolveReportsDir, resolveEngineReportsDir } from '@app/report-saver';
-import type { ProjectConfig, EcosystemConfig } from '@core/types/config';
-import { ecosystemEntryKey } from '@core/types/config';
-import type { ScanResultJson } from '@core/types/scan';
-import type { UpdateResultJson } from '@core/types/update';
-import type { AdvisorResult, ResidualVerification, ExecutiveReportOptions } from '@core/types/report';
-import type { SupportedLocale } from '@core/types/locale';
-import type { CommandRunner } from '@core/types/common';
 
 export interface ReportArtifactsInput {
   runner: CommandRunner;
@@ -80,6 +80,8 @@ export async function generateAndSaveReportArtifacts(
   // CLI flag (input.splitReports) takes precedence over config value
   const splitReportsEnabled = input.splitReports ?? outputsConfig?.split_reports ?? false;
 
+  const sonarqubeMetrics: string[] = outputsConfig?.sonarqube_metrics ?? [...DEFAULT_SONAR_REPORT_METRICS];
+
   const reportOpts = {
     client,
     project,
@@ -91,6 +93,7 @@ export async function generateAndSaveReportArtifacts(
     locale: config.report_language,
     advisorResults,
     residualVerification,
+    sonarqubeMetrics,
   };
 
   if (splitReportsEnabled && config.ecosystems.length > 0) {
@@ -154,7 +157,7 @@ export async function generateAndSaveReportArtifacts(
   }
 
   // Standalone SonarQube HTML artifact — only when at least one format is enabled
-  const sonarHtml = generateSonarQubeHtmlReport(engineResults, client, project, config.report_language);
+  const sonarHtml = generateSonarQubeHtmlReport(engineResults, client, project, config.report_language, sonarqubeMetrics);
   if (sonarHtml) {
     const htmlFilename = sonarqubeHtmlReportFilename(client, project);
     const sonarOutcome = await saveReport(
@@ -192,6 +195,7 @@ function buildEntryReportOptsForSplit(
     advisorResults?: Record<string, AdvisorResult[]>;
     residualVerification?: ResidualVerification;
     locale?: SupportedLocale;
+    sonarqubeMetrics?: string[];
   },
   entryKey: string,
 ): ExecutiveReportOptions {
@@ -229,5 +233,6 @@ function buildEntryReportOptsForSplit(
     engineResults: opts.engineResults,
     advisorResults: opts.advisorResults,
     residualVerification: opts.residualVerification,
+    sonarqubeMetrics: opts.sonarqubeMetrics,
   };
 }

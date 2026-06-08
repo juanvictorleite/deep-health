@@ -33,17 +33,17 @@ vi.mock('@modules/advisor/index', () => ({
   runAdvisors: vi.fn().mockResolvedValue([]),
 }));
 
-import { runEcosystemFix } from '@orchestration/run-ecosystem-fix';
-import { applyOsvFixViaStaging } from '@orchestration/osv-fix-applier';
-import { validateEcosystemGate } from '@core/gates/validator';
-import { runAdvisors } from '@modules/advisor/index';
 import { GateValidationError } from '@core/errors';
-import type { EcosystemPlugin } from '@modules/ecosystem/types';
+import { validateEcosystemGate } from '@core/gates/validator';
 import type { CommandRunner, CommandResult, CommandRunnerOptions } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
+import type { AdvisorResult } from '@core/types/report';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
-import type { AdvisorResult } from '@core/types/report';
+import { runAdvisors } from '@modules/advisor/index';
+import type { EcosystemPlugin } from '@modules/ecosystem/types';
+import { applyOsvFixViaStaging } from '@orchestration/osv-fix-applier';
+import { runEcosystemFix } from '@orchestration/run-ecosystem-fix';
 
 class MockRunner implements CommandRunner {
   readonly dryRun = false;

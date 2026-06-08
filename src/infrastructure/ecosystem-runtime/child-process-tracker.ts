@@ -19,6 +19,7 @@
 
 import { execFile } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
+
 import { registerShutdownHook } from '../utils/shutdown-hooks';
 
 // ─── Types ────────────────────────────────────────────────────────────────────

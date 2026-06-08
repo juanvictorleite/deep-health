@@ -11,15 +11,17 @@
  * - Apply ecosystem-aware exclusion defaults
  * - Be idempotent: skip if the file already exists (never clobber user config)
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, writeFile, readFile, rm, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+
 import {
   buildSonarPropertiesTemplate,
   writeSonarPropertiesTemplateIfMissing,
 } from '@app/commands/sonar-properties-template';
 import { parsePropertiesFile } from '@modules/scanner/sonar-properties';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
 describe('buildSonarPropertiesTemplate', () => {
   it('produces a parseable .properties file with projectKey + projectName', () => {
@@ -146,6 +148,61 @@ describe('buildSonarPropertiesTemplate', () => {
     const content = buildSonarPropertiesTemplate({ projectName: 'test', ecosystemIds: [] });
     const parsed = parsePropertiesFile(content);
     expect(parsed.get('sonar.exclusions')).toBeDefined();
+  });
+
+  it('includes common asset exclusions for an npm project', () => {
+    const content = buildSonarPropertiesTemplate({
+      projectName: 'test',
+      ecosystemIds: ['npm'],
+    });
+    const parsed = parsePropertiesFile(content);
+    const exclusions = parsed.get('sonar.exclusions') ?? '';
+    expect(exclusions).toContain('**/*.png');
+    expect(exclusions).toContain('**/*.jpg');
+    expect(exclusions).toContain('**/*.svg');
+    expect(exclusions).toContain('**/*.woff2');
+    expect(exclusions).toContain('**/*.ttf');
+    expect(exclusions).toContain('**/*.mp4');
+    expect(exclusions).toContain('**/*.pdf');
+    expect(exclusions).toContain('**/*.zip');
+    expect(exclusions).toContain('**/*.map');
+  });
+
+  it('includes common asset exclusions when ecosystemIds is empty', () => {
+    const content = buildSonarPropertiesTemplate({ projectName: 'test', ecosystemIds: [] });
+    const parsed = parsePropertiesFile(content);
+    const exclusions = parsed.get('sonar.exclusions') ?? '';
+    expect(exclusions).toContain('**/*.png');
+    expect(exclusions).toContain('**/*.svg');
+    expect(exclusions).toContain('**/*.woff');
+    expect(exclusions).toContain('**/*.mp3');
+    expect(exclusions).toContain('**/*.gz');
+    expect(exclusions).toContain('**/*.map');
+  });
+
+  it('still includes tests/** when no ecosystem is matched', () => {
+    const content = buildSonarPropertiesTemplate({ projectName: 'test', ecosystemIds: [] });
+    const parsed = parsePropertiesFile(content);
+    const exclusions = parsed.get('sonar.exclusions') ?? '';
+    expect(exclusions).toContain('tests/**');
+  });
+
+  it('does not include duplicate patterns across ecosystem and common exclusions', () => {
+    const content = buildSonarPropertiesTemplate({
+      projectName: 'test',
+      ecosystemIds: ['npm', 'composer', 'pip'],
+    });
+    const parsed = parsePropertiesFile(content);
+    const exclusions = parsed.get('sonar.exclusions') ?? '';
+    const parts = exclusions.split(',');
+    // Verify no pattern appears more than once in the full output
+    const counts = new Map<string, number>();
+    for (const p of parts) {
+      counts.set(p, (counts.get(p) ?? 0) + 1);
+    }
+    for (const [pattern, count] of counts) {
+      expect(count, `Pattern "${pattern}" appears ${count} times`).toBe(1);
+    }
   });
 
   it('handles project names with special characters (slugged for projectKey)', () => {

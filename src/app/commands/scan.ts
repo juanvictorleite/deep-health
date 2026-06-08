@@ -1,6 +1,6 @@
-import { runScanner } from "@modules/scanner/index";
-import { writeOutput, formatScanSummary } from "@app/output-writer";
-import type { RunContext } from "@app/run-context";
+import { writeOutput, formatScanSummary, formatScanSummaryMarkdown } from '@app/output-writer';
+import type { RunContext } from '@app/run-context';
+import { runScanner } from '@modules/scanner/index';
 
 export interface ScanCommandOptions {
   config: string;
@@ -27,13 +27,18 @@ export async function runScanCommand(
 
   const scanResult = await runScanner(runner, config, opts.cwd);
 
-  const output = opts.json
-    ? JSON.stringify(scanResult, null, 2)
-    : formatScanSummary(scanResult);
+  let output: string;
+  if (opts.json) {
+    output = JSON.stringify(scanResult, null, 2);
+  } else if (opts.output) {
+    output = formatScanSummaryMarkdown(scanResult);
+  } else {
+    output = formatScanSummary(scanResult);
+  }
 
   await writeOutput(output, opts.output);
 
-  if (scanResult.status === "error") return 2;
+  if (scanResult.status === 'error') return 2;
   if (Object.values(scanResult.ecosystems).some((e) => e.breaking > 0)) return 1;
   return 0;
 }

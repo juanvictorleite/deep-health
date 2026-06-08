@@ -1,4 +1,5 @@
 import { __ } from '@core/i18n';
+
 import type { Locale } from './types';
 
 export function buildLocale(): Locale {
@@ -70,9 +71,6 @@ export function buildLocale(): Locale {
         '| Type | CVE/GHSA | CVSS | Package | Current Version | Reason |\n|------|----------|------|---------|-----------------|--------|',
       ),
       section_evidence_before: __('Evidence — Before'),
-      table_before_header: __(
-        '| Type | CVE/GHSA | CVSS | Package | Version | Risk |\n|------|----------|------|---------|---------|------|',
-      ),
       scan_summary: (total, ecoLabels) =>
         __('Initial scan (before fixes): **{{total}} vulnerabilities** — {{ecoLabels}}', {
           total,
@@ -152,6 +150,16 @@ export function buildLocale(): Locale {
       col_reason: __('Reason'),
       col_affected_versions: __('Version'),
       col_status_after: __('Status after fixes'),
+      blocked_intro: __(
+        'The following vulnerabilities were classified as auto-fixable but are blocked by dependency constraints:',
+      ),
+      table_blocked_header: __(
+        '| Type | CVE/GHSA | CVSS | Package | Version | Block Reason | Blocked By |\n|------|----------|------|---------|---------|--------------|------------|',
+      ),
+      col_block_reason: __('Block Reason'),
+      col_blocked_by: __('Blocked By'),
+      blocked_status: (blockedBy: string) =>
+        __('blocked (constraint: {{blockedBy}})', { blockedBy }),
       sonarqube_report_title: __('SonarQube Report'),
       sonarqube_report_generated: __('Generated'),
       sonarqube_report_th_metric: __('Metric'),

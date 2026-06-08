@@ -1,4 +1,5 @@
 import type { ScanResultJson, EcosystemScanResult } from '@core/types/scan';
+
 import type { EngineWarning } from './types';
 
 /**
@@ -101,7 +102,7 @@ function mergeEcosystems(
  * emit an EngineWarning instead of throwing.
  */
 export function aggregateScanResults(
-  engineResults: Array<{ engineId: string; result: ScanResultJson }>,
+  engineResults: { engineId: string; result: ScanResultJson }[],
   warnings: EngineWarning[] = [],
   primaryEngineId: string = OSV_ENGINE_ID,
 ): AggregatedScanResult {

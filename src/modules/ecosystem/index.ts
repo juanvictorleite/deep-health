@@ -5,10 +5,10 @@ export { npmPlugin } from './plugins/npm';
 export { composerPlugin } from './plugins/composer';
 export { pipPlugin } from './plugins/pip';
 
-import { defaultRegistry } from './registry';
-import { npmPlugin } from './plugins/npm';
 import { composerPlugin } from './plugins/composer';
+import { npmPlugin } from './plugins/npm';
 import { pipPlugin } from './plugins/pip';
+import { defaultRegistry } from './registry';
 
 // Register plugins in order: npm first, then composer, then pip.
 // Registration order is preserved (Map insertion order) — npm phase always runs before composer.

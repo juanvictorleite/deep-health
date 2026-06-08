@@ -13,13 +13,16 @@ import {
   ShadingType,
   convertInchesToTwip,
 } from 'docx';
+
 import type { ExecutiveReportOptions } from '@core/types/report';
+
 import { buildExecutiveReportContext } from './executive';
 
 // ── colour palette for table headers ────────────────────────────────────────
 
 const HEADER_FILL_BLUE = 'BDD7EE';   // fixed vulns — light blue
 const HEADER_FILL_ORANGE = 'FCE4D6'; // pending vulns — light orange
+const HEADER_FILL_AMBER = 'FFF2CC';  // blocked vulns — light amber
 const HEADER_FILL_GREY = 'EDEDED';   // evidence tables — light grey
 const HEADER_TEXT_COLOR = '000000';
 
@@ -188,6 +191,28 @@ function buildPendingVulnsTable(pendingVulns: Record<string, unknown>[], tr: Rec
 }
 
 /**
+ * Blocked vulnerabilities table.
+ * Columns: Ecosystem | GHSA | CVSS | Package | Version | Block Reason | Blocked By
+ */
+function buildBlockedVulnsTable(blockedVulns: Record<string, unknown>[], tr: Record<string, unknown>) {
+  const widths = colWidths([11, 12, 6, 16, 14, 22, 19]);
+  const headers = [
+    t(tr, 'col_ecosystem', 'Type'),
+    t(tr, 'col_ghsa', 'CVE/GHSA'),
+    t(tr, 'col_cvss', 'CVSS'),
+    t(tr, 'col_package', 'Package'),
+    t(tr, 'col_affected_versions', 'Version'),
+    t(tr, 'col_block_reason', 'Block Reason'),
+    t(tr, 'col_blocked_by', 'Blocked By'),
+  ];
+  const headerRow = buildHeaderRow(headers, widths, HEADER_FILL_AMBER);
+  const dataRows = blockedVulns.map((v) =>
+    buildDataRow([...baseVulnCells(v), str(v['blockReason']), str(v['blockedBy'])], widths),
+  );
+  return buildVulnTable(headerRow, dataRows);
+}
+
+/**
  * Evidence table (per-ecosystem post-fix scan summary).
  * Columns: Ecosystem | GHSA | CVSS | Package | Version | Status after fixes | Risk
  */
@@ -281,6 +306,13 @@ function buildResolutionSection(ctx: Record<string, unknown>, tr: Record<string,
     items.push(spacer());
   }
 
+  const blockedVulns = (ctx['blockedVulns'] as Record<string, unknown>[]) ?? [];
+  if (blockedVulns.length > 0) {
+    items.push(bodyText(t(tr, 'blocked_intro', 'The following vulnerabilities were classified as auto-fixable but are blocked by dependency constraints:')));
+    items.push(buildBlockedVulnsTable(blockedVulns, tr));
+    items.push(spacer());
+  }
+
   const pendingVulns = (ctx['pendingVulns'] as Record<string, unknown>[]) ?? [];
   if (pendingVulns.length > 0) {
     items.push(bodyText(t(tr, 'pending_intro', 'The following vulnerabilities could not be fixed automatically and remain pending:')));
@@ -329,21 +361,11 @@ function buildEvidenceAfterSection(ctx: Record<string, unknown>, tr: Record<stri
   return items;
 }
 
-function buildPendingByPkgItems(pendingByPkg: Record<string, unknown>[], tr: Record<string, unknown>) {
-  const items: DocxNode[] = [bodyText(t(tr, 'pending_needs_action_intro', 'The following packages require manual attention:'))];
-  for (const pkg of pendingByPkg) {
-    const line = `• ${str(pkg['package'])} ${str(pkg['currentVersion'])} — ${str(pkg['motivoPt'])} (${str(pkg['risk'])}${str(pkg['cvssDisplay'])})`;
-    items.push(bodyText(line));
-  }
-  return items;
-}
-
 function buildSummarySection(ctx: Record<string, unknown>, tr: Record<string, unknown>) {
   const items: DocxNode[] = [heading2(t(tr, 'section_summary', 'Summary'))];
 
-  const pendingByPkg = (ctx['pendingByPkg'] as Record<string, unknown>[]) ?? [];
-  if (pendingByPkg.length > 0) {
-    items.push(...buildPendingByPkgItems(pendingByPkg, tr));
+  if (ctx['hasPending']) {
+    items.push(bodyText(t(tr, 'pending_needs_action_intro', 'The following packages require manual attention:')));
   } else if (ctx['allFixed']) {
     items.push(bodyText(t(tr, 'all_fixed', 'All vulnerabilities have been resolved.')));
   }

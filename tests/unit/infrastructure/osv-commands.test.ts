@@ -9,7 +9,6 @@
  * sets `--workdir /project`, allowing raw plugin lockfile args to be passed
  * directly to the container.
  */
-import { describe, it, expect } from 'vitest';
 import {
   buildOsvToolArgs,
   buildOsvDockerRunArgs,
@@ -17,6 +16,8 @@ import {
   validateScanPath,
   resolveScanPathArgs,
 } from '@infra/utils/osv-commands';
+import { describe, it, expect } from 'vitest';
+
 
 // ─── validateScanPath ─────────────────────────────────────────────────────────
 

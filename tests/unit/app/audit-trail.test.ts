@@ -10,9 +10,10 @@ vi.mock('@infra/utils/logger.js', () => ({
 }));
 
 import { mkdir, writeFile } from 'node:fs/promises';
+
 import { writeAuditTrail } from '@app/audit-trail';
-import { logger } from '@infra/utils/logger.js';
 import type { AuditTrailRecord } from '@app/audit-trail';
+import { logger } from '@infra/utils/logger.js';
 
 const baseRecord: AuditTrailRecord = {
   timestamp: '2026-04-23T14:30:00.000Z',

@@ -5,10 +5,10 @@
  * os.tmpdir() with real small files so parsing + sanitization + file writing
  * get exercised end-to-end. Cleanup removes the temp artifacts in each test.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
 import {
   parsePropertiesFile,
   serializePropertiesFile,
@@ -16,6 +16,8 @@ import {
   sanitizeAndWriteProperties,
   CLI_OWNED_KEYS,
 } from '@modules/scanner/sonar-properties';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
 
 vi.mock('@infra/utils/logger', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },

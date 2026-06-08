@@ -14,8 +14,9 @@
  *  (7) passes with build: { dockerfile, target, context, args }
  *  (8) target rejects invalid chars
  */
-import { describe, it, expect } from 'vitest';
 import { ProjectConfigSchema } from '@infra/config/schema';
+import { describe, it, expect } from 'vitest';
+
 
 /** Minimal valid project config skeleton — runner is configured per-ecosystem. */
 function makeConfigWithEcosystemRunner(ecosystemId: string, runner: Record<string, unknown>): unknown {

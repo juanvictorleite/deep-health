@@ -17,6 +17,7 @@ vi.mock('node:os', async (importOriginal) => {
 });
 
 import { needsHostGateway, resolvePlatform } from '@infra/utils/docker-platform';
+
 import { platform as osPlatform, arch as osArch } from 'node:os';
 
 const mockPlatform = vi.mocked(osPlatform);

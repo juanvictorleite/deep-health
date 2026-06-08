@@ -11,13 +11,14 @@
  * - scan() delegates to fetchVulnerabilities and buildScanResult
  * - result metadata ($schema, agent, status, error, branch)
  */
-import { describe, it, expect, vi } from 'vitest';
+
+import type { ProjectConfig, ProtectedPackage } from '@core/types/config';
+import { EcosystemRegistry } from '@modules/ecosystem/registry';
+import type { EcosystemPlugin } from '@modules/ecosystem/types';
 import { ExternalScannerAdapter } from '@modules/scanner/external-adapter';
 import type { RawVulnerability } from '@modules/scanner/external-adapter';
 import type { ScannerEngineContext } from '@modules/scanner/types';
-import { EcosystemRegistry } from '@modules/ecosystem/registry';
-import type { EcosystemPlugin } from '@modules/ecosystem/types';
-import type { ProjectConfig, ProtectedPackage } from '@core/types/config';
+import { describe, it, expect, vi } from 'vitest';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

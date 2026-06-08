@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
 import type { CommandRunner, CommandResult } from '@core/types/common';
+import type { UpdateResultJson, ValidationEntry } from '@core/types/update';
 
 // ─── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -455,7 +455,6 @@ describe('beginUpdaterTransaction', () => {
     });
 
     it('dirty-tree check is silently skipped when preRunSnapshots is empty', async () => {
-      const mockLogger = vi.mocked(logger);
       const runArgsMock = vi.fn().mockResolvedValue(ok());
       const runner = makeRunner({ runArgs: runArgsMock });
 

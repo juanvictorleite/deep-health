@@ -1,9 +1,10 @@
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
-import { logger } from '../utils/logger';
-import { osvRuntimeSpec } from './osv-runtime-spec';
-import { EphemeralEcosystemContainer } from './ephemeral-container';
+
 import { EcosystemContainerCommandRunner } from './command-runner';
+import { EphemeralEcosystemContainer } from './ephemeral-container';
+import { osvRuntimeSpec } from './osv-runtime-spec';
+import { logger } from '../utils/logger';
 
 /**
  * Builds a CommandRunner for osv-scanner.

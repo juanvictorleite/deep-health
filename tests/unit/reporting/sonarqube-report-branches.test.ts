@@ -2,9 +2,10 @@
  * Branch coverage top-up for src/reporting/sonarqube-report.ts
  * Targets uncovered branches (lines 28-30, 91).
  */
-import { describe, it, expect } from 'vitest';
-import { generateSonarQubeHtmlReport, sonarqubeHtmlReportFilename } from '@reporting/sonarqube-report';
+
 import type { ScanResultJson } from '@core/types/scan';
+import { generateSonarQubeHtmlReport, sonarqubeHtmlReportFilename } from '@reporting/sonarqube-report';
+import { describe, it, expect } from 'vitest';
 
 describe('generateSonarQubeHtmlReport() — branch coverage', () => {
   it('returns null when engineResults is undefined', () => {

@@ -1,8 +1,10 @@
 import { EventEmitter } from 'node:events';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { resolveNpmDockerImage, NPM_DEFAULT_IMAGE } from '@infra/provisioner/npm-runner';
+
 import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
+import { resolveNpmDockerImage, NPM_DEFAULT_IMAGE } from '@infra/provisioner/npm-runner';
 import { setLogLevel } from '@infra/utils/logger';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
 
 vi.mock('node:child_process', () => ({
   execFile: vi.fn(),

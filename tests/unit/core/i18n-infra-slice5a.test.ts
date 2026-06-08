@@ -2,8 +2,9 @@
  * PT-BR translation coverage for infrastructure strings added in slice5a:
  * google-drive, google-drive-auth, factory, config/loader, osv-commands, retry
  */
-import { describe, it, expect, beforeEach } from 'vitest';
 import { __, setLocale } from '@core/i18n';
+import { describe, it, expect, beforeEach } from 'vitest';
+
 
 beforeEach(() => {
   setLocale('en');

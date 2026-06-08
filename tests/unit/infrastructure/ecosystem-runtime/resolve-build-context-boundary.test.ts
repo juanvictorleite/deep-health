@@ -8,10 +8,12 @@
  *    flag, boundary-source label in error messages, and symlink resolution via
  *    real temp directories (fs.realpath is NOT mocked)
  */
-import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
-import os from 'node:os';
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
+
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
+
 
 // ── Mock child_process ─────────────────────────────────────────────────────────
 
@@ -35,6 +37,7 @@ vi.mock('@infra/utils/logger', () => ({
 }));
 
 import { execFile } from 'node:child_process';
+
 import {
   resolveAllowedBuildContextRoot,
   assertBuildContextWithinBoundary,

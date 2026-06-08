@@ -15,10 +15,11 @@
  * in scanner-sweep-renderers.ts.
  */
 
-import type { ScannerEngine, ScannerEngineContext, EngineWarning } from './types';
-import type { ScanResultJson } from '@core/types/scan';
 import type { Result } from '@core/types/result';
 import { ok, err } from '@core/types/result';
+import type { ScanResultJson } from '@core/types/scan';
+
+import type { ScannerEngine, ScannerEngineContext, EngineWarning } from './types';
 
 // ─── Public interfaces ────────────────────────────────────────────────────────
 
@@ -51,7 +52,7 @@ export interface EngineRunPolicy {
  */
 export interface EngineRunResult {
   /** Successful (non-skipped) engine results in registry order. */
-  engineEntries: Array<{ engineId: string; result: ScanResultJson }>;
+  engineEntries: { engineId: string; result: ScanResultJson }[];
   /** Non-fatal warnings accumulated from secondary engines configured with on_failure='warn'. */
   warnings: EngineWarning[];
 }
@@ -124,7 +125,7 @@ export async function executeScannerSweep(
   policy: EngineRunPolicy,
   renderer: EngineRunRenderer,
 ): Promise<Result<EngineRunResult, ScanSweepError>> {
-  const engineEntries: Array<{ engineId: string; result: ScanResultJson }> = [];
+  const engineEntries: { engineId: string; result: ScanResultJson }[] = [];
   const warnings: EngineWarning[] = [];
 
   // Step 1: Run all engines via the renderer (Listr2, silent, etc.)

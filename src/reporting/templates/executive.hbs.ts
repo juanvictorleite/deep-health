@@ -26,6 +26,12 @@ export default `\
 {{t.table_fixed_header}}
 {{#each fixedVulns}}| {{ecoLabel}} | {{ghsaLink}} | {{cvss}} | {{package}} | {{affectedVersions}} | {{safeVersion}}{{#if residualWarning}} ⚠{{/if}} | {{risk}} |
 {{/each}}{{/if}}
+{{#if blockedVulns}}
+{{t.blocked_intro}}
+
+{{t.table_blocked_header}}
+{{#each blockedVulns}}| {{ecoLabel}} | {{ghsaLink}} | {{cvss}} | {{package}} | {{affectedVersions}} | {{blockReason}} | {{blockedBy}} |
+{{/each}}{{/if}}
 {{#if pendingVulns}}
 {{t.pending_intro}}
 
@@ -38,9 +44,6 @@ export default `\
 
 ### {{t.section_evidence_before}}
 
-{{t.table_before_header}}
-{{#each allVulnsBefore}}| {{ecoLabel}} | {{ghsaId}} | {{cvss}} | {{package}} | {{affectedVersions}} | {{risk}} |
-{{/each}}
 {{scanBeforeSummary}}
 
 ---
@@ -100,11 +103,8 @@ export default `\
 {{t.no_vulns}}
 {{else if allFixed}}
 {{t.all_fixed}}
-{{else if pendingByPkg}}
+{{else if hasPending}}
 {{t.pending_needs_action_intro}}
-
-{{#each pendingByPkg}}- {{package}} ({{currentVersion}}): {{motivoPt}}. {{riskLabel}}: {{risk}}{{cvssDisplay}}.
-{{/each}}
 {{else}}
 {{t.pending_manual}}
 {{/if}}

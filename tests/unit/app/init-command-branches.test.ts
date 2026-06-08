@@ -13,6 +13,13 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
 }));
 
+// Treat all tests in this suite as interactive so the TTY guard never fires.
+vi.mock('@infra/utils/tty', () => ({
+  isCI: vi.fn(() => false),
+  isInteractive: vi.fn(() => true),
+  assertInteractive: vi.fn(),
+}));
+
 vi.mock('@infra/config/generator', () => ({
   generateConfigJson: vi.fn(() => '{"project":{"name":"demo"}}'),
 }));
@@ -31,11 +38,11 @@ vi.mock('@app/commands/sonar-properties-template', () => ({
   writeSonarPropertiesTemplateIfMissing: vi.fn(),
 }));
 
-import { prompt } from '@infra/utils/prompt';
-import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
-import { generateConfigJson } from '@infra/config/generator';
 import { runInitCommand } from '@app/commands/init';
 import { writeSonarPropertiesTemplateIfMissing } from '@app/commands/sonar-properties-template';
+import { generateConfigJson } from '@infra/config/generator';
+import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
+import { prompt } from '@infra/utils/prompt';
 
 const mockPrompt = vi.mocked(prompt);
 const mockConfirm = vi.mocked(confirmPrompt);
@@ -57,7 +64,7 @@ function setupInteractiveMocks({
   ecosystems = ['npm', 'composer', 'pip'],
 }: { sonar?: boolean; markdown?: boolean; ecosystems?: string[] } = {}) {
   mockCheckbox.mockResolvedValueOnce(ecosystems as any).mockResolvedValue([] as any);
-  mockSelect.mockImplementation((msg: string, choices: Array<{ name: string; value: string }>) => {
+  mockSelect.mockImplementation((msg: string, choices: { name: string; value: string }[]) => {
     // Language / Idioma is always the first prompt — return 'en' so subsequent EN strings work
     if (msg.includes('Language') || msg.includes('Idioma')) return Promise.resolve('en');
     return Promise.resolve(choices[0].value);
@@ -170,7 +177,7 @@ describe('runInitCommand — outputs: undefined path', () => {
     mockReadFile.mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' }));
 
     mockCheckbox.mockResolvedValue(['npm']);
-    mockSelect.mockImplementation((msg: string, c: Array<{ name: string; value: string }>) => {
+    mockSelect.mockImplementation((msg: string, c: { name: string; value: string }[]) => {
       if (msg.includes('Language') || msg.includes('Idioma')) return Promise.resolve('en');
       return Promise.resolve(c[0].value);
     });
@@ -230,7 +237,7 @@ describe('runInitCommand — client prompt', () => {
 
     // Ecosystem/fixer/image source handled by inquirer mocks (no ecosystems selected → loop skipped)
     mockCheckbox.mockResolvedValue([]);
-    mockSelect.mockImplementation((msg: string, c: Array<{ name: string; value: string }>) => {
+    mockSelect.mockImplementation((msg: string, c: { name: string; value: string }[]) => {
       if (msg.includes('Language') || msg.includes('Idioma')) return Promise.resolve('en');
       return Promise.resolve(c[0].value);
     });
@@ -272,7 +279,7 @@ describe('runInitCommand — fixer strategy via selectPrompt', () => {
     mockWriteSonar.mockResolvedValue('created');
 
     mockCheckbox.mockResolvedValue(['npm']);
-    mockSelect.mockImplementation((msg: string, c: Array<{ name: string; value: string }>) => {
+    mockSelect.mockImplementation((msg: string, c: { name: string; value: string }[]) => {
       if (msg.includes('Language') || msg.includes('Idioma')) return Promise.resolve('en');
       return Promise.resolve(c[0].value);
     });
@@ -296,7 +303,7 @@ describe('runInitCommand — fixer strategy via selectPrompt', () => {
     expect(fixerCall).toBeDefined();
 
     // Choices must include npm's supported fixers: ['osv', 'npm-audit', 'osv-then-audit']
-    const choices = fixerCall![1] as Array<{ name: string; value: string }>;
+    const choices = fixerCall![1] as { name: string; value: string }[];
     expect(choices.map((c) => c.value)).toEqual(
       expect.arrayContaining(['osv', 'npm-audit', 'osv-then-audit']),
     );
@@ -352,7 +359,7 @@ describe('runInitCommand — composer interactive with inferred version', () => 
 
     // Only composer selected — no npm/pip loop overhead
     mockCheckbox.mockResolvedValue(['composer']);
-    mockSelect.mockImplementation((msg: string, c: Array<{ name: string; value: string }>) => {
+    mockSelect.mockImplementation((msg: string, c: { name: string; value: string }[]) => {
       if (msg.includes('Language') || msg.includes('Idioma')) return Promise.resolve('en');
       return Promise.resolve(c[0].value);
     });
@@ -398,7 +405,7 @@ describe('runInitCommand() — branch coverage top-up', () => {
 
     // No ecosystems selected — skips per-ecosystem loop entirely
     mockCheckbox.mockResolvedValue([]);
-    mockSelect.mockImplementation((msg: string, c: Array<{ name: string; value: string }>) => {
+    mockSelect.mockImplementation((msg: string, c: { name: string; value: string }[]) => {
       if (msg.includes('Language') || msg.includes('Idioma')) return Promise.resolve('en');
       return Promise.resolve(c[0].value);
     });
@@ -428,7 +435,7 @@ describe('runInitCommand() — branch coverage top-up', () => {
   it('selectPrompt called with "Language / Idioma" first; generateConfigJson called with reportLanguage: en', async () => {
     setupInteractiveMocks();
     mockCheckbox.mockResolvedValue([]);
-    mockSelect.mockImplementation(async (msg: string, choices: Array<{ name: string; value: string }>) => {
+    mockSelect.mockImplementation(async (msg: string, choices: { name: string; value: string }[]) => {
       if (msg === 'Language / Idioma') return 'en';
       return choices[0].value;
     });
@@ -454,7 +461,7 @@ describe('runInitCommand() — branch coverage top-up', () => {
 
   it('uses default reports dir when dirAnswer is empty string (line 213 || branch)', async () => {
     mockCheckbox.mockResolvedValue([]);
-    mockSelect.mockImplementation((msg: string, c: Array<{ name: string; value: string }>) => {
+    mockSelect.mockImplementation((msg: string, c: { name: string; value: string }[]) => {
       if (msg.includes('Language') || msg.includes('Idioma')) return Promise.resolve('en');
       return Promise.resolve(c[0].value);
     });

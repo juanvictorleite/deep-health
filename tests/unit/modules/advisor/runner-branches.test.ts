@@ -12,9 +12,9 @@ vi.mock('@modules/ecosystem/plugins/npm-audit-parser', () => ({
   parseNpmAuditJson: vi.fn(),
 }));
 
+import type { CommandRunner } from '@core/types/common';
 import { runAdvisors } from '@modules/advisor/runner';
 import { parseNpmAuditJson } from '@modules/ecosystem/plugins/npm-audit-parser';
-import type { CommandRunner } from '@core/types/common';
 
 function makeRunner(stdout = '', exitCode = 0, throws = false): CommandRunner {
   return {
@@ -99,7 +99,7 @@ describe('runAdvisors()', () => {
 
   it('JSON parse failure with non-Error object → error status', async () => {
     vi.mocked(parseNpmAuditJson).mockImplementation(() => {
-      throw 'parse error string';
+      throw new Error('parse error string');
     });
     const runner = makeRunner('not-json', 0);
     const results = await runAdvisors(runner, '/cwd', 'npm', [

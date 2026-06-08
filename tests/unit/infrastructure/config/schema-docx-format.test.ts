@@ -2,8 +2,9 @@
  * Tests that OutputFormatSchema accepts 'docx' as a valid enum value.
  * AC1: OutputFormat type includes 'docx'; OutputFormatSchema validates 'docx'.
  */
-import { describe, it, expect } from 'vitest';
 import { ProjectConfigSchema } from '@infra/config/schema';
+import { describe, it, expect } from 'vitest';
+
 
 const minimalConfig = {
   project: { name: 'Test Project', client: 'Test Client' },

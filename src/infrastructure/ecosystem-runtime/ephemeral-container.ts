@@ -19,14 +19,16 @@
 
 import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
+
+import type { EphemeralContainerRunner } from '@infra/provisioner/types';
+
+import { trackChildProcess, execFileTracked } from './child-process-tracker';
 import type { RunMode } from './types';
 import type { ContainerRunResult } from './types';
-import type { EphemeralContainerRunner } from '@infra/provisioner/types';
 import { needsHostGateway, resolvePlatform } from '../utils/docker-platform';
-import { withRetry, isDockerTransientError } from '../utils/retry';
 import { logger } from '../utils/logger';
+import { withRetry, isDockerTransientError } from '../utils/retry';
 import { spawnStreaming } from '../utils/spawn-streaming';
-import { trackChildProcess, execFileTracked } from './child-process-tracker';
 
 const execFileAsync = promisify(execFile);
 

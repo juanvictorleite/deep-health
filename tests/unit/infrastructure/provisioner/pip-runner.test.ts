@@ -2,8 +2,10 @@
  * Coverage for src/infrastructure/provisioner/pip-runner.ts
  * and EphemeralEcosystemContainer with shell-wrap RunMode (pip).
  */
-import { describe, it, expect, vi, type Mock } from 'vitest';
 import { EventEmitter } from 'node:events';
+
+import { describe, it, expect, vi, type Mock } from 'vitest';
+
 
 vi.mock('@infra/utils/logger', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },
@@ -19,9 +21,10 @@ vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
 }));
 
-import { resolvePipDockerImage } from '@infra/provisioner/pip-runner';
-import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
 import { execFile, spawn } from 'node:child_process';
+
+import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
+import { resolvePipDockerImage } from '@infra/provisioner/pip-runner';
 import { needsHostGateway, resolvePlatform } from '@infra/utils/docker-platform';
 
 const shellWrapRunMode = { kind: 'shell-wrap' as const };

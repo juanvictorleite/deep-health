@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest';
 import { resolveComposerDockerImage } from '@infra/provisioner/php-image-resolver';
+import { describe, it, expect } from 'vitest';
+
 
 describe('resolveComposerDockerImage', () => {
   it('returns composer fallback image for undefined/empty', () => {

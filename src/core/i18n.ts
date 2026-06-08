@@ -1,5 +1,5 @@
-import type { SupportedLocale } from '@core/types/locale';
 import ptBrCatalogRaw from '@core/i18n/catalogs/pt-br.json';
+import type { SupportedLocale } from '@core/types/locale';
 
 const ptBrCatalog = ptBrCatalogRaw as Record<string, string>;
 

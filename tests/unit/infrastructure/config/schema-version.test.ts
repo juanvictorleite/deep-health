@@ -9,9 +9,9 @@
  *   4. config_version: 'any-other-string' → fails with user-friendly message
  *   5. ValidationCommandConfig parsed without timeout_seconds has timeout_seconds === 300
  */
-import { describe, it, expect } from 'vitest';
 import { ProjectConfigSchema } from '@infra/config/schema';
-import { z } from 'zod';
+import { describe, it, expect } from 'vitest';
+
 
 // Minimal valid ProjectConfig input that satisfies all required fields.
 const minimalConfig = {

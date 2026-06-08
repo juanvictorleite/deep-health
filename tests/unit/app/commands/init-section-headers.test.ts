@@ -14,6 +14,13 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
 }));
 
+// Treat all tests in this suite as interactive so the TTY guard never fires.
+vi.mock('@infra/utils/tty', () => ({
+  isCI: vi.fn(() => false),
+  isInteractive: vi.fn(() => true),
+  assertInteractive: vi.fn(),
+}));
+
 vi.mock('@infra/config/generator', () => ({
   generateConfigJson: vi.fn(() => '{"project":{"name":"demo"}}'),
   normalizeSonarProjectKey: vi.fn((name: string) => name.replace(/\s+/g, '-')),
@@ -54,11 +61,11 @@ vi.mock('@infra/utils/logger', () => ({
   },
 }));
 
-import { prompt } from '@infra/utils/prompt';
-import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
+import { runInitCommand } from '@app/commands/init';
 import { discoverProject } from '@infra/utils/detect-ecosystems';
 import { detectProjectScripts } from '@infra/utils/detect-scripts';
-import { runInitCommand } from '@app/commands/init';
+import { confirmPrompt, selectPrompt, checkboxPrompt } from '@infra/utils/inquirer-prompts';
+import { prompt } from '@infra/utils/prompt';
 import { dim } from '@infra/utils/ui';
 
 const mockPrompt = vi.mocked(prompt);

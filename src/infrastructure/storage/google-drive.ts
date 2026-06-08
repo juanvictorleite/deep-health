@@ -1,9 +1,11 @@
-import { CLI_NAME } from '@infra/brand';
-import type { StorageProvider, UploadResult } from './provider';
+import { __ } from '@core/i18n';
 import type { CloudStorageConfig } from '@core/types/config';
+import { CLI_NAME } from '@infra/brand';
+
 import { loadStoredTokens, saveTokens } from './google-drive-auth';
 import type { StoredTokens } from './google-drive-auth';
-import { __ } from '@core/i18n';
+import type { StorageProvider, UploadResult } from './provider';
+
 
 export class GoogleDriveProvider implements StorageProvider {
   constructor(

@@ -48,7 +48,7 @@ describe('saveReport() — cloud storage init failure with require_upload=true (
 
   it('uses String(err) when non-Error is thrown during cloud init (line 47 false branch)', async () => {
     vi.mocked(createStorageProvider).mockImplementation(() =>
-      Promise.reject('cloud init string error'),
+      Promise.reject(new Error('cloud init string error')),
     );
 
     const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
@@ -102,7 +102,7 @@ describe('saveReport() — cloud upload failure after local success (line 73)', 
     }; });
 
     const cloudProviderMock = {
-      upload: vi.fn().mockImplementation(() => Promise.reject('upload string error')),
+      upload: vi.fn().mockImplementation(() => Promise.reject(new Error('upload string error'))),
     };
     vi.mocked(createStorageProvider).mockResolvedValue(cloudProviderMock as any);
 

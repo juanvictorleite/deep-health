@@ -25,7 +25,7 @@
     "test:all": "vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
-    "lint": "tsc --noEmit"
+    "lint": "oxlint --import-plugin --promise-plugin"
   },
   "engines": {
     "node": ">=26.0.0"
@@ -39,6 +39,7 @@
     "handlebars": "^4.7.9",
     "listr2": "^10.2.1",
     "semver": "^7.6.3",
+    "smol-toml": "^1.6.1",
     "zod": "^3.23.8",
     "zod-to-json-schema": "^3.25.2"
   },
@@ -49,6 +50,7 @@
     "@types/node": "^24.0.0",
     "@types/semver": "^7.5.8",
     "@vitest/coverage-v8": "^4.1.7",
+    "oxlint": "^1.67.0",
     "postject": "^1.0.0-alpha.6",
     "tsup": "^8.2.4",
     "tsx": "^4.16.2",

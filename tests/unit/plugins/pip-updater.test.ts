@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { CommandRunner, CommandResult } from '@core/types/common';
-import type { ProjectConfig } from '@core/types/config';
-import type { ScanResultJson } from '@core/types/scan';
 
 // ── Module-level mocks ───────────────────────────────────────────────────────
 vi.mock('node:fs/promises', () => ({
@@ -35,6 +33,12 @@ vi.mock('@core/types/scan.js', async (importOriginal) => {
   };
 });
 
+import { readFile as mockReadFile, writeFile as mockWriteFile } from 'node:fs/promises';
+
+import type { ProjectConfig } from '@core/types/config';
+import type { VulnerabilityEntry } from '@core/types/scan';
+import type { ScanResultJson } from '@core/types/scan';
+import { logger } from '@infra/utils/logger';
 import {
   runPipUpdater,
   stripPipVersion,
@@ -43,9 +47,10 @@ import {
   updateRequirementsContent,
   computeMaxSafeVersions,
   computeSortedSafeVersions,
+  buildMaxCvssMap,
+  sortSpecsByCvss,
+  buildPipPackagesUpdated,
 } from '@modules/ecosystem/plugins/pip-updater';
-import type { VulnerabilityEntry } from '@core/types/scan';
-import { readFile as mockReadFile, writeFile as mockWriteFile } from 'node:fs/promises';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1832,5 +1837,463 @@ describe('runPipUpdater — dry-run validation (validatePipSpecs) via integratio
     const installCall = calls.find((c) => c[0] === 'pip' && (c[1] as string[]).includes('install') && !(c[1] as string[]).includes('--dry-run'));
     expect(installCall).toBeDefined();
     expect(installCall![1]).toContain('requests==2.31.0');
+  });
+
+  it('(T7) re-batch of validated specs passes → no change from per-package result', async () => {
+    // Two packages: batch dry-run fails, but both pass per-package, and re-batch also passes.
+    // Result: both packages should be installed without cross-conflict exclusion.
+    const vulns: VulnerabilityEntry[] = [
+      makeVuln('requests', '2.28.0', 'auto_safe'),
+      makeVuln('requests', '2.31.0', 'auto_safe'),
+      makeVuln('pillow', '9.0.0', 'auto_safe'),
+      makeVuln('pillow', '9.5.0', 'auto_safe'),
+    ];
+    const scan: ScanResultJson = {
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        pip: {
+          vulnerabilities_total: 4,
+          auto_safe: 4,
+          breaking: 0,
+          manual: 0,
+          auto_safe_packages: ['requests@2.31.0', 'pillow@9.5.0'],
+          breaking_packages: [],
+          manual_packages: [],
+          vulnerabilities: vulns,
+        },
+      },
+      error: null,
+    };
+
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(pipAuditUnavailable())             // pip-audit --version
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'conflict', command: '', dryRun: false }) // batch dry-run → fail
+      .mockResolvedValueOnce(ok())                              // per-pkg: requests==2.31.0 → pass
+      .mockResolvedValueOnce(ok())                              // per-pkg: pillow==9.5.0 → pass
+      .mockResolvedValueOnce(ok())                              // re-batch: [requests, pillow] → pass
+      .mockResolvedValueOnce(ok('Successfully installed requests-2.31.0 pillow-9.5.0')); // pip install
+
+    const runner = makeRunner({ runArgs: runArgsMock });
+    const result = await runPipUpdater(runner, baseConfig(), scan, '/tmp/project', false, []);
+
+    expect(result.status).toBe('success');
+    const calls = runArgsMock.mock.calls as [string, string[], unknown][];
+    const installCall = calls.find((c) => c[0] === 'pip' && (c[1] as string[]).includes('install') && !(c[1] as string[]).includes('--dry-run'));
+    expect(installCall).toBeDefined();
+    expect(installCall![1]).toContain('requests==2.31.0');
+    expect(installCall![1]).toContain('pillow==9.5.0');
+  });
+
+  it('(T8) re-batch fails → greedy subset excludes conflicting package; logger.warn called', async () => {
+    // Three packages: batch dry-run fails, all pass per-package, but re-batch also fails.
+    // Greedy selection: requests + pillow are compatible, urllib3 conflicts.
+    const vulns: VulnerabilityEntry[] = [
+      makeVuln('requests', '2.28.0', 'auto_safe'),
+      makeVuln('requests', '2.31.0', 'auto_safe'),
+      makeVuln('pillow', '9.0.0', 'auto_safe'),
+      makeVuln('pillow', '9.5.0', 'auto_safe'),
+      makeVuln('urllib3', '1.26.0', 'auto_safe'),
+      makeVuln('urllib3', '2.0.7', 'auto_safe'),
+    ];
+    const scan: ScanResultJson = {
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        pip: {
+          vulnerabilities_total: 6,
+          auto_safe: 6,
+          breaking: 0,
+          manual: 0,
+          auto_safe_packages: ['requests@2.31.0', 'pillow@9.5.0', 'urllib3@2.0.7'],
+          breaking_packages: [],
+          manual_packages: [],
+          vulnerabilities: vulns,
+        },
+      },
+      error: null,
+    };
+
+    // Mock sequence:
+    // 1. pip-audit --version → unavailable
+    // 2. batch dry-run [requests, pillow, urllib3] → fail
+    // 3. per-pkg: requests==2.31.0 → pass
+    // 4. per-pkg: pillow==9.5.0 → pass
+    // 5. per-pkg: urllib3==2.0.7 → pass
+    // 6. re-batch [requests, pillow, urllib3] → fail (cross-conflict)
+    // 7. greedy: [requests] → pass (requests added to compatible)
+    // 8. greedy: [requests, pillow] → pass (pillow added)
+    // 9. greedy: [requests, pillow, urllib3] → fail (urllib3 excluded)
+    // 10. pip install [requests, pillow] → success
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(pipAuditUnavailable())             // 1
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'conflict', command: '', dryRun: false }) // 2
+      .mockResolvedValueOnce(ok())                              // 3
+      .mockResolvedValueOnce(ok())                              // 4
+      .mockResolvedValueOnce(ok())                              // 5
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'ResolutionImpossible', command: '', dryRun: false }) // 6
+      .mockResolvedValueOnce(ok())                              // 7
+      .mockResolvedValueOnce(ok())                              // 8
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'ResolutionImpossible', command: '', dryRun: false }) // 9
+      .mockResolvedValueOnce(ok('Successfully installed requests-2.31.0 pillow-9.5.0')); // 10
+
+    const runner = makeRunner({ runArgs: runArgsMock });
+    const result = await runPipUpdater(runner, baseConfig(), scan, '/tmp/project', false, []);
+
+    expect(result.status).toBe('success');
+
+    // urllib3 was excluded due to cross-conflict
+    const calls = runArgsMock.mock.calls as [string, string[], unknown][];
+    const installCall = calls.find((c) => c[0] === 'pip' && (c[1] as string[]).includes('install') && !(c[1] as string[]).includes('--dry-run'));
+    expect(installCall).toBeDefined();
+    expect(installCall![1]).toContain('requests==2.31.0');
+    expect(installCall![1]).toContain('pillow==9.5.0');
+    expect(installCall![1]).not.toContain('urllib3==2.0.7');
+
+    // logger.warn must have been called with cross-conflict message
+    expect(vi.mocked(logger.warn)).toHaveBeenCalledWith(
+      expect.stringContaining('Cross-package conflict detected'),
+    );
+  });
+
+  it('(T9) greedy finds zero compatible → falls back to per-package validated list', async () => {
+    // Two packages both pass per-package, re-batch fails, and greedy also finds no compatible set
+    // (every single spec conflicts). The fallback returns the per-package validated list.
+    const vulns: VulnerabilityEntry[] = [
+      makeVuln('pkga', '1.0.0', 'auto_safe'),
+      makeVuln('pkgb', '2.0.0', 'auto_safe'),
+    ];
+    const scan: ScanResultJson = {
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        pip: {
+          vulnerabilities_total: 2,
+          auto_safe: 2,
+          breaking: 0,
+          manual: 0,
+          auto_safe_packages: ['pkga@1.0.0', 'pkgb@2.0.0'],
+          breaking_packages: [],
+          manual_packages: [],
+          vulnerabilities: vulns,
+        },
+      },
+      error: null,
+    };
+
+    // Mock sequence:
+    // 1. pip-audit --version → unavailable
+    // 2. batch dry-run → fail
+    // 3. per-pkg: pkga==1.0.0 → pass
+    // 4. per-pkg: pkgb==2.0.0 → pass
+    // 5. re-batch [pkga, pkgb] → fail
+    // 6. greedy: [pkga] → fail (pkga alone fails)
+    // 7. greedy: [pkgb] → fail (pkgb alone fails)
+    //    compatible = [] → fallback: return both validated specs
+    // 8. pip install [pkga, pkgb] → success (real install attempted with fallback)
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(pipAuditUnavailable())             // 1
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'conflict', command: '', dryRun: false }) // 2
+      .mockResolvedValueOnce(ok())                              // 3
+      .mockResolvedValueOnce(ok())                              // 4
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'ResolutionImpossible', command: '', dryRun: false }) // 5
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'ResolutionImpossible', command: '', dryRun: false }) // 6
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'ResolutionImpossible', command: '', dryRun: false }) // 7
+      .mockResolvedValueOnce(ok('Successfully installed pkga-1.0.0 pkgb-2.0.0')); // 8
+
+    const runner = makeRunner({ runArgs: runArgsMock });
+    const result = await runPipUpdater(runner, baseConfig(), scan, '/tmp/project', false, []);
+
+    // Status could be success or error depending on install; the key assertion is
+    // that both packages were passed to pip install (fallback used per-package validated list)
+    const calls = runArgsMock.mock.calls as [string, string[], unknown][];
+    const installCall = calls.find((c) => c[0] === 'pip' && (c[1] as string[]).includes('install') && !(c[1] as string[]).includes('--dry-run'));
+    expect(installCall).toBeDefined();
+    expect(installCall![1]).toContain('pkga==1.0.0');
+    expect(installCall![1]).toContain('pkgb==2.0.0');
+    // No packages were added to skipped (fallback returns full validated list)
+    // The install should succeed with the mocked ok() response
+    expect(result.status).toBe('success');
+  });
+});
+
+// ── buildMaxCvssMap unit tests ────────────────────────────────────────────────
+
+function makeVulnWithCvss(
+  pkg: string,
+  cvss: string,
+  classification: 'auto_safe' | 'breaking' | 'manual' = 'auto_safe',
+): VulnerabilityEntry {
+  return {
+    ecosystem: 'pip',
+    package: pkg,
+    currentVersion: '1.0.0',
+    safeVersion: '2.0.0',
+    cvss,
+    ghsaId: 'GHSA-test',
+    risk: 'high',
+    classification,
+    reason: 'test',
+  };
+}
+
+describe('buildMaxCvssMap — AC3', () => {
+  const classifications = new Set<'auto_safe' | 'breaking' | 'manual'>(['auto_safe']);
+
+  it('single vuln — returns its CVSS score for the package', () => {
+    const vulns = [makeVulnWithCvss('requests', '7.5')];
+    const map = buildMaxCvssMap(vulns, classifications);
+    expect(map.get('requests')).toBe(7.5);
+  });
+
+  it('multiple vulns for the same package — returns max CVSS', () => {
+    const vulns = [
+      makeVulnWithCvss('requests', '5.0'),
+      makeVulnWithCvss('requests', '9.8'),
+      makeVulnWithCvss('requests', '7.5'),
+    ];
+    const map = buildMaxCvssMap(vulns, classifications);
+    expect(map.get('requests')).toBe(9.8);
+  });
+
+  it('non-numeric CVSS (dash) is treated as 0', () => {
+    const vulns = [makeVulnWithCvss('requests', '—')];
+    const map = buildMaxCvssMap(vulns, classifications);
+    expect(map.get('requests')).toBe(0);
+  });
+
+  it('empty string CVSS is treated as 0', () => {
+    const vulns = [makeVulnWithCvss('pillow', '')];
+    const map = buildMaxCvssMap(vulns, classifications);
+    expect(map.get('pillow')).toBe(0);
+  });
+
+  it('empty vulnerabilities array returns empty map', () => {
+    const map = buildMaxCvssMap([], classifications);
+    expect(map.size).toBe(0);
+  });
+
+  it('filters out vulns not in classifications', () => {
+    const vulns = [
+      makeVulnWithCvss('requests', '9.8', 'breaking'),
+      makeVulnWithCvss('pillow', '7.5', 'auto_safe'),
+    ];
+    const autoSafeOnly = new Set<'auto_safe' | 'breaking' | 'manual'>(['auto_safe']);
+    const map = buildMaxCvssMap(vulns, autoSafeOnly);
+    expect(map.has('requests')).toBe(false);
+    expect(map.get('pillow')).toBe(7.5);
+  });
+
+  it('normalises package name to lowercase', () => {
+    const vulns = [makeVulnWithCvss('Requests', '7.5')];
+    const map = buildMaxCvssMap(vulns, classifications);
+    expect(map.has('requests')).toBe(true);
+    expect(map.has('Requests')).toBe(false);
+  });
+
+  it('multiple packages — each gets their own max score', () => {
+    const vulns = [
+      makeVulnWithCvss('requests', '5.0'),
+      makeVulnWithCvss('pillow', '9.8'),
+      makeVulnWithCvss('requests', '7.5'),
+    ];
+    const map = buildMaxCvssMap(vulns, classifications);
+    expect(map.get('requests')).toBe(7.5);
+    expect(map.get('pillow')).toBe(9.8);
+  });
+});
+
+// ── sortSpecsByCvss unit tests ────────────────────────────────────────────────
+
+describe('sortSpecsByCvss — AC4', () => {
+  it('sorts specs descending by CVSS score', () => {
+    const cvssMap = new Map([['requests', 9.8], ['pillow', 5.0], ['urllib3', 7.5]]);
+    const sorted = sortSpecsByCvss(
+      ['pillow==9.5.0', 'urllib3==2.0.7', 'requests==2.31.0'],
+      cvssMap,
+    );
+    expect(sorted).toEqual(['requests==2.31.0', 'urllib3==2.0.7', 'pillow==9.5.0']);
+  });
+
+  it('packages not in map sort last (treated as CVSS 0)', () => {
+    const cvssMap = new Map([['requests', 7.5]]);
+    const sorted = sortSpecsByCvss(['unknown==1.0.0', 'requests==2.31.0'], cvssMap);
+    expect(sorted[0]).toBe('requests==2.31.0');
+    expect(sorted[1]).toBe('unknown==1.0.0');
+  });
+
+  it('returns a NEW array (does not mutate input)', () => {
+    const cvssMap = new Map([['a', 9.0], ['b', 1.0]]);
+    const original = ['b==1.0.0', 'a==2.0.0'];
+    const sorted = sortSpecsByCvss(original, cvssMap);
+    expect(original).toEqual(['b==1.0.0', 'a==2.0.0']); // unchanged
+    expect(sorted).toEqual(['a==2.0.0', 'b==1.0.0']);
+  });
+
+  it('stable sort — equal CVSS keeps original relative order', () => {
+    const cvssMap = new Map([['a', 7.5], ['b', 7.5], ['c', 9.8]]);
+    const sorted = sortSpecsByCvss(['a==1.0.0', 'b==2.0.0', 'c==3.0.0'], cvssMap);
+    expect(sorted[0]).toBe('c==3.0.0');
+    // a and b have equal CVSS — a came before b, so a should still come before b
+    expect(sorted[1]).toBe('a==1.0.0');
+    expect(sorted[2]).toBe('b==2.0.0');
+  });
+
+  it('empty array returns empty array', () => {
+    const sorted = sortSpecsByCvss([], new Map());
+    expect(sorted).toEqual([]);
+  });
+
+  it('spec without == still works (uses full name for lookup)', () => {
+    const cvssMap = new Map([['requests', 5.0], ['pillow', 9.0]]);
+    const sorted = sortSpecsByCvss(['requests', 'pillow'], cvssMap);
+    expect(sorted).toEqual(['pillow', 'requests']);
+  });
+});
+
+// ── T10: CVSS-sorted greedy keeps higher-CVSS package on cross-conflict ───────
+
+describe('(T10) CVSS-sorted greedy keeps higher-CVSS package when cross-conflict forces exclusion', () => {
+  it('keeps the package with higher CVSS when two packages conflict', async () => {
+    // pkgHigh has CVSS 9.8, pkgLow has CVSS 3.0.
+    // Without CVSS sorting the order is pkgLow first, pkgHigh second.
+    // After CVSS sorting the order is pkgHigh first, pkgLow second.
+    // The greedy algorithm picks the first compatible spec; they conflict with each other,
+    // so the second one gets excluded. With sorting, pkgHigh is kept.
+    const vulns: VulnerabilityEntry[] = [
+      { ...makeVulnWithCvss('pkghigh', '9.8'), safeVersion: '2.0.0' },
+      { ...makeVulnWithCvss('pkglow', '3.0'), safeVersion: '1.5.0' },
+    ];
+    const scan: ScanResultJson = {
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv',
+      status: 'success',
+      environment: 'local',
+      ecosystems: {
+        pip: {
+          vulnerabilities_total: 2,
+          auto_safe: 2,
+          breaking: 0,
+          manual: 0,
+          // pkglow listed before pkghigh — without CVSS sort, pkglow would be tried first
+          auto_safe_packages: ['pkglow@1.5.0', 'pkghigh@2.0.0'],
+          breaking_packages: [],
+          manual_packages: [],
+          vulnerabilities: vulns,
+        },
+      },
+      error: null,
+    };
+
+    // Mock sequence:
+    // 1. pip-audit --version → unavailable
+    // 2. batch dry-run [pkghigh, pkglow] (after CVSS sort) → fail (conflict)
+    // 3. per-pkg: pkghigh==2.0.0 → pass
+    // 4. per-pkg: pkglow==1.5.0 → pass
+    // 5. re-batch [pkghigh, pkglow] → fail (cross-conflict)
+    // 6. greedy: [pkghigh] → pass (pkghigh added — it was sorted first by CVSS)
+    // 7. greedy: [pkghigh, pkglow] → fail (pkglow excluded)
+    // 8. pip install [pkghigh] → success
+    const runArgsMock = vi.fn()
+      .mockResolvedValueOnce(pipAuditUnavailable())          // 1
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'conflict', command: '', dryRun: false }) // 2
+      .mockResolvedValueOnce(ok())                           // 3
+      .mockResolvedValueOnce(ok())                           // 4
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'ResolutionImpossible', command: '', dryRun: false }) // 5
+      .mockResolvedValueOnce(ok())                           // 6
+      .mockResolvedValueOnce({ exitCode: 1, stdout: '', stderr: 'ResolutionImpossible', command: '', dryRun: false }) // 7
+      .mockResolvedValueOnce(ok('Successfully installed pkghigh-2.0.0')); // 8
+
+    const runner = makeRunner({ runArgs: runArgsMock });
+    const result = await runPipUpdater(runner, baseConfig(), scan, '/tmp/project', false, []);
+
+    expect(result.status).toBe('success');
+
+    const calls = runArgsMock.mock.calls as [string, string[], unknown][];
+    const installCall = calls.find(
+      (c) => c[0] === 'pip' && (c[1] as string[]).includes('install') && !(c[1] as string[]).includes('--dry-run'),
+    );
+    expect(installCall).toBeDefined();
+    // Higher-CVSS package is kept
+    expect(installCall![1]).toContain('pkghigh==2.0.0');
+    // Lower-CVSS package is excluded due to conflict
+    expect(installCall![1]).not.toContain('pkglow==1.5.0');
+  });
+});
+
+// ── buildPipPackagesUpdated ──────────────────────────────────────────────────
+
+describe('buildPipPackagesUpdated', () => {
+  it('maps packages present in installedVersions to name@version', () => {
+    const autoSafe = ['requests==2.31.0', 'pillow==9.5.0'];
+    const installed = new Map([
+      ['requests', '2.31.0'],
+      ['pillow', '9.5.0'],
+    ]);
+    expect(buildPipPackagesUpdated(autoSafe, installed)).toEqual([
+      'requests@2.31.0',
+      'pillow@9.5.0',
+    ]);
+  });
+
+  it('excludes packages not in installedVersions (greedy subset scenario)', () => {
+    const autoSafe = ['requests==2.31.0', 'djangorestframework==3.14.0'];
+    // djangorestframework was excluded by the greedy subset — not installed
+    const installed = new Map([['requests', '2.31.0']]);
+    const result = buildPipPackagesUpdated(autoSafe, installed);
+    expect(result).toEqual(['requests@2.31.0']);
+    expect(result).not.toContain('djangorestframework');
+    expect(result).not.toContain('djangorestframework@3.14.0');
+  });
+
+  it('returns [] when installedVersions is empty', () => {
+    const autoSafe = ['requests==2.31.0', 'pillow==9.5.0'];
+    expect(buildPipPackagesUpdated(autoSafe, new Map())).toEqual([]);
+  });
+
+  it('handles mixed scenario: some packages installed, some excluded', () => {
+    const autoSafe = ['requests==2.31.0', 'pillow==9.5.0', 'django==4.2.0'];
+    // pillow and django were excluded by the greedy subset
+    const installed = new Map([['requests', '2.31.0']]);
+    const result = buildPipPackagesUpdated(autoSafe, installed);
+    expect(result).toEqual(['requests@2.31.0']);
+    expect(result).not.toContain('pillow');
+    expect(result).not.toContain('django');
+  });
+
+  it('handles @ separator format in scan entries', () => {
+    const autoSafe = ['requests@2.31.0', 'pillow@9.5.0'];
+    const installed = new Map([
+      ['requests', '2.31.0'],
+      ['pillow', '9.5.0'],
+    ]);
+    expect(buildPipPackagesUpdated(autoSafe, installed)).toEqual([
+      'requests@2.31.0',
+      'pillow@9.5.0',
+    ]);
+  });
+
+  it('uses the installed version from the map, not the version in the scan entry', () => {
+    // The map version reflects what pip actually installed (may differ from scan entry)
+    const autoSafe = ['requests==2.28.0'];
+    const installed = new Map([['requests', '2.31.0']]);
+    expect(buildPipPackagesUpdated(autoSafe, installed)).toEqual(['requests@2.31.0']);
+  });
+
+  it('handles package names with extras in scan entries', () => {
+    const autoSafe = ['requests[security]==2.31.0'];
+    const installed = new Map([['requests', '2.31.0']]);
+    expect(buildPipPackagesUpdated(autoSafe, installed)).toEqual(['requests@2.31.0']);
+  });
+
+  it('returns [] when autoSafePackages is empty', () => {
+    const installed = new Map([['requests', '2.31.0']]);
+    expect(buildPipPackagesUpdated([], installed)).toEqual([]);
   });
 });

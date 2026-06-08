@@ -4,7 +4,8 @@
  * Uses silentScannerSweepRenderer or a minimal fake renderer — NO listr2 mocking.
  * All tests are config-agnostic: policy is injected directly.
  */
-import { describe, it, expect, vi } from 'vitest';
+
+import type { ScanResultJson } from '@core/types/scan';
 import {
   executeScannerSweep,
   PrimaryEngineFailure,
@@ -12,7 +13,7 @@ import {
 import type { EngineRunRenderer, EngineRunPolicy } from '@modules/scanner/scanner-sweep';
 import { silentScannerSweepRenderer } from '@modules/scanner/scanner-sweep-renderers';
 import type { ScannerEngine, ScannerEngineContext } from '@modules/scanner/types';
-import type { ScanResultJson } from '@core/types/scan';
+import { describe, it, expect, vi } from 'vitest';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

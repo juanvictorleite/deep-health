@@ -1,6 +1,7 @@
-import { CLI_NAME } from '@infra/brand';
-import { __ } from '@core/i18n';
 import { z } from "zod";
+
+import { __ } from '@core/i18n';
+import { CLI_NAME } from '@infra/brand';
 
 const ProtectedPackageSchema = z
   .object({
@@ -74,7 +75,7 @@ const OsvScannerConfigSchema = z
 const DebianPackageNameSchema = z
   .string()
   .regex(
-    /^[a-z0-9][a-z0-9+.\-]*$/,
+    /^[a-z0-9][a-z0-9+.-]*$/,
     'Invalid package name — must follow Debian naming conventions (lowercase alphanumeric, hyphens, dots, plus signs only)',
   );
 
@@ -184,6 +185,11 @@ const OutputsConfigSchema = z
      * Defaults to false.
      */
     split_reports: z.boolean().optional(),
+    /**
+     * List of SonarQube metric keys to display in visual reports (MD/DOCX/HTML).
+     * When omitted, defaults to DEFAULT_SONAR_REPORT_METRICS.
+     */
+    sonarqube_metrics: z.array(z.string()).optional(),
   })
   .strict();
 
@@ -497,6 +503,23 @@ const SafeUpdatePolicySchema = z
   })
   .strict();
 
+/**
+ * Controls reachability analysis for vulnerability enrichment.
+ *
+ * - `enabled` (default: true): when false, reachability analysis is entirely
+ *   skipped — no adapter is created and all packages are treated as reachable.
+ * - `deep` (default: true): when true, enables cross-package conflict detection
+ *   for npm and composer adapters, in addition to the default parent-blocks-child check.
+ */
+const ReachabilityConfigSchema = z
+  .object({
+    /** Set to false to disable all reachability analysis. Default: true. */
+    enabled: z.boolean().default(true),
+    /** Default: true. Set to false to disable deep cross-package conflict detection (npm, composer). */
+    deep: z.boolean().default(true),
+  })
+  .strict();
+
 export const ProjectConfigSchema = z
   .object({
     /**
@@ -529,6 +552,8 @@ export const ProjectConfigSchema = z
     scanners: ScannersConfigSchema.optional(),
     outputs: OutputsConfigSchema.optional(),
     workflow: WorkflowConfigSchema.optional(),
+    /** Controls reachability analysis. Absent means { enabled: true, deep: false }. */
+    reachability: ReachabilityConfigSchema.optional(),
   })
   .strict()
   .superRefine((data, ctx) => {

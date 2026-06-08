@@ -9,8 +9,8 @@ vi.mock('@infra/utils/logger', () => ({
   logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },
 }));
 
-import { detectGitBranch } from '@infra/utils/git-branch';
 import type { CommandRunner } from '@core/types/common';
+import { detectGitBranch } from '@infra/utils/git-branch';
 
 function makeRunner(impl: () => Promise<any>): CommandRunner {
   return {
@@ -29,7 +29,7 @@ describe('detectGitBranch() — error branches', () => {
   });
 
   it('returns null and logs when runner.runArgs throws a non-Error', async () => {
-    const runner = makeRunner(() => Promise.reject('string error'));
+    const runner = makeRunner(() => Promise.reject(new Error('string error')));
     const result = await detectGitBranch('/cwd', runner);
     expect(result).toBeNull();
   });

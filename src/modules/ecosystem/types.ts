@@ -1,11 +1,11 @@
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig, ProtectedPackage, FixerStrategyId, ValidationCommandConfig, AdvisorConfig, EcosystemConfig } from '@core/types/config';
+import type { AdvisorResult } from '@core/types/report';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
-import type { AdvisorResult } from '@core/types/report';
 import type { EcosystemRuntimeSpec } from '@infra/ecosystem-runtime/types';
-import type { OsvFixOutcome } from '@modules/ecosystem/fixers/index';
 import type { VersionSource } from '@infra/utils/infer-version';
+import type { OsvFixOutcome } from '@modules/ecosystem/fixers/index';
 
 export interface EcosystemUpdaterContext {
   runner: CommandRunner;
@@ -101,6 +101,13 @@ export interface EcosystemPlugin {
 
   /** Additional args for `osv-scanner` (ex: ['--lockfile', 'composer.lock']) */
   buildScanArgs(): string[];
+
+  /**
+   * Optional async hook called before buildScanArgs() in the per-entry scan loop.
+   * Allows the plugin to inspect the entry directory and cache state used by buildScanArgs().
+   * When absent, buildScanArgs() is called directly (no change for plugins that don't need it).
+   */
+  prepareScan?(entryCwd: string): Promise<void>;
 
   /** Protected packages for this ecosystem in the project config */
   getProtectedPackages(config: ProjectConfig): ProtectedPackage[];

@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+
 import type { CommandRunner } from '@core/types/common';
 import type { UpdateResultJson, ValidationEntry, AuditFinding } from '@core/types/update';
 import { backupFiles, restoreFiles } from '@infra/utils/fs-backup';

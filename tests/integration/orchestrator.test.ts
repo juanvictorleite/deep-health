@@ -1,19 +1,20 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { runOrchestrator } from '@orchestration/orchestrator';
-import { loadConfig } from '@infra/config/loader';
+
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+
 import { GateValidationError } from '@core/errors';
-import { unwrap } from '@core/types/result';
-import { ScannerEngineRegistry } from '@modules/scanner/registry';
-import { OsvScannerEngine } from '@modules/scanner/osv-engine';
-import { SonarQubeEngine } from '@modules/scanner/sonarqube-engine';
-import { OSV_ENGINE_ID } from '@modules/scanner/aggregator';
 import type { CommandRunner, CommandResult, CommandRunnerOptions, ExecutionEnv } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
-import type { ScannerEngineContext, ScannerEngine } from '@modules/scanner/types';
+import { unwrap } from '@core/types/result';
 import type { ScanResultJson } from '@core/types/scan';
-import * as gitUtils from '@infra/utils/fs-backup';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { loadConfig } from '@infra/config/loader';
+import { OSV_ENGINE_ID } from '@modules/scanner/aggregator';
+import { OsvScannerEngine } from '@modules/scanner/osv-engine';
+import { ScannerEngineRegistry } from '@modules/scanner/registry';
+import { SonarQubeEngine } from '@modules/scanner/sonarqube-engine';
+import type { ScannerEngineContext, ScannerEngine } from '@modules/scanner/types';
+import { runOrchestrator } from '@orchestration/orchestrator';
 
 // Mock applyOsvFixViaStaging so integration tests don't need Docker for OSV fix
 vi.mock('@orchestration/osv-fix-applier.js', () => ({
@@ -46,6 +47,7 @@ vi.mock('@infra/ecosystem-runtime', async () => {
 });
 
 import * as osvFixApplier from '@orchestration/osv-fix-applier.js';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = resolve(__dirname, '../fixtures');

@@ -1,8 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { runOrchestrator } from "@orchestration/orchestrator";
-import { ScannerEngineRegistry } from "@modules/scanner/registry";
-import { OsvScannerEngine } from "@modules/scanner/osv-engine";
-import { npmPlugin } from "@modules/ecosystem/plugins/npm";
+
 import type {
   CommandRunner,
   CommandResult,
@@ -11,6 +7,11 @@ import type {
 } from "@core/types/common";
 import type { ProjectConfig } from "@core/types/config";
 import { logger } from "@infra/utils/logger";
+import { npmPlugin } from "@modules/ecosystem/plugins/npm";
+import { OsvScannerEngine } from "@modules/scanner/osv-engine";
+import { ScannerEngineRegistry } from "@modules/scanner/registry";
+import { runOrchestrator } from "@orchestration/orchestrator";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // ── Module-level mocks ───────────────────────────────────────────────────────
 

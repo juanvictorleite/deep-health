@@ -19,6 +19,14 @@ vi.mock('@modules/ecosystem/plugins/pip-updater', () => ({
   runPipUpdater: mockRunPipUpdater,
 }));
 
+vi.mock('@modules/ecosystem/plugins/pip-tooling-detector', () => ({
+  detectPipTooling: vi.fn().mockResolvedValue({
+    tier: 3,
+    tooling: 'bare-pip',
+    manifest: '/project/requirements.txt',
+  }),
+}));
+
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
 }));
@@ -76,6 +84,7 @@ describe('pipPlugin.runUpdater — validationCommands ?? [] branch (line 104)', 
       undefined,  // preRunSnapshots
       undefined,  // advisorResults
       undefined,  // ecosystemKey
+      expect.objectContaining({ tooling: 'bare-pip' }), // detection
     );
   });
 
@@ -95,6 +104,7 @@ describe('pipPlugin.runUpdater — validationCommands ?? [] branch (line 104)', 
       undefined,   // preRunSnapshots
       undefined,   // advisorResults
       undefined,   // ecosystemKey
+      expect.objectContaining({ tooling: 'bare-pip' }), // detection
     );
   });
 });

@@ -7,16 +7,17 @@
  *
  * runScanner() and the orchestrator call bootstrapDefaultEngines automatically.
  */
-import { defaultScannerRegistry } from './registry';
-import { OsvScannerEngine } from './osv-engine';
-import { SonarQubeEngine } from './sonarqube-engine';
-import { OSV_ENGINE_ID } from './aggregator';
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
 import type { ScanResultJson } from '@core/types/scan';
-import type { EcosystemRegistry } from '@modules/ecosystem/registry';
-import { defaultRegistry } from '@modules/ecosystem/index';
 import { detectGitBranch } from '@infra/utils/git-branch';
+import { defaultRegistry } from '@modules/ecosystem/index';
+import type { EcosystemRegistry } from '@modules/ecosystem/registry';
+
+import { OSV_ENGINE_ID } from './aggregator';
+import { OsvScannerEngine } from './osv-engine';
+import { defaultScannerRegistry } from './registry';
+import { SonarQubeEngine } from './sonarqube-engine';
 
 /**
  * Bootstrap the default scanner engines into a registry (idempotent / lazy).
