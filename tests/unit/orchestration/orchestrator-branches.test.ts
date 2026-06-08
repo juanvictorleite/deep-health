@@ -18,7 +18,7 @@ vi.mock('@infra/utils/git-branch', () => ({
 vi.mock('@app/report-saver', () => ({
   resolveReportsDir: vi.fn().mockReturnValue('/tmp/reports'),
   resolveEngineReportsDir: vi.fn().mockReturnValue('/tmp/reports'),
-  saveReport: vi.fn().mockResolvedValue({ localUrl: '/tmp/report.md', cloudSkipped: true }),
+  saveReport: vi.fn().mockResolvedValue({ localUrl: '/tmp/report.md' }),
   saveSonarQubeExport: vi.fn().mockResolvedValue(undefined),
 }));
 

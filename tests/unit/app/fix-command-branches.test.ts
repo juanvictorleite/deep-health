@@ -30,7 +30,7 @@ vi.mock('@app/output-writer', () => ({
 }));
 
 vi.mock('@app/report-saver', () => ({
-  saveReport: vi.fn().mockResolvedValue({ localUrl: '/reports/report.md', cloudSkipped: true }),
+  saveReport: vi.fn().mockResolvedValue({ localUrl: '/reports/report.md' }),
   resolveReportsDir: vi.fn(() => '/reports'),
   resolveEngineReportsDir: vi.fn(() => '/reports'),
 }));

@@ -30,7 +30,7 @@ ${fnName}() {
     cword=$COMP_CWORD
   }
 
-  local subcommands="init scan fix executive-report cloud-setup doctor completion"
+  local subcommands="init scan fix executive-report doctor completion"
   local common_flags="--config --cwd --verbose --quiet --json --dry-run --output"
   local fix_flags="--phases --authorize-breaking --create-branch --open-pr"
 
@@ -39,7 +39,7 @@ ${fnName}() {
   local i
   for (( i=1; i<cword; i++ )); do
     case "\${words[i]}" in
-      init|scan|fix|executive-report|cloud-setup|doctor|completion)
+      init|scan|fix|executive-report|doctor|completion)
         subcommand="\${words[i]}"
         break
         ;;
@@ -94,7 +94,6 @@ _${cliName.replace(/-/g, '_')}() {
     'scan:Run vulnerability scan only (Phase 1)'
     'fix:Run full workflow: scan + ecosystem updates + executive report'
     'executive-report:Generate executive report'
-    'cloud-setup:Interactive Google Drive folder picker'
     'doctor:Check environment and configuration'
     'completion:Generate shell completion scripts'
   )
@@ -174,7 +173,6 @@ complete -c ${cliName} -n '__fish_use_subcommand' -a 'init' -d 'Generate a proje
 complete -c ${cliName} -n '__fish_use_subcommand' -a 'scan' -d 'Run vulnerability scan only (Phase 1)'
 complete -c ${cliName} -n '__fish_use_subcommand' -a 'fix' -d 'Run full workflow: scan + ecosystem updates + executive report'
 complete -c ${cliName} -n '__fish_use_subcommand' -a 'executive-report' -d 'Generate executive report'
-complete -c ${cliName} -n '__fish_use_subcommand' -a 'cloud-setup' -d 'Interactive Google Drive folder picker'
 complete -c ${cliName} -n '__fish_use_subcommand' -a 'doctor' -d 'Check environment and configuration'
 complete -c ${cliName} -n '__fish_use_subcommand' -a 'completion' -d 'Generate shell completion scripts'
 

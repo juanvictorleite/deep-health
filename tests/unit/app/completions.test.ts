@@ -22,10 +22,11 @@ describe('generateBashCompletion', () => {
 
   it('includes all expected subcommands', () => {
     const script = generateBashCompletion('security-scan');
-    const subcommands = ['init', 'scan', 'fix', 'executive-report', 'cloud-setup', 'doctor', 'completion'];
+    const subcommands = ['init', 'scan', 'fix', 'executive-report', 'doctor', 'completion'];
     for (const sub of subcommands) {
       expect(script).toContain(sub);
     }
+    expect(script).not.toContain('cloud-setup');
   });
 
   it('includes common flags', () => {
@@ -81,10 +82,11 @@ describe('generateZshCompletion', () => {
 
   it('includes all expected subcommands', () => {
     const script = generateZshCompletion('security-scan');
-    const subcommands = ['init', 'scan', 'fix', 'executive-report', 'cloud-setup', 'doctor', 'completion'];
+    const subcommands = ['init', 'scan', 'fix', 'executive-report', 'doctor', 'completion'];
     for (const sub of subcommands) {
       expect(script).toContain(sub);
     }
+    expect(script).not.toContain('cloud-setup');
   });
 
   it('includes common flags using _arguments style', () => {
@@ -137,10 +139,11 @@ describe('generateFishCompletion', () => {
 
   it('includes all expected subcommands', () => {
     const script = generateFishCompletion('security-scan');
-    const subcommands = ['init', 'scan', 'fix', 'executive-report', 'cloud-setup', 'doctor', 'completion'];
+    const subcommands = ['init', 'scan', 'fix', 'executive-report', 'doctor', 'completion'];
     for (const sub of subcommands) {
       expect(script).toContain(sub);
     }
+    expect(script).not.toContain('cloud-setup');
   });
 
   it('includes common flags', () => {

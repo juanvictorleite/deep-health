@@ -12,7 +12,6 @@ if (nodeMajor < 24) {
 
 import { Command } from 'commander';
 
-import { runCloudSetup } from '@app/commands/cloud-setup';
 import { runDoctorCommand } from '@app/commands/doctor';
 import {
   runExecutiveReportCommand,
@@ -196,24 +195,6 @@ program
       script = generateFishCompletion(CLI_NAME);
     }
     process.stdout.write(script);
-  });
-
-// cloud-setup command
-program
-  .command('cloud-setup')
-  .description(
-    'Interactive Google Drive folder picker — saves folder_id to project-config.yml',
-  )
-  .option(
-    '-c, --config <path>',
-    'Path to project-config.yml',
-    DEFAULT_CONFIG_PATH,
-  )
-  .option('--cwd <path>', 'Working directory', process.cwd())
-  .action(async (opts: { config: string; cwd: string }) => {
-    await runCliAction(() =>
-      runCloudSetup({ configPath: opts.config, cwd: opts.cwd }),
-    );
   });
 
 program.addHelpText(

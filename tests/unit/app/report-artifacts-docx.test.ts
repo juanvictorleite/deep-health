@@ -1,7 +1,3 @@
-/**
- * Tests for DOCX artifact generation in generateAndSaveReportArtifacts().
- * AC5: DOCX artifact is generated when outputs.formats includes 'docx'.
- */
 import type { ProjectConfig } from '@core/types/config';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -27,7 +23,7 @@ vi.mock('@reporting/sonarqube-report', () => ({
 }));
 
 vi.mock('@app/report-saver', () => ({
-  saveReport: vi.fn().mockResolvedValue({ localUrl: '/reports/report', cloudSkipped: true }),
+  saveReport: vi.fn().mockResolvedValue({ localUrl: '/reports/report' }),
   resolveReportsDir: vi.fn(() => '/abs/reports'),
   resolveEngineReportsDir: vi.fn(() => '/abs/reports'),
 }));
@@ -91,8 +87,6 @@ describe('generateAndSaveReportArtifacts() — DOCX format', () => {
       expect.stringMatching(/\.docx$/),
       expect.any(Buffer),
       expect.any(String),
-      undefined,
-      '/repo',
     );
   });
 
@@ -107,8 +101,6 @@ describe('generateAndSaveReportArtifacts() — DOCX format', () => {
       expect.stringMatching(/\.md$/),
       expect.any(String),
       expect.any(String),
-      undefined,
-      '/repo',
     );
   });
 
@@ -139,50 +131,22 @@ describe('generateAndSaveReportArtifacts() — DOCX format', () => {
     expect(executiveReportFilename).toHaveBeenCalledWith('Acme', 'Project');
   });
 
-  it('returns 1 when DOCX cloud upload fails and require_upload is true', async () => {
-    vi.mocked(saveReport).mockResolvedValue({
-      localUrl: '/reports/doc.docx',
-      cloudError: 'Network error',
-      cloudSkipped: false,
-    });
+  it('propagates local save failure when saveReport throws', async () => {
+    vi.mocked(saveReport).mockRejectedValue(new Error('disk full'));
 
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
-    const code = await generateAndSaveReportArtifacts({
-      ...baseInput,
-      config: {
-        ...baseConfig,
-        outputs: { formats: ['docx'] },
-        cloud_storage: { provider: 'google_drive', folder_id: 'folder1', require_upload: true },
-      },
-    });
-    expect(code).toBe(1);
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('DOCX'));
-    stderrSpy.mockRestore();
-  });
-
-  it('returns 0 when DOCX cloud upload fails but require_upload is false', async () => {
-    vi.mocked(saveReport).mockResolvedValue({
-      localUrl: '/reports/doc.docx',
-      cloudError: 'Network error',
-      cloudSkipped: false,
-    });
-
-    const code = await generateAndSaveReportArtifacts({
-      ...baseInput,
-      config: {
-        ...baseConfig,
-        outputs: { formats: ['docx'] },
-        cloud_storage: { provider: 'google_drive', folder_id: 'folder1', require_upload: false },
-      },
-    });
-    expect(code).toBe(0);
+    await expect(
+      generateAndSaveReportArtifacts({
+        ...baseInput,
+        config: { ...baseConfig, outputs: { formats: ['docx'] } },
+      }),
+    ).rejects.toThrow('disk full');
   });
 
   it('DOCX and Markdown are saved independently — both present without interfering', async () => {
     const calls: string[] = [];
     vi.mocked(saveReport).mockImplementation(async (filename) => {
       calls.push(filename);
-      return { localUrl: `/reports/${filename}`, cloudSkipped: true };
+      return { localUrl: `/reports/${filename}` };
     });
 
     await generateAndSaveReportArtifacts({

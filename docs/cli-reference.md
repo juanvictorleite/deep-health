@@ -194,24 +194,6 @@ When `--split-reports` is set (or `outputs.split_reports: true` in config), gene
 
 ---
 
-### `cloud-setup`
-
-Interactive Google Drive folder picker. Saves the chosen folder ID to `security-scan.config.json`.
-
-```bash
-security-scan cloud-setup
-```
-
-**What it does:**
-
-1. Initiates Google OAuth flow (opens browser via `execFile` with `shell: false` — no shell injection possible).
-2. Lists your Google Drive folders interactively.
-3. Writes the selected folder ID to `cloud_storage.google_drive.folder_id` in `security-scan.config.json`.
-
-Once configured, `security-scan fix` automatically uploads the executive report to that Drive folder after each run.
-
----
-
 ## Configuration Reference
 
 Full annotated `security-scan.config.json`:
@@ -308,12 +290,6 @@ Full annotated `security-scan.config.json`:
     "sub_folders": false,
     "formats": ["markdown"],
     "split_reports": false
-  },
-
-  "cloud_storage": {
-    "provider": "google_drive",
-    "folder_id": "YOUR_FOLDER_ID",
-    "require_upload": false
   }
 }
 ```

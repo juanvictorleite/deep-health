@@ -3,7 +3,6 @@
  *   - DockerImageRefSchema: injection-safe image references across scanners
  *   - BuildArgsSchema: key/value constraints for docker build arguments
  *   - branch_prefix: valid prefix patterns, no dash-leading values
- *   - folder_id: minimum length and character set
  */
 import { ProjectConfigSchema } from '@infra/config/schema';
 import { describe, it, expect } from 'vitest';
@@ -367,47 +366,6 @@ describe('branch_prefix validation', () => {
     const result = ProjectConfigSchema.safeParse({
       ...minimalConfig,
       workflow: { branch_prefix: '--option' },
-    });
-    expect(result.success).toBe(false);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Group D — folder_id validation
-// ---------------------------------------------------------------------------
-
-describe('folder_id validation', () => {
-  it.each([
-    'AbCdEfGhIjKl',
-    'folder-id_1234567890',
-  ])('accepts valid folder_id: %s', (folder_id) => {
-    const result = ProjectConfigSchema.safeParse({
-      ...minimalConfig,
-      cloud_storage: { provider: 'google_drive', folder_id },
-    });
-    expect(result.success).toBe(true);
-  });
-
-  it('rejects folder_id shorter than 10 characters', () => {
-    const result = ProjectConfigSchema.safeParse({
-      ...minimalConfig,
-      cloud_storage: { provider: 'google_drive', folder_id: 'short' },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects folder_id containing a space', () => {
-    const result = ProjectConfigSchema.safeParse({
-      ...minimalConfig,
-      cloud_storage: { provider: 'google_drive', folder_id: 'has space123' },
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects folder_id containing an at-sign', () => {
-    const result = ProjectConfigSchema.safeParse({
-      ...minimalConfig,
-      cloud_storage: { provider: 'google_drive', folder_id: 'has@symbol12' },
     });
     expect(result.success).toBe(false);
   });

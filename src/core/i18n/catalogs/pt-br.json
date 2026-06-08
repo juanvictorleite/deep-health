@@ -174,47 +174,15 @@
   "Issues": "Issues",
 
   "Config file not found: {{configPath}}\nRun \"{{cliName}} init\" first.\n": "Arquivo de configuração não encontrado: {{configPath}}\nExecute \"{{cliName}} init\" primeiro.\n",
-  "Starting Google OAuth 2.0 authorization flow...\n": "Iniciando fluxo de autorização Google OAuth 2.0...\n",
-  "OAuth flow failed: {{error}}\n": "Falha no fluxo OAuth: {{error}}\n",
-  "✔ Authenticated as: {{email}}\n": "✔ Autenticado como: {{email}}\n",
-  "✔ Google Drive connected.\n": "✔ Google Drive conectado.\n",
-  "Fetching Google Drive folders...\n": "Buscando pastas do Google Drive...\n",
-  "Failed to list folders: {{error}}\n": "Falha ao listar pastas: {{error}}\n",
-  "No folders found in your Google Drive.\nCreate a folder in Google Drive first or enter the folder ID manually.\n": "Nenhuma pasta encontrada no seu Google Drive.\nCrie uma pasta no Google Drive primeiro ou insira o ID da pasta manualmente.\n",
-  "Setup cancelled.\n": "Configuração cancelada.\n",
-  "\n✔ Cloud storage configured. Folder ID saved to: {{configPath}}\n": "\n✔ Armazenamento em nuvem configurado. ID da pasta salvo em: {{configPath}}\n",
 
   "[{{cliName}}] --open-pr requires the GitHub CLI (gh). Install it from https://cli.github.com and run: gh auth login\n": "[{{cliName}}] --open-pr requer o GitHub CLI (gh). Instale em https://cli.github.com e execute: gh auth login\n",
   "git push failed: {{detail}}": "git push falhou: {{detail}}",
   "gh pr create failed: {{detail}}": "gh pr create falhou: {{detail}}",
   "[{{cliName}}] Pull request created: {{prUrl}}\n": "[{{cliName}}] Pull request criado: {{prUrl}}\n",
 
-  "Cloud storage init failed: {{msg}}\n": "Falha ao inicializar armazenamento em nuvem: {{msg}}\n",
-  "Cloud storage init failed: {{msg}}": "Falha ao inicializar armazenamento em nuvem: {{msg}}",
   "Report saved [{{provider}}]: {{url}}\n": "Relatório salvo [{{provider}}]: {{url}}\n",
   "Failed to save report locally: {{msg}}": "Falha ao salvar relatório localmente: {{msg}}",
-  "Cloud upload failed: {{msg}}\n": "Falha no upload para a nuvem: {{msg}}\n",
   "SonarQube export save failed: {{error}}\n": "Falha ao salvar exportação do SonarQube: {{error}}\n",
-
-  "\nOpening browser for Google OAuth authorization...\n": "\nAbrindo navegador para autorização Google OAuth...\n",
-  "\nIf the browser does not open, visit:\n  {{authUrl}}\n\n": "\nSe o navegador não abrir, acesse:\n  {{authUrl}}\n\n",
-
-  "Google Drive upload requires the \"googleapis\" package, which is not installed. Install it with: npm install googleapis": "O pacote \"googleapis\" não está instalado, necessário para upload no Google Drive. Instale com: npm install googleapis",
-  "Google Drive tokens not found. Run '{{cliName}} cloud-setup' first to connect Google Drive.": "Tokens do Google Drive não encontrados. Execute '{{cliName}} cloud-setup' primeiro para conectar o Google Drive.",
-
-  "Google OAuth credentials are not configured.\nSet the following environment variables before running cloud-setup:\n  DEEP_HEALTH_GOOGLE_CLIENT_ID=<your-client-id>\n  DEEP_HEALTH_GOOGLE_CLIENT_SECRET=<your-client-secret>\nCreate OAuth 2.0 credentials (Desktop app) at:\n  https://console.cloud.google.com/apis/credentials": "Credenciais OAuth do Google não configuradas.\nDefina as seguintes variáveis de ambiente antes de executar cloud-setup:\n  DEEP_HEALTH_GOOGLE_CLIENT_ID=<seu-client-id>\n  DEEP_HEALTH_GOOGLE_CLIENT_SECRET=<seu-client-secret>\nCrie as credenciais OAuth 2.0 (Desktop app) em:\n  https://console.cloud.google.com/apis/credentials",
-  "Google Drive OAuth flow requires the \"googleapis\" package, which is not installed. Install it with: npm install googleapis": "O pacote \"googleapis\" não está instalado, necessário para o fluxo OAuth do Google Drive. Instale com: npm install googleapis",
-  "Failed to start local OAuth callback server": "Falha ao iniciar o servidor local de callback OAuth",
-  "OAuth timeout: authorization not completed in 5 minutes": "Tempo esgotado no OAuth: autorização não concluída em 5 minutos",
-  "Authorization failed: {{error}}": "Autorização falhou: {{error}}",
-  "You can close this tab.": "Você pode fechar esta aba.",
-  "OAuth authorization failed: {{error}}": "Falha na autorização OAuth: {{error}}",
-  "Invalid state parameter": "Parâmetro de estado inválido",
-  "OAuth state mismatch — possible CSRF attack": "Incompatibilidade de estado OAuth — possível ataque CSRF",
-  "No authorization code received": "Nenhum código de autorização recebido",
-  "No authorization code in OAuth callback": "Nenhum código de autorização no callback OAuth",
-
-  "Unknown cloud storage provider: {{provider}}": "Provedor de armazenamento em nuvem desconhecido: {{provider}}",
 
   "Config field 'scanners.{{ecosystem}}' is no longer supported. Move ecosystem runner config to the 'runner' field inside the matching ecosystems[] entry. See docs/adr/0004-ecosystem-runner-config-and-build-context-hardening.md for the rationale.": "O campo de configuração 'scanners.{{ecosystem}}' não é mais suportado. Mova a configuração do runner do ecossistema para o campo 'runner' dentro da entrada correspondente em ecosystems[]. Consulte docs/adr/0004-ecosystem-runner-config-and-build-context-hardening.md para mais detalhes.",
   "The top-level 'runners' block is no longer supported. Move each runner config (npm, pip, composer) to the 'runner' field inside the matching ecosystems[] entry. Example: ecosystems: [{ id: 'npm', runner: { language_version: '20' } }].": "O bloco 'runners' de nível superior não é mais suportado. Mova cada configuração de runner (npm, pip, composer) para o campo 'runner' dentro da entrada correspondente em ecosystems[]. Exemplo: ecosystems: [{ id: 'npm', runner: { language_version: '20' } }].",

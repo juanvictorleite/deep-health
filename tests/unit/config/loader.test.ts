@@ -463,7 +463,7 @@ describe('strict schema enforcement — unknown keys', () => {
     });
   });
 
-  it('rejects legacy cloud_storage credentials keys (OAuth flow stores tokens outside config)', async () => {
+  it('rejects unknown top-level object key', async () => {
     const json = JSON.stringify({
       config_version: '1',
       project: { name: 'test', client: 'test' },
@@ -474,10 +474,9 @@ describe('strict schema enforcement — unknown keys', () => {
         require_authorization_for_constraint_change: false,
       },
       conflict_resolution: 'fail',
-      cloud_storage: {
-        provider: 'google_drive',
-        folder_id: 'abc123',
-        credentials: '.security-scan/gdrive-service-account.json',
+      not_a_real_key: {
+        some_field: 'value',
+        another_field: 'abc123',
       },
     }, null, 2);
 

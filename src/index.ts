@@ -18,7 +18,6 @@ export type {
   AdvisorConfig,
   ValidationCommandConfig,
   OsvScannerConfig,
-  CloudStorageConfig,
   SonarQubeConfig,
   ScannersConfig,
   SafeUpdatePolicy,
