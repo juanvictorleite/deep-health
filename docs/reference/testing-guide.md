@@ -1,3 +1,11 @@
+---
+type: Reference
+title: Testing guide
+description: Test structure, Vitest projects (unit/integration/smoke), and conventions for writing tests.
+tags: [reference, testing, vitest]
+timestamp: 2026-07-06T00:00:00Z
+---
+
 # Testing Guide — security-scan
 
 ## Test Structure

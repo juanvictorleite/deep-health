@@ -1,3 +1,11 @@
+---
+type: Reference
+title: JSON schema reference
+description: ScanResultJson / UpdateResultJson contracts enforced by Gate A and the ecosystem gates when --json is used.
+tags: [reference, json, schema]
+timestamp: 2026-07-06T00:00:00Z
+---
+
 # JSON Schema Reference — security-scan
 
 When `--json` is passed to `scan` or `fix`, the output conforms to the schemas described here. These are also the contracts enforced by Gate A and the ecosystem gates.

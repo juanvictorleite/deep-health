@@ -1,3 +1,11 @@
+---
+type: Reference
+title: Complete usage guide (English)
+description: Client-facing complete usage guide for the security-scan CLI, in English.
+tags: [guide, usage, en]
+timestamp: 2026-07-06T00:00:00Z
+---
+
 # security-scan — Complete Usage Guide
 
 > Version 0.1.9 | Docker required (Node.js ≥ 26 only for npm install)

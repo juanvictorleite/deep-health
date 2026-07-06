@@ -1,6 +1,14 @@
+---
+type: Issue
+title: Config simplification + build context boundary hardening
+description: Execution plan for ADR 0004 — deprecated composer fields removal and enforced build-context boundary. Executed 2026-04/05.
+status: Done
+tags: [config, security]
+timestamp: 2026-04-29T00:00:00Z
+---
+
 # Plano: Config Simplification + Build Context Boundary Hardening
 
-**Status:** Pronto para implementação  
 **Data:** 2026-04-29  
 **ADR de referência:** [ADR-0004](../adr/0004-ecosystem-runner-config-and-build-context-hardening.md)
 

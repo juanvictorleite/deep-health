@@ -1,3 +1,11 @@
+---
+type: Reference
+title: CommandRunner interface & security model
+description: The single abstraction through which plugins, updaters, and scanners execute shell commands — semantics and security model.
+tags: [reference, command-runner, security]
+timestamp: 2026-07-06T00:00:00Z
+---
+
 # CommandRunner — Interface & Security Model
 
 ## Overview
@@ -106,7 +114,7 @@ ephemeral Docker container (node:20, python:3.11-slim, composer:2, etc.)
 | Other CLI command, not host-only | Container via `runShell()` |
 | Host-only command (`git`, `gh`, `open`) | `hostRunner` |
 
-Plugin code does not need to know whether it is running in Docker or on the host — it always calls `runner.run()` or `runner.runArgs()` and the runner handles dispatch. See `docs/architecture.md#ecosystem-runtime-container` for the full module diagram and `RunMode` semantics.
+Plugin code does not need to know whether it is running in Docker or on the host — it always calls `runner.run()` or `runner.runArgs()` and the runner handles dispatch. See the [ecosystem-runtime view](/architecture/ecosystem-runtime.md) for the full module diagram and `RunMode` semantics.
 
 ```ts
 // EcosystemContainerCommandRunner — simplified:
@@ -184,7 +192,7 @@ interface CommandResult {
 
 ### What Docker-only protects against (and what it doesn't)
 
-After [ADR-0001](./adr/0001-docker-only-runtime.md) (docker-only) and [ADR-0002](./adr/0002-threat-model-and-runtime-hardening.md) (cap-drop hardening), validation and updater commands run inside ephemeral Docker containers with all Linux capabilities dropped (`--cap-drop=ALL`) and setuid escalation blocked (`--security-opt=no-new-privileges`). This **materially reduces the blast radius** of a hostile config compared to the legacy `mode: 'local'` path that ran on the host.
+After [ADR-0001](/adr/0001-docker-only-runtime.md) (docker-only) and [ADR-0002](/adr/0002-threat-model-and-runtime-hardening.md) (cap-drop hardening), validation and updater commands run inside ephemeral Docker containers with all Linux capabilities dropped (`--cap-drop=ALL`) and setuid escalation blocked (`--security-opt=no-new-privileges`). This **materially reduces the blast radius** of a hostile config compared to the legacy `mode: 'local'` path that ran on the host.
 
 **Docker-only DOES protect against:**
 
@@ -201,7 +209,7 @@ After [ADR-0001](./adr/0001-docker-only-runtime.md) (docker-only) and [ADR-0002]
 - **Resource exhaustion** — no `--memory` or `--cpus` limits by default. Fork bombs and disk-fill are not blocked.
 - **Container escape via Docker daemon vulnerabilities** — keeping Docker on the host current is the best defense.
 
-**The container is defense in depth, not a sandbox.** If your threat model includes any of the "DOES NOT" items, do not run `security-scan` against untrusted configs. See [ADR-0002](./adr/0002-threat-model-and-runtime-hardening.md) for the full rationale and deferred-mitigations list.
+**The container is defense in depth, not a sandbox.** If your threat model includes any of the "DOES NOT" items, do not run `security-scan` against untrusted configs. See [ADR-0002](/adr/0002-threat-model-and-runtime-hardening.md) for the full rationale and deferred-mitigations list.
 
 ---
 

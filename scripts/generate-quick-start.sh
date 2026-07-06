@@ -7,7 +7,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-TEMPLATE="${REPO_ROOT}/docs/pt-br/quick-start.template.md"
+TEMPLATE="${REPO_ROOT}/scripts/templates/quick-start.template.md"
 HEADER="<!-- GENERATED — do not edit. Source: quick-start.template.md -->"
 
 generate() {
@@ -22,7 +22,16 @@ generate() {
     -e "s|{{USAGE_GUIDE_LINK}}|${usage_guide_link}|g" \
     "${TEMPLATE}" > "${output}.tmp"
 
-  printf '%s\n' "${HEADER}" | cat - "${output}.tmp" > "${output}"
+  # Frontmatter-aware header placement: if the template starts with a YAML
+  # frontmatter block ('---' ... '---'), the header must land AFTER the
+  # closing '---' so lint-docs.sh's has_frontmatter() (first line == '---')
+  # still passes. Otherwise, fall back to prepending the header at line 1.
+  awk -v header="${HEADER}" '
+    NR==1 && $0=="---" { fm=1; print; next }
+    NR==1 { print header; print; next }
+    fm==1 && $0=="---" { print; print header; fm=2; next }
+    { print }
+  ' "${output}.tmp" > "${output}"
   rm "${output}.tmp"
 
   echo "Generated: ${output}"

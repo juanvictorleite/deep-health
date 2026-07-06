@@ -1,3 +1,11 @@
+---
+type: Reference
+title: CLI reference
+description: Commands, flags, and exit codes of the security-scan CLI.
+tags: [reference, cli]
+timestamp: 2026-07-06T00:00:00Z
+---
+
 # CLI Reference — security-scan
 
 ## Overview
@@ -6,7 +14,7 @@
 security-scan <command> [options]
 ```
 
-All commands require Docker and Node.js ≥ 26. Use `nvm use` to activate the correct version (the project includes `.nvmrc`). See [ADR-0001](./adr/0001-docker-only-runtime.md) for why Docker is required — no local mode is supported for ecosystem CLIs.
+All commands require Docker and Node.js ≥ 26. Use `nvm use` to activate the correct version (the project includes `.nvmrc`). See [ADR-0001](/adr/0001-docker-only-runtime.md) for why Docker is required — no local mode is supported for ecosystem CLIs.
 
 ---
 
@@ -105,7 +113,7 @@ Options:
 
 **What it does:**
 
-See the [Orchestrator Pipeline Flow](./architecture.md#orchestrator-pipeline-flow) diagram. In short:
+See the [Orchestrator Pipeline Flow](/architecture/orchestrator-pipeline.md) diagram. In short:
 
 1. Loads config and validates.
 2. Runs all scanner engines (OSV primary + SonarQube secondary if configured).

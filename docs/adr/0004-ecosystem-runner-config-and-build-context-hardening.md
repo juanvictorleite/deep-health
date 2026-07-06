@@ -1,10 +1,17 @@
+---
+type: ADR
+title: Ecosystem runner config simplification and build context boundary hardening
+description: Two-path image model (pull vs Dockerfile), removal of deprecated composer fields, enforced git-root build-context boundary.
+status: Accepted
+supersedes:
+superseded_by:
+tags: [config, security, docker]
+timestamp: 2026-04-29T00:00:00Z
+---
+
 # ADR 0004 — Ecosystem runner config simplification and build context boundary hardening
 
-## Status
-
-Accepted — 2026-04-29
-
-## Superseded
+## Partial supersession note
 
 The `image_source` field and flat `dockerfile_path`/`build_context`/`build_args` fields described in this ADR have been replaced by a nested `build: { dockerfile, context, target, args, allow_context_escape }` configuration object. See the usage guide for current syntax. The build context boundary hardening (sections 3–4) remains in effect. `allow_build_context_escape` is now at `build.allow_context_escape`.
 
