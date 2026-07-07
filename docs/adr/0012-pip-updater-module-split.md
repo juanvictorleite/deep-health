@@ -33,7 +33,7 @@ Cyclomatic complexity is already within budget (max CCN 10, lizard 2026-07-06) �
    - `pip/fixers.ts` — pip-audit path + pip-install path + the `PipFixerResult` type (the two alternative fix strategies `runPipUpdater` chooses between).
 2. **`pip-updater.ts` remains the sole public entry (facade).** It keeps `runPipUpdater` (with its nested `probe`/`applyFix`/`derivePackagesUpdated` helpers) and **re-exports every symbol it exports today** from the new submodules. External import paths — plugin registry, tests — do not change in this decision.
 3. **Move-only discipline.** Function bodies move verbatim; no logic edit, no rename, no signature change. Internal-only helpers keep module-private visibility inside their new submodule (exported from the submodule only when the facade or a sibling submodule needs them, and not re-exported by the facade unless already public today).
-4. **Dependency direction:** `pip-updater.ts` → `pip/*`; `pip/fixers.ts`, `pip/tooling.ts`, `pip/spec-validation.ts` may import `pip/transforms.ts`; `pip/transforms.ts` imports none of its siblings. No cycle.
+4. **Dependency direction:** `pip-updater.ts` → `pip/*`; `pip/fixers.ts`, `pip/tooling.ts`, `pip/spec-validation.ts` may import `pip/transforms.ts`; `pip/transforms.ts` imports none of its siblings. Additionally `pip/tooling.ts` → `pip/fixers.ts` is allowed: the monolith's `applyToolingFix` already fell back to `applyPipInstall` (switch-default and catch), so a faithful move-only split carries that edge. No cycle (`fixers.ts` never imports `tooling.ts`). *(Amended 2026-07-07 at execution review: the original text omitted the pre-existing tooling→fixers edge.)*
 
 ## Consequences
 

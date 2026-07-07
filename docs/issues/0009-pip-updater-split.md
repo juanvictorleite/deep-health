@@ -2,7 +2,7 @@
 type: Issue
 title: Split pip-updater.ts into seam-aligned submodules behind a stable facade
 description: Execute ADR 0012 - move the six mapped seams of pip-updater.ts (934 lines, 38 functions) into pip/transforms.ts, pip/tooling.ts, pip/spec-validation.ts and pip/fixers.ts; pip-updater.ts stays the sole public entry re-exporting today's API.
-status: open
+status: done
 tags: [architecture, ecosystem, pip]
 timestamp: 2026-07-06T00:00:00Z
 ---
