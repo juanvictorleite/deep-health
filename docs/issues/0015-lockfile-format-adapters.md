@@ -2,7 +2,7 @@
 type: Issue
 title: Lockfile format adapters - v1 and v2/v3 traversal behind one interface; public API unchanged
 description: Execute ADR 0018 - new lockfile-formats.ts with two format adapters; collectNpmLockfileVersions (CCN 17) / collectRootNpmLockfileVersions (CCN 25) become thin folds; 12 call sites untouched.
-status: open
+status: done
 tags: [architecture, ecosystem, complexity]
 timestamp: 2026-07-07T00:00:00Z
 ---
