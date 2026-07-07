@@ -2,7 +2,7 @@
 type: Issue
 title: Decompose npm installBreakingPackages into phase helpers; name the engines extract
 description: installBreakingPackages (CCN 20, 80 NLOC) in npm.ts decomposes per the ADR 0013 phase-helper playbook - collect/snapshot/install/verify phases; the inline package.json engines extract becomes a named helper. No unified constraint parser (deletion test fails).
-status: open
+status: done
 tags: [architecture, ecosystem, npm, complexity]
 timestamp: 2026-07-07T00:00:00Z
 ---
