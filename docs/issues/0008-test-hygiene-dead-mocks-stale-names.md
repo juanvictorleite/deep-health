@@ -2,7 +2,7 @@
 type: Issue
 title: Test hygiene - remove dead vi.mocks of deleted runner modules; rename stale test files
 description: Cosmetic cleanup left over from ADR 0007's resolver consolidation - 3 orchestrator test files still vi.mock deleted @infra/provisioner runner paths (dead mocks), and 6 test files keep pre-consolidation filenames (npm/composer/pip-runner.test.ts) while actually covering EphemeralEcosystemContainer.
-status: open
+status: done
 tags: [testing, hygiene]
 timestamp: 2026-07-06T00:00:00Z
 ---

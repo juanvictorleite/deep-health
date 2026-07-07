@@ -17,6 +17,8 @@ Architecture Decision Records — one decision each, append-only, superseded nev
 | [0009](0009-explicit-ecosystem-registry-factory.md) | Explicit ecosystem registry factory (no side-effect bootstrap) | Accepted |
 | [0010](0010-phase-router-extraction.md) | Phase Router — extract execution-plan resolution from the orchestrator | Accepted |
 | [0011](0011-coverage-ratchet-policy.md) | Coverage thresholds become a ratchet at the measured baseline (statements 94.5, functions 94.5, lines 95.5, branches 86 — raise-only) | Accepted |
+| [0012](0012-pip-updater-module-split.md) | Split pip-updater into seam-aligned submodules behind a stable facade | Accepted |
+| [0013](0013-fixer-decomposition-shared-semver-helpers.md) | Decompose the audit fixers; shared home for the duplicated semver helpers | Accepted |
 
 ## Superseded
 
