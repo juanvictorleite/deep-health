@@ -1,8 +1,17 @@
+---
+type: ADR
+title: Architecture deepening candidates (2026-04-29)
+description: Six prioritized deepening candidates from the 2026-04-29 architecture review, with agreed decisions and implementation refinements.
+status: Accepted
+supersedes:
+superseded_by:
+tags: [architecture, refactoring]
+timestamp: 2026-04-29T00:00:00Z
+---
+
 # ADR-0003 — Architecture Deepening Candidates (2026-04-29)
 
-**Status:** Implemented  
-**Date:** 2026-04-29  
-**Implemented:** 2026-05-01 / 2026-05-02
+All candidates implemented 2026-05-01 / 2026-05-02; follow-up cycles recorded in the [historical architecture reviews](/architecture/index.md).
 
 ---
 

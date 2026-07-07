@@ -1,6 +1,13 @@
-import type { ScanResultJson, SonarQubeQualityGateCondition, SonarQubeIssue } from '@core/types/scan';
+import type { ScanResultJson } from '@core/types/scan';
 
 import type { ExecLocale } from './i18n/types';
+import type {
+  SonarQubeConditionView,
+  SonarQubeFileGroupView,
+  SonarQubeMetricEntry,
+  SonarQubeSuccessViewModel,
+} from './sonarqube-view-model';
+import { buildSonarQubeViewModel } from './sonarqube-view-model';
 
 // ── SonarQube executive section builder ──────────────────────────────────────
 
@@ -43,19 +50,61 @@ export interface SonarQubeExecSectionData {
   issuesByFileLabel: string;
 }
 
-function severityIcon(severity: string): string {
-  switch (severity.toUpperCase()) {
-    case 'BLOCKER': return '🔴';
-    case 'CRITICAL': return '🔴';
-    case 'MAJOR': return '🟠';
-    case 'MINOR': return '🟡';
-    case 'INFO': return '🔵';
-    default: return '⚪';
-  }
+function execQualityGateLabel(locale: ExecLocale, status: string): string {
+  const statusText = status === 'OK' ? '✅ OK' : status === 'ERROR' ? '❌ ERROR' : status;
+  return locale.sonarqube_quality_gate(statusText);
 }
 
-function conditionStatusIcon(status: string): string {
-  return status === 'OK' ? '✅' : status === 'ERROR' ? '❌' : '⚠️';
+function projectExecConditions(conditions: SonarQubeConditionView[]): SonarQubeConditionEntry[] {
+  return conditions.map((c) => ({
+    metricKey: c.metricKey,
+    status: c.status,
+    statusIcon: c.statusIcon,
+    comparator: c.comparator,
+    errorThreshold: c.errorThreshold,
+    actualValue: c.actualValue,
+  }));
+}
+
+function projectExecMetrics(metrics: SonarQubeMetricEntry[] | null, locale: ExecLocale): { key: string; value: string }[] | null {
+  if (!metrics) return null;
+  const metricLabels = locale.sonarqube_metric_labels ?? {};
+  return metrics.map(({ key, value }) => ({ key: metricLabels[key] ?? key, value }));
+}
+
+function projectExecIssueGroups(groups: SonarQubeFileGroupView[]): SonarQubeFileGroup[] {
+  return groups.map(({ file, issues }) => ({
+    file,
+    issues: issues.map((i) => ({
+      severity: i.severity,
+      severityIcon: i.severityIcon,
+      rule: i.rule,
+      line: i.line,
+      message: i.message,
+      type: i.type,
+    })),
+  }));
+}
+
+function buildSuccessSection(vm: SonarQubeSuccessViewModel, locale: ExecLocale, empty: SonarQubeExecSectionData): SonarQubeExecSectionData {
+  const qualityGateLabel = vm.qualityGate ? execQualityGateLabel(locale, vm.qualityGate.status) : null;
+  const conditions = projectExecConditions(vm.qualityGate?.conditions ?? []);
+
+  return {
+    present: true,
+    skipped: false,
+    warning: null,
+    qualityGate: qualityGateLabel,
+    hasConditions: conditions.length > 0,
+    conditions,
+    conditionsLabel: empty.conditionsLabel,
+    metrics: projectExecMetrics(vm.metrics, locale),
+    hasIssues: vm.hasIssues,
+    noIssues: vm.noIssues,
+    issueCountLabel: vm.hasIssues ? locale.sonarqube_issue_count(vm.totalIssues) : '',
+    issuesByFile: projectExecIssueGroups(vm.issueGroups),
+    issuesByFileLabel: empty.issuesByFileLabel,
+  };
 }
 
 export function buildSonarQubeExecSection(
@@ -70,86 +119,11 @@ export function buildSonarQubeExecSection(
     issueCountLabel: '', issuesByFile: [], issuesByFileLabel: locale.sonarqube_issues_by_file,
   };
 
-  if (!engineResults) return empty;
+  const vm = buildSonarQubeViewModel({ engineResults, metricsFilter });
 
-  const sonarResult = engineResults['sonarqube'];
-  if (!sonarResult) return empty;
+  if (vm.state === 'absent') return empty;
+  if (vm.state === 'skipped') return { ...empty, present: true, skipped: true };
+  if (vm.state === 'error') return { ...empty, present: true, warning: locale.sonarqube_warning(vm.error ?? 'scan error') };
 
-  if (sonarResult.status === 'skipped') {
-    return { ...empty, present: true, skipped: true };
-  }
-
-  if (sonarResult.status === 'error') {
-    const msg = sonarResult.error ?? 'scan error';
-    return { ...empty, present: true, warning: locale.sonarqube_warning(msg) };
-  }
-
-  // Quality gate label
-  const qualityGateStatus = sonarResult.metadata?.qualityGateStatus;
-  const qualityGateLabel = qualityGateStatus
-    ? locale.sonarqube_quality_gate(
-        qualityGateStatus === 'OK' ? '✅ OK' : qualityGateStatus === 'ERROR' ? '❌ ERROR' : qualityGateStatus,
-      )
-    : null;
-
-  // Quality gate conditions
-  const rawConditions: SonarQubeQualityGateCondition[] | undefined = sonarResult.metadata?.qualityGateConditions;
-  const conditions: SonarQubeConditionEntry[] = (rawConditions ?? []).map((c) => ({
-    metricKey: c.metricKey,
-    status: c.status,
-    statusIcon: conditionStatusIcon(c.status),
-    comparator: c.comparator,
-    errorThreshold: c.errorThreshold ?? '—',
-    actualValue: c.actualValue ?? '—',
-  }));
-
-  // Metrics (with i18n label lookup, fallback to raw key)
-  const rawMetrics = sonarResult.metadata?.metrics;
-  const metricLabels = locale.sonarqube_metric_labels ?? {};
-  const metricsForDisplay = rawMetrics
-    ? Object.entries(rawMetrics)
-        .filter(([key]) => metricsFilter === undefined || metricsFilter.includes(key))
-        .map(([key, value]) => ({ key: metricLabels[key] ?? key, value }))
-    : null;
-
-  // Issues grouped by file
-  const rawIssues: SonarQubeIssue[] | undefined = sonarResult.metadata?.issues;
-
-  const fileMap = new Map<string, SonarQubeIssueEntry[]>();
-  for (const issue of rawIssues ?? []) {
-    const colon = issue.component.indexOf(':');
-    const file = colon >= 0 ? issue.component.slice(colon + 1) : issue.component;
-    const entry: SonarQubeIssueEntry = {
-      severity: issue.severity,
-      severityIcon: severityIcon(issue.severity),
-      rule: issue.rule,
-      line: issue.line !== undefined ? String(issue.line) : '—',
-      message: issue.message,
-      type: issue.type,
-    };
-    const arr = fileMap.get(file) ?? [];
-    arr.push(entry);
-    fileMap.set(file, arr);
-  }
-  const issuesByFile: SonarQubeFileGroup[] = [...fileMap.entries()].map(([file, issues]) => ({ file, issues }));
-
-  const totalIssues = rawIssues?.length ?? 0;
-  const hasIssues = totalIssues > 0;
-  const noIssues = rawIssues !== undefined && totalIssues === 0;
-
-  return {
-    present: true,
-    skipped: false,
-    warning: null,
-    qualityGate: qualityGateLabel,
-    hasConditions: conditions.length > 0,
-    conditions,
-    conditionsLabel: locale.sonarqube_conditions,
-    metrics: metricsForDisplay,
-    hasIssues,
-    noIssues,
-    issueCountLabel: hasIssues ? locale.sonarqube_issue_count(totalIssues) : '',
-    issuesByFile,
-    issuesByFileLabel: locale.sonarqube_issues_by_file,
-  };
+  return buildSuccessSection(vm, locale, empty);
 }

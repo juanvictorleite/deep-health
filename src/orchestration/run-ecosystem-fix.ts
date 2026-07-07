@@ -501,6 +501,7 @@ export function finalizeEcosystemOutcome(
   advisorResults: AdvisorResult[] | undefined,
 ): RunEcosystemFixOutcome {
   const gate = validateEcosystemGate(plugin.id, updateResult);
+  gate.warnings?.forEach((w) => logger.warn(`[gate] ${w}`));
   if (!gate.valid) {
     throw new GateValidationError(
       `Gate ${plugin.id} validation failed: ${gate.errors.join(', ')}`,

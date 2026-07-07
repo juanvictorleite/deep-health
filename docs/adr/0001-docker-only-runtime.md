@@ -1,8 +1,15 @@
+---
+type: ADR
+title: Docker-only runtime for ecosystem CLIs
+description: Drop local/auto runtime modes; all ecosystem CLIs run in ephemeral Docker containers.
+status: Accepted
+supersedes:
+superseded_by:
+tags: [runtime, docker]
+timestamp: 2026-04-25T00:00:00Z
+---
+
 # ADR 0001 — Docker-only runtime for ecosystem CLIs
-
-## Status
-
-Accepted — 2026-04-25
 
 ## Context
 

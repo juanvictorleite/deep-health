@@ -25,7 +25,8 @@
     "test:all": "vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
-    "lint": "oxlint --import-plugin --promise-plugin"
+    "lint": "oxlint --import-plugin --promise-plugin",
+    "docs:lint": "./scripts/lint-docs.sh docs"
   },
   "engines": {
     "node": ">=26.0.0"

@@ -1,3 +1,11 @@
+---
+type: Reference
+title: Guia completo de uso (pt-BR)
+description: Client-facing complete usage guide for the security-scan CLI, Brazilian Portuguese translation.
+tags: [guide, usage, pt-br]
+timestamp: 2026-07-06T00:00:00Z
+---
+
 # security-scan — Guia Completo de Uso
 
 > Versão 0.1.9 | Docker obrigatório (Node.js ≥ 26 apenas para instalação via npm)

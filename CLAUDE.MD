@@ -4,13 +4,40 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## Living Docs
+
+enforcement: strict   # strict | guided | lite
+onboarded: 2026-07-06
+doc-language: english # client-facing usage guides may keep pt-BR translations, indexed
+
+Docs are a living system (see `docs/index.md`, the bundle root). Hard invariants: docs-first, one home per fact, indexed or it doesn't exist, supersede never rewrite, no structural change without its doc + diagram. Structural/behavioral changes must carry their ADR/BDR — under `strict`, a task without its required doc is not done. Mechanical checks: `npm run docs:lint` (wraps `./scripts/lint-docs.sh docs`).
+
+**Docs-before-code (hard rule).** Before ANY implementation: read the relevant constitution / ADRs / BDRs / context docs, and author or update the required doc-trail artifact (PRD → ADR/BDR → issue) FIRST. Only then write code. A change that ships code before its doc trail is complete violates `strict` enforcement and is not done — no exceptions, including "small" changes that alter structure or observable behavior.
+
+### Docs index
+
+- `docs/index.md` — bundle root (start here)
+- `docs/constitution.md` — foundational source of truth (scope, data model, non-negotiables)
+- `docs/context/` — domain vocabulary (semantic index) + glossary
+- `docs/architecture/` — living Mermaid views (must always match the code)
+- `docs/adr/` · `docs/bdr/` · `docs/prd/` · `docs/issues/` — decision records & execution slices
+- `docs/research/` — dated external evidence
+- `docs/reference/` — CLI/JSON-schema/CommandRunner/testing references
+- `docs/en/` · `docs/pt-br/` — client-facing usage guides
+
+### Maintenance rule (no-drift)
+
+In the SAME change that alters structure or behavior: update the affected architecture view (diagram included), the context vocabulary, the relevant index rows, and supersede (never edit) any invalidated ADR/BDR. Run `npm run docs:lint` before declaring the task done — non-zero exit is a blocked task, not a warning.
+
+---
+
 ## Project Identity
 
 **Package name:** `security-scan`
 **CLI binary:** `security-scan` (whitelabel-able via `CLI_NAME` env var)
 **Language:** TypeScript (ESM, Node >= 26), built with `tsup`
 **Test framework:** Vitest 4 (inline projects: `unit`, `integration`, `smoke`)
-**Domain vocabulary:** see `CONTEXT.md` for canonical terms (Pipeline, Ecosystem, Runtime, Scanner, etc.)
+**Domain vocabulary:** see `docs/context/` for canonical terms (Pipeline, Ecosystem, Runtime, Scanner, etc.)
 
 Security-focused CLI that scans PHP (Composer), Node.js (npm), and Python (pip) projects for known CVEs via OSV Scanner, applies safe patch/minor updates automatically inside Docker containers, and generates an executive HTML report.
 
@@ -53,7 +80,7 @@ npx vitest run --project unit -t "pattern"
 
 ```
 src/
-  app/           CLI commands (init, scan, fix, executive-report, cloud-setup) and I/O
+  app/           CLI commands (init, scan, fix, executive-report) and I/O
   core/          Pure domain logic — no I/O, no Docker
     gates/       Zod gate validators (Gate A, Ecosystem Gate)
     policy/      safe-update classification (auto_safe | breaking | manual)
@@ -64,7 +91,7 @@ src/
     ecosystem-runtime/  Docker container lifecycle (image resolution, run modes, project image build)
     executor/    CommandRunner wrappers per ecosystem
     provisioner/ Docker container runners with retry
-    storage/     Local + Google Drive report storage
+    storage/     Local report storage
     utils/       Logger, git, docker-platform, shutdown hooks
   modules/
     advisor/     Informational advisor runner (never blocks pipeline)
@@ -146,7 +173,6 @@ All user-visible names derive from `CLI_NAME` in `src/infrastructure/brand.ts`. 
 - No comments in code unless the WHY is non-obvious. Gate schemas and policy rules are the exception.
 - Exit codes: `0` clean, `1` vulns/errors, `2` gate/scanner failure, `3` config error
 - ESM only (`"type": "module"` in package.json). SEA build uses CJS (Node.js SEA constraint).
-- `googleapis` and `google-auth-library` are external/optional — loaded via dynamic import with try/catch.
 
 ---
 

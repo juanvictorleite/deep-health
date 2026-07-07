@@ -3,6 +3,20 @@ import { execa } from 'execa';
 import { EnvironmentError } from '@core/errors';
 import type { CommandRunner, CommandRunnerOptions, CommandResult } from '@core/types/common';
 
+type StdioSetting = readonly ['pipe', 'inherit'] | 'pipe';
+
+interface StreamablePipes {
+  stdout: NodeJS.ReadableStream | null;
+  stderr: NodeJS.ReadableStream | null;
+}
+
+interface ExecaResultLike {
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
+  timedOut?: boolean;
+}
+
 /**
  * Attach a line-by-line listener to a readable stream, calling `cb` for each
  * non-empty line as data arrives. Used to forward subprocess output in real time
@@ -22,6 +36,58 @@ function forwardLines(stream: NodeJS.ReadableStream | null, cb: (line: string) =
   stream.on('end', () => {
     if (buffer.trim()) cb(buffer);
   });
+}
+
+/**
+ * Resolves the stdout/stderr stdio setting shared by `run()` and `runArgs()`:
+ * inherit the terminal when streaming without a line callback, otherwise pipe.
+ */
+function resolveStdio(options: CommandRunnerOptions): StdioSetting {
+  const useInherit = options.stream && !options.onLine;
+  return useInherit ? (['pipe', 'inherit'] as const) : ('pipe' as const);
+}
+
+/** Wires `options.onLine` (when present) to both subprocess output streams. */
+function attachLineForwarding(subprocess: StreamablePipes, options: CommandRunnerOptions): void {
+  if (!options.onLine) return;
+  const cb = options.onLine;
+  forwardLines(subprocess.stdout, cb);
+  forwardLines(subprocess.stderr, cb);
+}
+
+/** Maps a resolved execa result onto a successful CommandResult. */
+function toSuccessResult(result: ExecaResultLike, command: string, startMs: number): CommandResult {
+  return {
+    stdout: result.stdout ?? '',
+    stderr: result.stderr ?? '',
+    exitCode: result.exitCode ?? 1,
+    command,
+    dryRun: false,
+    timedOut: result.timedOut ?? false,
+    durationMs: Date.now() - startMs,
+  };
+}
+
+/**
+ * Handles a rejected execa call: throws EnvironmentError for ENOENT
+ * (binary not found, either on the error directly or on `err.cause`),
+ * otherwise returns a failed CommandResult.
+ */
+function toFailureOutcome(err: unknown, command: string, notFoundLabel: string): CommandResult {
+  const isEnoent =
+    (err instanceof Error && (err as NodeJS.ErrnoException).code === 'ENOENT') ||
+    (err instanceof Error && (err.cause instanceof Error || (err.cause !== null && typeof err.cause === 'object')) &&
+      (err.cause as NodeJS.ErrnoException).code === 'ENOENT');
+  if (isEnoent) {
+    throw new EnvironmentError(`Command not found: ${notFoundLabel}. Install the tool and try again.`);
+  }
+  return {
+    stdout: '',
+    stderr: err instanceof Error ? err.message : String(err),
+    exitCode: 1,
+    command,
+    dryRun: false,
+  };
 }
 
 export class LocalExecutor implements CommandRunner {
@@ -44,8 +110,7 @@ export class LocalExecutor implements CommandRunner {
     }
 
     try {
-      const useInherit = options.stream && !options.onLine;
-      const stdio = useInherit ? (['pipe', 'inherit'] as const) : ('pipe' as const);
+      const stdio = resolveStdio(options);
       const startMs = Date.now();
       const subprocess = execa(command, {
         shell: true,
@@ -56,39 +121,12 @@ export class LocalExecutor implements CommandRunner {
         stdout: stdio,
         stderr: stdio,
       });
-      if (options.onLine) {
-        const cb = options.onLine;
-        forwardLines(subprocess.stdout, cb);
-        forwardLines(subprocess.stderr, cb);
-      }
+      attachLineForwarding(subprocess, options);
       const result = await subprocess;
-      const durationMs = Date.now() - startMs;
 
-      return {
-        stdout: result.stdout ?? '',
-        stderr: result.stderr ?? '',
-        exitCode: result.exitCode ?? 1,
-        command,
-        dryRun: false,
-        timedOut: result.timedOut ?? false,
-        durationMs,
-      };
+      return toSuccessResult(result, command, startMs);
     } catch (err) {
-      const isEnoent =
-        (err instanceof Error && (err as NodeJS.ErrnoException).code === 'ENOENT') ||
-        (err instanceof Error && (err.cause instanceof Error || (err.cause !== null && typeof err.cause === 'object')) &&
-          (err.cause as NodeJS.ErrnoException).code === 'ENOENT');
-      if (isEnoent) {
-        const token = command.split(' ')[0];
-        throw new EnvironmentError(`Command not found: ${token}. Install the tool and try again.`);
-      }
-      return {
-        stdout: '',
-        stderr: err instanceof Error ? err.message : String(err),
-        exitCode: 1,
-        command,
-        dryRun: false,
-      };
+      return toFailureOutcome(err, command, command.split(' ')[0]);
     }
   }
 
@@ -104,8 +142,7 @@ export class LocalExecutor implements CommandRunner {
     }
 
     try {
-      const useInherit = options.stream && !options.onLine;
-      const stdio = useInherit ? (['pipe', 'inherit'] as const) : ('pipe' as const);
+      const stdio = resolveStdio(options);
       const startMs = Date.now();
       const subprocess = execa(file, args, {
         shell: false,
@@ -116,38 +153,12 @@ export class LocalExecutor implements CommandRunner {
         stdout: stdio,
         stderr: stdio,
       });
-      if (options.onLine) {
-        const cb = options.onLine;
-        forwardLines(subprocess.stdout, cb);
-        forwardLines(subprocess.stderr, cb);
-      }
+      attachLineForwarding(subprocess, options);
       const result = await subprocess;
-      const durationMs = Date.now() - startMs;
 
-      return {
-        stdout: result.stdout ?? '',
-        stderr: result.stderr ?? '',
-        exitCode: result.exitCode ?? 1,
-        command,
-        dryRun: false,
-        timedOut: result.timedOut ?? false,
-        durationMs,
-      };
+      return toSuccessResult(result, command, startMs);
     } catch (err) {
-      const isEnoent =
-        (err instanceof Error && (err as NodeJS.ErrnoException).code === 'ENOENT') ||
-        (err instanceof Error && (err.cause instanceof Error || (err.cause !== null && typeof err.cause === 'object')) &&
-          (err.cause as NodeJS.ErrnoException).code === 'ENOENT');
-      if (isEnoent) {
-        throw new EnvironmentError(`Command not found: ${file}. Install the tool and try again.`);
-      }
-      return {
-        stdout: '',
-        stderr: err instanceof Error ? err.message : String(err),
-        exitCode: 1,
-        command,
-        dryRun: false,
-      };
+      return toFailureOutcome(err, command, file);
     }
   }
 }

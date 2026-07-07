@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 
 import { buildEcosystemFixTaskList, buildEcosystemFixSubtasks } from "@app/progress-reporter";
 import type { RendererType } from "@app/progress-reporter";
@@ -37,6 +37,8 @@ import type {
   ScannerEngineContext,
 } from "@modules/scanner/types";
 
+import type { ActiveEcosystemEntry, ExecutionPlan } from "./phase-router";
+import { resolveExecutionPlan } from "./phase-router";
 import {
   runEcosystemFix,
   resolveEcosystemFixContext,
@@ -114,59 +116,6 @@ export interface OrchestratorResult {
   residualVerification?: ResidualVerification;
 }
 
-function shouldRunPhase(phase: string, options: OrchestratorOptions): boolean {
-  if (!options.phases) return true;
-  return options.phases.includes(phase);
-}
-
-/**
- * Resolve the on_failure policy for a secondary engine.
- *
- * Uses a generic lookup into config.scanners by engine id.
- * Each engine config block that exposes an `on_failure` field is consulted.
- * - 'sonarqube': reads config.scanners.sonarqube.on_failure (defaults to 'warn').
- * - Any engine id whose config block has an `on_failure` field: uses that value.
- * - Any engine id with no config or no `on_failure` field: defaults to 'fail' (safe hardening).
- *
- * Rationale for the 'fail' default for unknowns: an unrecognised engine has no
- * config key, so silently swallowing its failure could mask integration bugs or
- * misconfiguration. Failing loudly is the safe choice.
- */
-function resolveOnFailure(
-  engineId: string,
-  config: ProjectConfig,
-): "warn" | "fail" {
-  const scanners = config.scanners;
-  if (!scanners) {
-    logger.debug(
-      `Engine "${engineId}": no scanners config found — defaulting on_failure to "fail".`,
-    );
-    return "fail";
-  }
-
-  // Generic lookup: find the engine config block by id and read on_failure if present
-  for (const [key, engineConfig] of Object.entries(scanners)) {
-    if (
-      key === engineId &&
-      engineConfig &&
-      typeof engineConfig === "object" &&
-      "on_failure" in engineConfig
-    ) {
-      const onFailure = (engineConfig as { on_failure?: "warn" | "fail" })
-        .on_failure;
-      return onFailure ?? "fail";
-    }
-  }
-
-  // Unknown secondary engine or engine config has no on_failure — fail by default (safe hardening)
-  logger.warn(
-    `Engine "${engineId}" is not a recognised secondary engine or has no on_failure config. ` +
-      `Defaulting on_failure to "fail" for safety. ` +
-      `Add explicit config for this engine to override.`,
-  );
-  return "fail";
-}
-
 // ---------------------------------------------------------------------------
 // Private helpers
 // ---------------------------------------------------------------------------
@@ -194,7 +143,7 @@ async function capturePreRunSnapshots(cwd: string): Promise<Map<string, string>>
 interface ScanPhaseParams {
   ctx: ScannerEngineContext;
   engineRegistry: ScannerEngineRegistry;
-  config: ProjectConfig;
+  onFailureFor: ExecutionPlan["onFailureFor"];
   options: OrchestratorOptions;
   primaryEngineId: string;
 }
@@ -222,14 +171,14 @@ async function executeScanPhase(
   params: ScanPhaseParams,
   partialResult: OrchestratorResult,
 ): Promise<ScanPhaseResult> {
-  const { ctx, engineRegistry, config, options, primaryEngineId } = params;
+  const { ctx, engineRegistry, onFailureFor, options, primaryEngineId } = params;
 
   const sweepResult = await executeScannerSweep(
     engineRegistry.getByPhase('scan'),
     ctx,
     {
       primaryEngineId,
-      resolveOnFailure: (id) => resolveOnFailure(id, config),
+      resolveOnFailure: onFailureFor,
     },
     listr2ScannerSweepRenderer(options.rendererType ?? 'default'),
   );
@@ -314,7 +263,7 @@ function processEcosystemOutcome(
 interface PostFixSweepParams {
   engineRegistry: ScannerEngineRegistry;
   ctx: ScannerEngineContext;
-  config: ProjectConfig;
+  onFailureFor: ExecutionPlan["onFailureFor"];
   options: OrchestratorOptions;
   engineEntries: { engineId: string; result: ScanResultJson }[];
   result: OrchestratorResult;
@@ -329,7 +278,7 @@ interface PostFixSweepParams {
  * Merges post-fix engine entries and warnings into result.aggregated in place.
  */
 async function executePostFixSweep(params: PostFixSweepParams): Promise<void> {
-  const { engineRegistry, ctx, config, options, engineEntries, result, primaryEngineId } = params;
+  const { engineRegistry, ctx, onFailureFor, options, engineEntries, result, primaryEngineId } = params;
 
   const postFixEngines = engineRegistry.getByPhase('post-fix');
   if (postFixEngines.length === 0 || result.overallStatus === 'error') return;
@@ -340,7 +289,7 @@ async function executePostFixSweep(params: PostFixSweepParams): Promise<void> {
     ctx,
     {
       primaryEngineId: '__post-fix-no-primary__',
-      resolveOnFailure: (id) => resolveOnFailure(id, config),
+      resolveOnFailure: onFailureFor,
     },
     listr2ScannerSweepRenderer(options.rendererType ?? 'default'),
   );
@@ -436,55 +385,12 @@ function hasPendingVulnerabilities(scanResult: ScanResultJson): boolean {
 interface EcosystemLoopParams {
   config: ProjectConfig;
   options: OrchestratorOptions;
-  ecosystemRegistry: EcosystemRegistry;
+  activeEntries: ActiveEcosystemEntry[];
   runner: CommandRunner;
   scanResult: ScanResultJson;
   preRunSnapshots: Map<string, string>;
   result: OrchestratorResult;
   rendererType: RendererType;
-}
-
-/**
- * Builds the list of active ecosystem entries to process (respects phases filter).
- * Returns { plugin, ecoEntry, ecosystemCwd, authorizeBreaking } for each active entry.
- */
-function buildActiveEcosystemEntries(
-  config: ProjectConfig,
-  options: OrchestratorOptions,
-  ecosystemRegistry: EcosystemRegistry,
-): {
-  plugin: EcosystemPlugin;
-  ecoEntry: EcosystemConfig;
-  ecosystemCwd: string;
-  authorizeBreaking: boolean;
-}[] {
-  const entries: {
-    plugin: EcosystemPlugin;
-    ecoEntry: EcosystemConfig;
-    ecosystemCwd: string;
-    authorizeBreaking: boolean;
-  }[] = [];
-
-  for (const ecoEntry of config.ecosystems) {
-    const plugin = ecosystemRegistry.getAll().find((p) => p.id === ecoEntry.id);
-    if (!plugin) continue;
-
-    const entryKey = ecosystemEntryKey(ecoEntry);
-
-    if (options.phases && !shouldRunPhase(ecoEntry.id, options) && !shouldRunPhase(entryKey, options)) {
-      logger.info(`Phase: Skipping ${plugin.name} (${entryKey}) — not in phases list`);
-      continue;
-    }
-
-    const ecosystemCwd = ecoEntry.path ? resolve(options.cwd, ecoEntry.path) : options.cwd;
-    const authorizeBreaking =
-      (options.authorizeBreaking?.[ecoEntry.id] ?? false) ||
-      (options.authorizeBreaking?.[entryKey] ?? false);
-
-    entries.push({ plugin, ecoEntry, ecosystemCwd, authorizeBreaking });
-  }
-
-  return entries;
 }
 
 /**
@@ -499,9 +405,7 @@ function buildActiveEcosystemEntries(
  * Stops early and sets result.overallStatus = 'error' on the first error.
  */
 async function runEcosystemLoop(params: EcosystemLoopParams): Promise<void> {
-  const { config, options, ecosystemRegistry, runner, scanResult, preRunSnapshots, result, rendererType } = params;
-
-  const activeEntries = buildActiveEcosystemEntries(config, options, ecosystemRegistry);
+  const { config, options, activeEntries, runner, scanResult, preRunSnapshots, result, rendererType } = params;
 
   if (rendererType === 'verbose') {
     for (const { plugin, ecoEntry, ecosystemCwd, authorizeBreaking } of activeEntries) {
@@ -588,8 +492,10 @@ export async function runOrchestrator(
 
   const preRunSnapshots = await capturePreRunSnapshots(options.cwd);
 
+  const plan = resolveExecutionPlan(config, options, options.registry ?? defaultRegistry);
+
   // Scan — hard precondition for all update steps
-  if (!shouldRunPhase("scan", options)) {
+  if (!plan.runScan) {
     logger.warn('Skipping scan phase — phases option does not include "scan"');
     result.overallStatus = "skipped";
     return result;
@@ -604,7 +510,7 @@ export async function runOrchestrator(
   // Only engines with phase='scan' (or no phase, which defaults to 'scan') run here.
   // Post-fix engines (e.g. SonarQube) run after ecosystem fixers complete.
   const { scanResult, aggregated, engineEntries, warnings } = await executeScanPhase(
-    { ctx, engineRegistry, config, options, primaryEngineId },
+    { ctx, engineRegistry, onFailureFor: plan.onFailureFor, options, primaryEngineId },
     result,
   );
   result.aggregated = aggregated;
@@ -626,13 +532,13 @@ export async function runOrchestrator(
   // This ensures monorepo entries with the same plugin id at different paths
   // are each processed independently.
   await runEcosystemLoop({
-    config, options, ecosystemRegistry, runner, scanResult, preRunSnapshots, result,
+    config, options, activeEntries: plan.activeEcosystems, runner, scanResult, preRunSnapshots, result,
     rendererType: options.rendererType ?? 'default',
   });
 
   // Post-fix sweep: run engines that declared phase='post-fix' (e.g. SonarQube).
   await executePostFixSweep({
-    engineRegistry, ctx, config, options, engineEntries, result, primaryEngineId,
+    engineRegistry, ctx, onFailureFor: plan.onFailureFor, options, engineEntries, result, primaryEngineId,
   });
 
   result.hasPendingVulns = hasPendingVulnerabilities(scanResult);

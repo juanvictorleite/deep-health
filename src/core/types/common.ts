@@ -50,4 +50,5 @@ export interface GateResult {
   valid: boolean;
   gate: string;
   errors: string[];
+  warnings?: string[];
 }

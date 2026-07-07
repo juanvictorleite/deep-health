@@ -50,18 +50,6 @@ vi.mock('@infra/ecosystem-runtime', async (importOriginal) => {
     }),
   };
 });
-vi.mock('@infra/provisioner/npm-runner.js', () => ({
-  NpmDockerRunner: vi.fn().mockImplementation(() => ({})),
-  resolveNpmDockerImage: vi.fn(() => 'node:lts'),
-}));
-vi.mock('@infra/provisioner/pip-runner.js', () => ({
-  PipDockerRunner: vi.fn().mockImplementation(() => ({})),
-  resolvePipDockerImage: vi.fn(() => 'python:3-slim'),
-  PIP_DEFAULT_IMAGE: 'python:3-slim',
-}));
-vi.mock('@infra/provisioner/composer-runner.js', () => ({
-  ComposerDockerRunner: vi.fn().mockImplementation(() => ({})),
-}));
 vi.mock('@orchestration/osv-fix-applier.js', () => ({
   applyOsvFixViaStaging: vi.fn().mockResolvedValue({
     applied: false,

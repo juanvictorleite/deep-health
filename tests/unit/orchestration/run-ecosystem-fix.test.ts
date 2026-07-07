@@ -40,6 +40,7 @@ import type { ProjectConfig } from '@core/types/config';
 import type { AdvisorResult } from '@core/types/report';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
+import { logger } from '@infra/utils/logger';
 import { runAdvisors } from '@modules/advisor/index';
 import type { EcosystemPlugin } from '@modules/ecosystem/types';
 import { applyOsvFixViaStaging } from '@orchestration/osv-fix-applier';
@@ -249,6 +250,52 @@ describe('runEcosystemFix', () => {
     expect(installBreakingPackages).toHaveBeenCalledOnce();
     // gate validation must be skipped on this branch (breaking-install error short-circuits)
     expect(validateEcosystemGate).not.toHaveBeenCalled();
+  });
+
+  it('logs each gate warning via logger.warn with the "[gate] " prefix when the gate result carries warnings', async () => {
+    vi.mocked(validateEcosystemGate).mockReturnValue({
+      valid: true,
+      gate: 'npm',
+      errors: [],
+      warnings: ['All validations were skipped for npm ecosystem — no test coverage verified'],
+    });
+
+    const plugin = makePlugin();
+
+    const outcome = await runEcosystemFix({
+      plugin,
+      hostRunner: new MockRunner(),
+      config: makeConfig(),
+      scanResult: makeScan(),
+      cwd: '/project',
+      dryRun: false,
+      authorizeBreaking: false,
+      preRunSnapshots: undefined,
+    });
+
+    expect(outcome.status).toBe('success');
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[gate] All validations were skipped for npm ecosystem — no test coverage verified',
+    );
+  });
+
+  it('does not call logger.warn when the gate result carries no warnings', async () => {
+    vi.mocked(validateEcosystemGate).mockReturnValue({ valid: true, gate: 'npm', errors: [] });
+
+    const plugin = makePlugin();
+
+    await runEcosystemFix({
+      plugin,
+      hostRunner: new MockRunner(),
+      config: makeConfig(),
+      scanResult: makeScan(),
+      cwd: '/project',
+      dryRun: false,
+      authorizeBreaking: false,
+      preRunSnapshots: undefined,
+    });
+
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it('throws GateValidationError when ecosystem gate fails', async () => {

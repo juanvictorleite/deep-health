@@ -8,6 +8,20 @@
  * behavior where the JSON output lists patches that never get written).
  */
 
+import { v1Adapter, v2v3Adapter, selectRootLevelAdapter } from "./lockfile-formats";
+
+function parseLockfileRoot(content: string): Record<string, unknown> | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+    return undefined;
+  return parsed as Record<string, unknown>;
+}
+
 /**
  * Collect all (packageName, version) pairs from an npm package-lock.json string.
  *
@@ -16,12 +30,16 @@
  *  - content is JSON but not an object
  *  - the object has no recognizable `dependencies` or `packages` section
  *
- * Tolerates unknown fields and mixed v1/v2 lockfiles.
+ * Tolerates unknown fields and mixed v1/v2 lockfiles: both formats' sections
+ * are collected when present, not chosen exclusively.
  */
 export function collectNpmLockfileVersions(
   content: string,
 ): Map<string, Set<string>> {
   const out = new Map<string, Set<string>>();
+  const root = parseLockfileRoot(content);
+  if (!root) return out;
+
   const add = (name: string, version: string): void => {
     if (!name || !version) return;
     const set = out.get(name) ?? new Set<string>();
@@ -29,57 +47,8 @@ export function collectNpmLockfileVersions(
     out.set(name, set);
   };
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    return out;
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-    return out;
-
-  const root = parsed as Record<string, unknown>;
-
-  // v1 and v2 carry a recursive name-keyed `dependencies` tree.
-  const walkDeps = (deps: unknown): void => {
-    if (!deps || typeof deps !== "object" || Array.isArray(deps)) return;
-    for (const [name, val] of Object.entries(deps as Record<string, unknown>)) {
-      if (!val || typeof val !== "object") continue;
-      const entry = val as Record<string, unknown>;
-      const v = entry["version"];
-      if (typeof v === "string") add(name, v);
-      walkDeps(entry["dependencies"]);
-    }
-  };
-  walkDeps(root["dependencies"]);
-
-  // v2 and v3 use a path-keyed `packages` map, e.g. "node_modules/foo",
-  // "node_modules/@scope/bar", or "node_modules/a/node_modules/b".
-  const pkgs = root["packages"];
-  if (pkgs && typeof pkgs === "object" && !Array.isArray(pkgs)) {
-    for (const [pathKey, val] of Object.entries(
-      pkgs as Record<string, unknown>,
-    )) {
-      // The empty-key entry is the project root itself — always skip.
-      if (pathKey === "") continue;
-      if (!val || typeof val !== "object") continue;
-      const entry = val as Record<string, unknown>;
-      const ver = entry["version"];
-      if (typeof ver !== "string") continue;
-
-      const explicitName = entry["name"];
-      let name: string | undefined;
-      if (typeof explicitName === "string" && explicitName.length > 0) {
-        name = explicitName;
-      } else {
-        const marker = "node_modules/";
-        const idx = pathKey.lastIndexOf(marker);
-        if (idx < 0) continue;
-        name = pathKey.slice(idx + marker.length);
-      }
-      if (name) add(name, ver);
-    }
-  }
+  for (const entry of v1Adapter.collectAll(root)) add(entry.name, entry.version);
+  for (const entry of v2v3Adapter.collectAll(root)) add(entry.name, entry.version);
 
   return out;
 }
@@ -103,55 +72,11 @@ export function collectRootNpmLockfileVersions(
   content: string,
 ): Map<string, string> {
   const out = new Map<string, string>();
+  const root = parseLockfileRoot(content);
+  if (!root) return out;
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    return out;
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-    return out;
-
-  const root = parsed as Record<string, unknown>;
-
-  const pkgs = root["packages"];
-  if (pkgs && typeof pkgs === "object" && !Array.isArray(pkgs)) {
-    // v2/v3: use the `packages` key — root-level means exactly one node_modules/ segment
-    for (const [pathKey, val] of Object.entries(
-      pkgs as Record<string, unknown>,
-    )) {
-      if (pathKey === "") continue;
-      if (!val || typeof val !== "object") continue;
-      const entry = val as Record<string, unknown>;
-      const ver = entry["version"];
-      if (typeof ver !== "string") continue;
-
-      // Must start with "node_modules/" and have no second "/node_modules/" after that
-      const prefix = "node_modules/";
-      if (!pathKey.startsWith(prefix)) continue;
-      const afterFirst = pathKey.slice(prefix.length);
-      if (afterFirst.includes("/node_modules/")) continue;
-
-      // Package name is everything after "node_modules/"
-      const name = afterFirst;
-      if (name) out.set(name, ver);
-    }
-    return out;
-  }
-
-  // v1: iterate only top-level dependencies object (no recursion)
-  const deps = root["dependencies"];
-  if (deps && typeof deps === "object" && !Array.isArray(deps)) {
-    for (const [name, val] of Object.entries(deps as Record<string, unknown>)) {
-      if (!val || typeof val !== "object") continue;
-      const entry = val as Record<string, unknown>;
-      const ver = entry["version"];
-      if (typeof ver === "string" && name && ver) {
-        out.set(name, ver);
-      }
-    }
-  }
+  const adapter = selectRootLevelAdapter(root);
+  for (const entry of adapter.collectRootLevel(root)) out.set(entry.name, entry.version);
 
   return out;
 }
@@ -269,12 +194,35 @@ export function collectNpmLockfileConstraints(
  * or starts with "ext-" or "lib-".
  * Returns an empty Map on parse error or missing sections.
  */
+function processComposerPackageEntry(
+  entry: unknown,
+  addConstraint: ConstraintAdder,
+): void {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return;
+  const pkg = entry as Record<string, unknown>;
+  const parentName = pkg['name'];
+  if (typeof parentName !== 'string' || !parentName) return;
+  const require = pkg['require'];
+  if (!require || typeof require !== 'object' || Array.isArray(require)) return;
+  addStringConstraints(require as Record<string, unknown>, parentName, addConstraint);
+}
+
+function processComposerPackageArray(
+  arr: unknown,
+  addConstraint: ConstraintAdder,
+): void {
+  if (!Array.isArray(arr)) return;
+  for (const entry of arr) {
+    processComposerPackageEntry(entry, addConstraint);
+  }
+}
+
 export function collectComposerLockfileConstraints(
   content: string,
 ): Map<string, Map<string, string>> {
   const out = new Map<string, Map<string, string>>();
 
-  const addConstraint = (depName: string, parentName: string, constraint: string): void => {
+  const addConstraint: ConstraintAdder = (depName, parentName, constraint) => {
     if (!depName || !parentName || !constraint) return;
     // Skip platform requirements
     if (depName === 'php' || depName.startsWith('ext-') || depName.startsWith('lib-')) return;
@@ -293,25 +241,8 @@ export function collectComposerLockfileConstraints(
 
   const root = parsed as Record<string, unknown>;
 
-  const processPackageArray = (arr: unknown): void => {
-    if (!Array.isArray(arr)) return;
-    for (const entry of arr) {
-      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
-      const pkg = entry as Record<string, unknown>;
-      const parentName = pkg['name'];
-      if (typeof parentName !== 'string' || !parentName) continue;
-      const require = pkg['require'];
-      if (!require || typeof require !== 'object' || Array.isArray(require)) continue;
-      for (const [depName, constraint] of Object.entries(require as Record<string, unknown>)) {
-        if (typeof constraint === 'string') {
-          addConstraint(depName, parentName, constraint);
-        }
-      }
-    }
-  };
-
-  processPackageArray(root['packages']);
-  processPackageArray(root['packages-dev']);
+  processComposerPackageArray(root['packages'], addConstraint);
+  processComposerPackageArray(root['packages-dev'], addConstraint);
 
   return out;
 }

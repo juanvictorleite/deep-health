@@ -1,8 +1,7 @@
 import type { ProjectConfig, ProtectedPackage } from '@core/types/config';
 import type { UpdateResultJson } from '@core/types/update';
-import { COMPOSER_BOOTSTRAP, isPhpCliImage } from '@infra/provisioner/composer-runner';
-import { resolveComposerDockerImage } from '@infra/provisioner/php-image-resolver';
-import { COMPOSER_DEFAULT_IMAGE } from '@infra/provisioner/php-profiles';
+import { resolveEcosystemImage } from '@infra/provisioner/image-resolvers';
+import { COMPOSER_BOOTSTRAP, COMPOSER_DEFAULT_IMAGE, isPhpCliImage } from '@infra/provisioner/php-profiles';
 import type { VersionSource } from '@infra/utils/infer-version';
 
 import { runComposerUpdater } from './composer-updater';
@@ -67,7 +66,7 @@ export const composerPlugin: EcosystemPlugin = {
 
   runtimeSpec: {
     defaultImage: COMPOSER_DEFAULT_IMAGE,
-    resolveImage: resolveComposerDockerImage,
+    resolveImage: (version) => resolveEcosystemImage('composer', version),
     containerBinaries: ['composer', 'php'],
     runMode: {
       kind: 'shell-wrap',

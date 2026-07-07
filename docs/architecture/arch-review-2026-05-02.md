@@ -1,3 +1,11 @@
+---
+type: Reference
+title: Architecture review — 2026-05-02 (cycle 2)
+description: Historical snapshot — second-cycle deepening candidates, all implemented as of 2026-05-02.
+tags: [architecture, review, historical]
+timestamp: 2026-05-02T00:00:00Z
+---
+
 # Architecture Review — 2026-05-02
 
 ## Introduction

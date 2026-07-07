@@ -1,0 +1,162 @@
+import { EventEmitter } from 'node:events';
+
+import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
+import { PIP_DEFAULT_IMAGE } from '@infra/provisioner/image-resolvers';
+import { setLogLevel } from '@infra/utils/logger';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+
+
+vi.mock('node:child_process', () => ({
+  execFile: vi.fn(),
+  spawn: vi.fn(),
+}));
+
+vi.mock('@infra/utils/docker-platform', () => ({
+  needsHostGateway: vi.fn().mockReturnValue(false),
+  resolvePlatform: vi.fn().mockReturnValue(undefined),
+}));
+
+import { spawn } from 'node:child_process';
+
+const mockSpawn = vi.mocked(spawn);
+
+function makeMockChild() {
+  const child = new EventEmitter() as EventEmitter & {
+    stdout: EventEmitter;
+    stderr: EventEmitter;
+  };
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  return child;
+}
+
+function makePipContainer(projectDir = '/tmp/project', image = PIP_DEFAULT_IMAGE) {
+  return new EphemeralEcosystemContainer({
+    runMode: { kind: 'shell-wrap' },
+    projectDir,
+    image,
+    logPrefix: 'pip',
+  });
+}
+
+describe('EphemeralEcosystemContainer runStreaming (pip mode)', () => {
+  let stderrSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setLogLevel('info');
+    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+  });
+
+  afterEach(() => {
+    stderrSpy.mockRestore();
+    setLogLevel('error');
+  });
+
+  it('streams stdout/stderr as info logs and returns captured output', async () => {
+    const child = makeMockChild();
+    mockSpawn.mockReturnValue(child as never);
+
+    queueMicrotask(() => {
+      child.stdout.emit('data', Buffer.from('Collecting requests\nInstalling\n'));
+      child.stderr.emit('data', Buffer.from('WARNING: pip is out of date\n'));
+      child.emit('close', 0);
+    });
+
+    const runner = makePipContainer();
+    const result = await runner.runStreaming(['pip', 'install', '-U', 'requests']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Collecting requests');
+    expect(result.stderr).toContain('WARNING: pip is out of date');
+
+    const writes = stderrSpy.mock.calls.map((c) => String(c[0]).replace(/\x1B\[[0-9;]*m/g, ''));
+    expect(writes.some((line) => line.includes('[pip] Collecting requests'))).toBe(true);
+  });
+
+  it('returns spawn error diagnostics when docker process fails to start', async () => {
+    const child = makeMockChild();
+    mockSpawn.mockReturnValue(child as never);
+
+    queueMicrotask(() => {
+      child.emit('error', new Error('spawn docker ENOENT'));
+    });
+
+    const runner = makePipContainer();
+    const result = await runner.runStreaming(['pip', 'install', 'requests']);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('spawn docker ENOENT');
+  });
+});
+
+describe('EphemeralEcosystemContainer._buildDockerArgs (pip/shell-wrap mode)', () => {
+  it('includes volume mount and workdir', () => {
+    const runner = makePipContainer('/my/project', 'python:3.11-slim');
+    const args = runner._buildDockerArgs(['pip', 'install', 'requests']);
+    expect(args).toContain('--volume');
+    expect(args).toContain('/my/project:/project');
+    expect(args).toContain('--workdir');
+    expect(args).toContain('/project');
+  });
+
+  it('uses sh -lc to wrap the command tokens', () => {
+    const runner = makePipContainer('/my/project', 'python:3.11-slim');
+    const args = runner._buildDockerArgs(['pip', 'check']);
+    const shIndex = args.indexOf('sh');
+    expect(shIndex).toBeGreaterThan(0);
+    expect(args[shIndex + 1]).toBe('-lc');
+    expect(args[shIndex + 2]).toBe('pip check');
+  });
+
+  it('uses the specified image', () => {
+    const runner = makePipContainer('/my/project', 'python:3.9-slim');
+    const args = runner._buildDockerArgs(['pip', 'list']);
+    expect(args).toContain('python:3.9-slim');
+  });
+
+  it('uses PIP_DEFAULT_IMAGE when constructed with default', () => {
+    const runner = makePipContainer('/my/project');
+    const args = runner._buildDockerArgs(['pip', 'list']);
+    expect(args).toContain(PIP_DEFAULT_IMAGE);
+  });
+});
+
+import { execFile } from 'node:child_process';
+const mockExecFilePip = vi.mocked(execFile);
+
+describe('EphemeralEcosystemContainer.run() (pip mode)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns exitCode 0 with stdout/stderr on success', async () => {
+    (mockExecFilePip as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (_file: string, _args: string[], cb: (err: null, stdout: string, stderr: string) => void) => {
+        cb(null, 'pip output', '');
+      },
+    );
+    const runner = makePipContainer('/project');
+    const result = await runner.run(['pip', 'install', '-r', 'requirements.txt']);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('pip output');
+  });
+
+  it('returns non-zero exitCode when docker exits with error', async () => {
+    const err = Object.assign(new Error('docker failed'), { code: 1, stdout: '', stderr: 'OOMKilled' });
+    let callCount = 0;
+    (mockExecFilePip as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (_file: string, _args: string[], cb: Function) => {
+        callCount++;
+        if (callCount === 1) {
+          // First call: _ensureImagePresent docker image inspect → succeed (image cached)
+          cb(null, '[]', '');
+        } else {
+          cb(err);
+        }
+      },
+    );
+    const runner = makePipContainer('/project');
+    const result = await runner.run(['pip', 'install']);
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe('OOMKilled');
+  });
+});

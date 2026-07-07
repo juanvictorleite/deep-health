@@ -28,4 +28,15 @@ export class EcosystemRegistry {
   }
 }
 
-export const defaultRegistry = new EcosystemRegistry();
+/**
+ * Builds a registry from an explicit plugin list, registered in array order.
+ * Registration order is preserved (Map insertion order), so callers control
+ * phase order by the order they pass plugins in.
+ */
+export function createEcosystemRegistry(plugins: EcosystemPlugin[]): EcosystemRegistry {
+  const registry = new EcosystemRegistry();
+  for (const plugin of plugins) {
+    registry.register(plugin);
+  }
+  return registry;
+}

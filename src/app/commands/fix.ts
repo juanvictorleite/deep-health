@@ -1,4 +1,5 @@
 import { writeAuditTrail, resolveCliVersion } from "@app/audit-trail";
+import type { BreakingWarningEntry } from "@app/fix-summary";
 import { formatFixSummary, formatBreakingWarning } from "@app/fix-summary";
 import { writeOutput } from "@app/output-writer";
 import { selectRenderer } from "@app/progress-reporter";
@@ -10,10 +11,13 @@ import type { RunContext } from "@app/run-context";
 import { __ } from "@core/i18n";
 import type { CommandRunner } from "@core/types/common";
 import { ecosystemEntryKey } from "@core/types/config";
+import type { ProjectConfig } from "@core/types/config";
+import type { ScanResultJson } from "@core/types/scan";
 import { CLI_NAME, DEFAULT_BRANCH_PREFIX } from "@infra/brand";
 import { detectGitBranch } from "@infra/utils/git-branch";
 import { createBranchAndCommit, buildBranchName } from "@infra/utils/git-commit";
 import { defaultRegistry } from "@modules/ecosystem/index";
+import type { OrchestratorOptions, OrchestratorResult } from "@orchestration/orchestrator";
 import { runOrchestrator } from "@orchestration/orchestrator";
 
 export interface FixCommandOptions {
@@ -46,96 +50,122 @@ export interface FixCommandOptions {
   splitReports?: boolean;
 }
 
+type FixPhase = "scan" | "npm" | "composer" | "report";
+
+function parsePhases(phases: string | undefined): FixPhase[] | undefined {
+  return phases ? (phases.split(",") as FixPhase[]) : undefined;
+}
+
 /**
- * Core fix pipeline: scan + ecosystem updates + reports.
- * Extracted from runFixCommand so it can be called inside a branch/commit wrapper.
- * Returns an exit code: 0 = success, 1 = error or pending vulns.
+ * Builds the per-plugin authorization record for the orchestrator. A second pass folds in
+ * raw --authorize-breaking values verbatim (including entryKey-format ids like 'npm:frontend')
+ * so the orchestrator can match authorization by entryKey even for ids outside the registry.
  */
-async function runFixPipeline(
+function buildAuthorizeBreakingRecord(authorizedIds: Set<string>): Record<string, boolean> {
+  const record: Record<string, boolean> = {};
+  for (const plugin of defaultRegistry.getAll()) {
+    record[plugin.id] = authorizedIds.has(plugin.id);
+  }
+  for (const id of authorizedIds) {
+    record[id] = true;
+  }
+  return record;
+}
+
+/**
+ * Reads the breaking-vuln count and package list for one ecosystem entry, defaulting
+ * missing/undefined fields the same way the original inline lookup did (`?? 0` / `?? []`).
+ */
+function resolveEntryBreakingStats(
+  scan: ScanResultJson,
+  entryKey: string,
+): { breaking: number; packages: string[] } {
+  const entryScan = scan.ecosystems[entryKey];
+  return {
+    breaking: entryScan?.breaking ?? 0,
+    packages: entryScan?.breaking_packages ?? [],
+  };
+}
+
+/** Returns a warning entry for `ecoEntry` when it has unauthorized breaking vulns, else null. */
+function resolveBreakingEntry(
+  ecoEntry: ProjectConfig['ecosystems'][number],
+  scan: ScanResultJson,
+  authorizedIds: Set<string>,
+): BreakingWarningEntry | null {
+  const plugin = defaultRegistry.get(ecoEntry.id);
+  if (!plugin) return null;
+
+  const entryKey = ecosystemEntryKey(ecoEntry);
+  const { breaking, packages } = resolveEntryBreakingStats(scan, entryKey);
+  const isAuthorized = authorizedIds.has(ecoEntry.id) || authorizedIds.has(entryKey);
+  if (breaking <= 0 || isAuthorized) return null;
+
+  return { pluginName: plugin.name, entryKey, count: breaking, packages };
+}
+
+/**
+ * Emits a non-blocking stderr warning for ecosystems with breaking vulns left unauthorized.
+ * Uses `scan` from the orchestrator's Gate A result (the canonical before-fix snapshot) —
+ * NOT a standalone re-scan — and iterates config.ecosystems so the lookup key matches the
+ * per-entry scan result.
+ */
+function warnOnUnauthorizedBreakingChanges(
+  config: ProjectConfig,
+  scan: ScanResultJson,
+  authorizedIds: Set<string>,
+): void {
+  const breakingEntries = config.ecosystems
+    .map((ecoEntry) => resolveBreakingEntry(ecoEntry, scan, authorizedIds))
+    .filter((entry): entry is BreakingWarningEntry => entry !== null);
+
+  if (breakingEntries.length > 0) {
+    process.stderr.write(formatBreakingWarning(breakingEntries));
+  }
+}
+
+interface ReportArtifactsOutcome {
+  reportGenerated: boolean;
+  earlyExitCode: number | null;
+}
+
+/** Markdown output is opt-in: report artifacts are only generated when outputs.formats includes 'markdown'. */
+async function maybeGenerateReportArtifacts(
   ctx: RunContext,
   opts: FixCommandOptions,
-): Promise<number> {
-  const { config, runner } = ctx;
-
-  const phases = opts.phases
-    ? (opts.phases.split(",") as ("scan" | "npm" | "composer" | "report")[])
-    : undefined;
-
-  // Build authorizeBreaking set from --authorize-breaking <id...>
-  const authorizedIds = new Set<string>(opts.authorizeBreaking ?? []);
-
-  // Translate to authorizeBreaking record for orchestrator
-  const authorizeBreakingRecord: Record<string, boolean> = {};
-  for (const plugin of defaultRegistry.getAll()) {
-    authorizeBreakingRecord[plugin.id] = authorizedIds.has(plugin.id);
-  }
-  // Bridge entryKey-format values (e.g. 'npm:frontend') from --authorize-breaking
-  // directly into the record so the orchestrator can match them by entryKey too.
-  for (const id of authorizedIds) {
-    authorizeBreakingRecord[id] = true;
+  result: OrchestratorResult,
+  markdownEnabled: boolean,
+): Promise<ReportArtifactsOutcome> {
+  if (opts.noReport || !markdownEnabled || !result.scan) {
+    return { reportGenerated: false, earlyExitCode: null };
   }
 
-  const result = await runOrchestrator(runner, config, {
-    configPath: opts.config,
+  const artifactCode = await generateAndSaveReportArtifacts({
+    runner: ctx.runner,
     cwd: opts.cwd,
-    dryRun: opts.dryRun,
-    verbose: opts.verbose,
-    phases,
-    authorizeBreaking: authorizeBreakingRecord,
-    rendererType: selectRenderer({ verbose: opts.verbose, quiet: opts.quiet, json: opts.json }),
+    config: ctx.config,
+    scanBefore: result.scan,
+    updates: result.updates,
+    engineResults: result.aggregated?.engineResults,
+    advisorResults: Object.keys(result.advisorResults).length > 0
+      ? result.advisorResults
+      : undefined,
+    residualVerification: result.residualVerification,
+    splitReports: opts.splitReports,
   });
 
-  // Emit non-blocking warnings for ecosystems with breaking vulns and no authorization.
-  // Uses result.scan (the canonical before-fix snapshot from the orchestrator's Gate A scan).
-  // Iterates config.ecosystems entries so the lookup key matches the per-entry scan result.
-  if (result.scan) {
-    const breakingEntries = [];
-    for (const ecoEntry of config.ecosystems) {
-      const plugin = defaultRegistry.get(ecoEntry.id);
-      if (!plugin) continue;
-      const entryKey = ecosystemEntryKey(ecoEntry);
-      const breaking = result.scan.ecosystems[entryKey]?.breaking ?? 0;
-      // Accept both bare plugin id AND entryKey for authorization
-      if (breaking > 0 && !authorizedIds.has(ecoEntry.id) && !authorizedIds.has(entryKey)) {
-        const packages = result.scan.ecosystems[entryKey]?.breaking_packages ?? [];
-        breakingEntries.push({ pluginName: plugin.name, entryKey, count: breaking, packages });
-      }
-    }
-    if (breakingEntries.length > 0) {
-      process.stderr.write(formatBreakingWarning(breakingEntries));
-    }
+  if (artifactCode !== 0) {
+    return { reportGenerated: false, earlyExitCode: artifactCode };
   }
+  return { reportGenerated: true, earlyExitCode: null };
+}
 
-  // Resolve outputs config (canonical location for reports settings)
-  const outputsConfig = config.outputs;
-  const reportsDir = resolveReportsDir(opts.cwd, outputsConfig?.dir);
-  // Markdown output is opt-in: only save to reportsDir when outputs.formats includes 'markdown'
-  const markdownEnabled = (outputsConfig?.formats ?? []).includes('markdown');
-
-  if (opts.json) {
-    await writeOutput(JSON.stringify(result, null, 2), opts.output);
-  }
-
-  let reportGenerated = false;
-  if (!opts.noReport && markdownEnabled && result.scan) {
-    const artifactCode = await generateAndSaveReportArtifacts({
-      runner,
-      cwd: opts.cwd,
-      config,
-      scanBefore: result.scan,
-      updates: result.updates,
-      engineResults: result.aggregated?.engineResults,
-      advisorResults: Object.keys(result.advisorResults).length > 0
-        ? result.advisorResults
-        : undefined,
-      residualVerification: result.residualVerification,
-      splitReports: opts.splitReports,
-    });
-    if (artifactCode !== 0) return artifactCode;
-    reportGenerated = true;
-  }
-
-  // Fase 6: write audit trail
+async function persistAuditTrailAndSummary(
+  opts: FixCommandOptions,
+  result: OrchestratorResult,
+  reportsDir: string,
+  reportGenerated: boolean,
+): Promise<void> {
   const auditTimestamp = new Date().toISOString();
   const cliVersion = await resolveCliVersion();
   await writeAuditTrail(opts.cwd, {
@@ -160,10 +190,115 @@ async function runFixPipeline(
     auditTrailPath,
   });
   process.stdout.write(summary);
+}
 
+function resolveFixExitCode(result: OrchestratorResult): number {
   if (result.overallStatus === "error") return 1; // real crash/failure
   if (result.hasPendingVulns) return 1;           // scan clean-exit, vulns remain
   return 0;
+}
+
+function buildOrchestratorOptions(
+  opts: FixCommandOptions,
+  authorizedIds: Set<string>,
+): OrchestratorOptions {
+  return {
+    configPath: opts.config,
+    cwd: opts.cwd,
+    dryRun: opts.dryRun,
+    verbose: opts.verbose,
+    phases: parsePhases(opts.phases),
+    authorizeBreaking: buildAuthorizeBreakingRecord(authorizedIds),
+    rendererType: selectRenderer({ verbose: opts.verbose, quiet: opts.quiet, json: opts.json }),
+  };
+}
+
+/**
+ * Core fix pipeline: scan + ecosystem updates + reports.
+ * Extracted from runFixCommand so it can be called inside a branch/commit wrapper.
+ * Returns an exit code: 0 = success, 1 = error or pending vulns.
+ */
+async function runFixPipeline(
+  ctx: RunContext,
+  opts: FixCommandOptions,
+): Promise<number> {
+  const { config, runner } = ctx;
+  const authorizedIds = new Set<string>(opts.authorizeBreaking ?? []);
+
+  const result = await runOrchestrator(runner, config, buildOrchestratorOptions(opts, authorizedIds));
+
+  if (result.scan) {
+    warnOnUnauthorizedBreakingChanges(config, result.scan, authorizedIds);
+  }
+
+  const outputsConfig = config.outputs;
+  const reportsDir = resolveReportsDir(opts.cwd, outputsConfig?.dir);
+  const markdownEnabled = (outputsConfig?.formats ?? []).includes('markdown');
+
+  if (opts.json) {
+    await writeOutput(JSON.stringify(result, null, 2), opts.output);
+  }
+
+  const { reportGenerated, earlyExitCode } = await maybeGenerateReportArtifacts(
+    ctx,
+    opts,
+    result,
+    markdownEnabled,
+  );
+  if (earlyExitCode !== null) return earlyExitCode;
+
+  await persistAuditTrailAndSummary(opts, result, reportsDir, reportGenerated);
+
+  return resolveFixExitCode(result);
+}
+
+interface BranchWorkflowPlan {
+  useBranch: boolean;
+  effectiveOpenPr: boolean;
+  branchPrefix: string;
+}
+
+function resolveEffectiveFlag(flag: boolean | undefined, configFlag: boolean | undefined): boolean {
+  return flag ?? configFlag ?? false;
+}
+
+function resolveBranchPrefix(prefix: string | undefined, configPrefix: string | undefined): string {
+  return prefix ?? configPrefix ?? DEFAULT_BRANCH_PREFIX;
+}
+
+function resolveBranchWorkflowPlan(ctx: RunContext, opts: FixCommandOptions): BranchWorkflowPlan {
+  const wf = ctx.config.workflow;
+  const effectiveCreateBranch = resolveEffectiveFlag(opts.createBranch, wf?.create_branch);
+  const effectiveOpenPr = resolveEffectiveFlag(opts.openPr, wf?.open_pr);
+  const useBranch = (effectiveOpenPr || effectiveCreateBranch) && !opts.dryRun;
+  const branchPrefix = resolveBranchPrefix(opts.branchPrefix, wf?.branch_prefix);
+  return { useBranch, effectiveOpenPr, branchPrefix };
+}
+
+async function runFixWithBranch(
+  ctx: RunContext,
+  opts: FixCommandOptions,
+  plan: BranchWorkflowPlan,
+): Promise<number> {
+  const { runner, config } = ctx;
+  const originalBranch = await detectGitBranch(opts.cwd, runner);
+  const branchName = buildBranchName(plan.branchPrefix);
+
+  const branchResult = await createBranchAndCommit(
+    runner,
+    opts.cwd,
+    originalBranch,
+    branchName,
+    'fix: apply safe dependency updates [' + CLI_NAME + ']',
+    async () => runFixPipeline(ctx, opts),
+  );
+
+  if (plan.effectiveOpenPr && branchResult.committed) {
+    const effectivePrTitle = opts.prTitle ?? config.workflow?.pr_title;
+    await openPullRequest(runner, opts.cwd, branchResult.branch, effectivePrTitle, ctx);
+  }
+
+  return branchResult.exitCode;
 }
 
 /**
@@ -193,38 +328,13 @@ export async function runFixCommand(
   ctx: RunContext,
   opts: FixCommandOptions,
 ): Promise<number> {
-  const { runner } = ctx;
+  const plan = resolveBranchWorkflowPlan(ctx, opts);
 
-  // Resolve effective workflow options: CLI flags take precedence over config,
-  // config takes precedence over hardcoded defaults.
-  const wf = ctx.config.workflow;
-  const effectiveCreateBranch = opts.createBranch ?? wf?.create_branch ?? false;
-  const effectiveOpenPr = opts.openPr ?? wf?.open_pr ?? false;
-  const useBranch = (effectiveOpenPr || effectiveCreateBranch) && !opts.dryRun;
-  const branchPrefix = opts.branchPrefix ?? wf?.branch_prefix ?? DEFAULT_BRANCH_PREFIX;
-
-  if (useBranch) {
-    const originalBranch = await detectGitBranch(opts.cwd, runner);
-    const branchName = buildBranchName(branchPrefix);
-
-    const branchResult = await createBranchAndCommit(
-      runner,
-      opts.cwd,
-      originalBranch,
-      branchName,
-      'fix: apply safe dependency updates [' + CLI_NAME + ']',
-      async () => runFixPipeline(ctx, opts),
-    );
-
-    if (effectiveOpenPr && branchResult.committed) {
-      const effectivePrTitle = opts.prTitle ?? wf?.pr_title;
-      await openPullRequest(runner, opts.cwd, branchResult.branch, effectivePrTitle, ctx);
-    }
-
-    return branchResult.exitCode;
+  if (!plan.useBranch) {
+    return runFixPipeline(ctx, opts);
   }
 
-  return runFixPipeline(ctx, opts);
+  return runFixWithBranch(ctx, opts, plan);
 }
 
 /**

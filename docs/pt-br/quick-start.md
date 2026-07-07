@@ -1,4 +1,12 @@
+---
+type: Reference
+title: "security-scan — Guia de Início Rápido"
+description: Quick-start guide template — brand variants are generated on demand via scripts/generate-quick-start.sh, never versioned.
+tags: [guide, quick-start, pt-br, template]
+timestamp: 2026-07-06T00:00:00Z
+---
 <!-- GENERATED — do not edit. Source: quick-start.template.md -->
+
 # security-scan — Guia de Início Rápido
 
 Instale, configure e rode seu primeiro `fix` em menos de 5 minutos.

@@ -1,3 +1,11 @@
+---
+type: Reference
+title: Architecture review — 2026-05-02 (cycle 3)
+description: Historical snapshot — third-cycle deepening candidates surfaced after cycle 2 completed.
+tags: [architecture, review, historical]
+timestamp: 2026-05-02T00:00:00Z
+---
+
 # Architecture Review — 2026-05-02 (Cycle 3)
 
 ## Introduction

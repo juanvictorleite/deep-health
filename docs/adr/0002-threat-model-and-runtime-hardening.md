@@ -1,8 +1,15 @@
+---
+type: ADR
+title: Threat model and runtime hardening for ecosystem CLI execution
+description: Document the container threat model; apply --cap-drop=ALL and no-new-privileges to every ephemeral container.
+status: Accepted
+supersedes:
+superseded_by:
+tags: [security, runtime, docker]
+timestamp: 2026-04-25T00:00:00Z
+---
+
 # ADR 0002 — Threat model and runtime hardening for ecosystem CLI execution
-
-## Status
-
-Accepted — 2026-04-25
 
 ## Context
 

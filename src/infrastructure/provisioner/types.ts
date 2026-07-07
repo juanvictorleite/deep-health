@@ -31,6 +31,13 @@ export interface EphemeralContainerRunner<TArgs = string[]> {
    * Optional: implemented by npm/pip/composer runners; absent on osv/sonar runners.
    */
   runShell?(command: string, opts?: { cwd?: string; timeout?: number }): Promise<ContainerRunResult>;
+  /**
+   * Execute the container with real-time line streaming via `onLine`, while
+   * still returning the full captured result. `args` is passed the same way
+   * as `run()` — not interpolated.
+   * Optional: implemented by npm/pip/composer runners; absent on osv/sonar runners.
+   */
+  runStreaming?(args: TArgs, onLine?: (line: string) => void): Promise<ContainerRunResult>;
 }
 
 // ─── ServiceProvisioner contract ────────────────────────────────────────────────

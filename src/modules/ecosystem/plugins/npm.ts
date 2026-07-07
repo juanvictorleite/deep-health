@@ -3,11 +3,11 @@ import { join } from 'node:path';
 
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig, ProtectedPackage, FixerStrategyId, EcosystemConfig } from '@core/types/config';
-import type { ScanResultJson } from '@core/types/scan';
+import type { EcosystemScanResult, ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
 import { NPM_DEFAULT_FIXER } from '@infra/brand';
-import { resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
+import { resolveEcosystemImage } from '@infra/provisioner/image-resolvers';
 import type { VersionSource } from '@infra/utils/infer-version';
 import { logger } from '@infra/utils/logger';
 import { collectRootNpmLockfileVersions } from '@modules/ecosystem/utils/lockfile-inspect';
@@ -82,6 +82,148 @@ function parseEnginesNodeRange(range: string): string | undefined {
   return version;
 }
 
+/**
+ * Extract the `package.json#engines.node` range as a best-effort version
+ * string. Returns undefined on malformed JSON, a missing/non-string
+ * `engines.node`, or a range `parseEnginesNodeRange` rejects.
+ */
+function extractEnginesNodeVersion(content: string): string | undefined {
+  try {
+    const pkg: unknown = JSON.parse(content);
+    if (
+      pkg !== null &&
+      typeof pkg === 'object' &&
+      'engines' in pkg &&
+      typeof (pkg as Record<string, unknown>)['engines'] === 'object' &&
+      (pkg as Record<string, unknown>)['engines'] !== null
+    ) {
+      const engines = (pkg as Record<string, unknown>)['engines'] as Record<string, unknown>;
+      if (typeof engines['node'] === 'string') {
+        return parseEnginesNodeRange(engines['node']);
+      }
+    }
+  } catch {
+    // malformed JSON — fall through
+  }
+  return undefined;
+}
+
+// ─── installBreakingPackages phase helpers ────────────────────────────────────
+
+/**
+ * Collect the authorized breaking-change packages (name → safe version) from
+ * an ecosystem scan result, warning about any protected-constraint packages
+ * that must be skipped (they cannot be installed automatically).
+ */
+function collectAuthorizedBreakingPackages(ecosystemResult: EcosystemScanResult): Map<string, string> {
+  const skippedProtected = ecosystemResult.vulnerabilities
+    .filter((v) => v.classification === 'breaking' && v.breakingReason === 'protected-constraint');
+  if (skippedProtected.length > 0) {
+    logger.warn(
+      `[OSV strategy] Skipping ${skippedProtected.length} protected-constraint package(s) — cannot be installed automatically: ` +
+      skippedProtected.map((v) => v.package).join(', '),
+    );
+  }
+
+  return ecosystemResult.vulnerabilities
+    .filter((v) => v.classification === 'breaking' && v.safeVersion && v.breakingReason !== 'protected-constraint')
+    .reduce<Map<string, string>>((map, v) => {
+      if (!map.has(v.package)) map.set(v.package, v.safeVersion!);
+      return map;
+    }, new Map());
+}
+
+/**
+ * Read `package-lock.json` from `cwd` and collect its root package versions.
+ * Returns an empty map (after logging `debugMessage`) when the lockfile is
+ * missing or unreadable.
+ */
+async function readRootLockfileVersions(cwd: string, debugMessage: string): Promise<Map<string, string>> {
+  let content: string | undefined;
+  try {
+    content = await readFile(join(cwd, 'package-lock.json'), 'utf-8') as string;
+  } catch {
+    logger.debug(debugMessage);
+  }
+  return content !== undefined ? collectRootNpmLockfileVersions(content) : new Map<string, string>();
+}
+
+/**
+ * Verify each requested breaking package landed in the lockfile diff between
+ * the pre- and post-install root version snapshots. Returns the count of
+ * packages confirmed upgraded; warns (verbatim) for each that was not.
+ */
+function verifyBreakingUpgrades(
+  breakingPkgs: Map<string, string>,
+  rootBefore: Map<string, string>,
+  rootAfter: Map<string, string>,
+): number {
+  let verifiedCount = 0;
+  for (const spec of breakingPkgs.keys()) {
+    // Extract name: everything before the last '@'
+    const atIdx = spec.lastIndexOf('@');
+    const name = atIdx > 0 ? spec.slice(0, atIdx) : spec;
+    const versionAfter = rootAfter.get(name);
+    const versionBefore = rootBefore.get(name);
+    if (versionAfter === undefined || versionAfter === versionBefore) {
+      logger.warn(
+        `[breaking install] ${name} was requested but not found in lockfile diff after npm install`,
+      );
+    } else {
+      verifiedCount++;
+    }
+  }
+  return verifiedCount;
+}
+
+/**
+ * Run `npm install` for the authorized breaking-change package specs,
+ * snapshotting the root lockfile versions before and after and verifying
+ * every requested package actually landed in the lockfile diff.
+ */
+async function performBreakingInstall(
+  runner: CommandRunner,
+  cwd: string,
+  specArgs: string[],
+  breakingPkgs: Map<string, string>,
+): Promise<{ status: 'success' | 'error'; error?: string }> {
+  const specs = specArgs.join(' ');
+
+  const rootBefore = await readRootLockfileVersions(
+    cwd,
+    '[breaking install] Could not read package-lock.json before install — skipping pre-snapshot',
+  );
+
+  // SEC: use runArgs (shell: false) so package-name/version data never reaches a shell tokenizer
+  const installResult = await runner.runArgs('npm', ['install', ...specArgs], { cwd, stream: true });
+  if (installResult.exitCode !== 0) {
+    logger.error(
+      `[OSV strategy] npm install for breaking packages failed (exit ${installResult.exitCode}): ${installResult.stderr}`,
+    );
+    return { status: 'error', error: `npm install ${specs} failed: ${installResult.stderr}` };
+  }
+
+  const rootAfter = await readRootLockfileVersions(
+    cwd,
+    '[breaking install] Could not read package-lock.json after install — skipping post-snapshot',
+  );
+
+  const verifiedCount = verifyBreakingUpgrades(breakingPkgs, rootBefore, rootAfter);
+
+  if (verifiedCount === 0 && breakingPkgs.size > 0) {
+    const names = [...breakingPkgs.keys()].join(', ');
+    logger.error(
+      `[breaking install] None of the requested packages (${names}) were verified in the lockfile after npm install`,
+    );
+    return {
+      status: 'error',
+      error: `Breaking install produced no verified upgrades for: ${names}`,
+    };
+  }
+
+  return { status: 'success' };
+}
+
 export const npmPlugin: EcosystemPlugin = {
   id: 'npm',
   name: 'npm',
@@ -94,7 +236,7 @@ export const npmPlugin: EcosystemPlugin = {
 
   runtimeSpec: {
     defaultImage: 'node:lts',
-    resolveImage: resolveNpmDockerImage,
+    resolveImage: (version) => resolveEcosystemImage('npm', version),
     containerBinaries: ['npm'],
     runMode: { kind: 'direct-exec', binary: 'npm' },
   },
@@ -185,20 +327,7 @@ export const npmPlugin: EcosystemPlugin = {
     if (args.fixerStrategy !== 'osv') return null;
 
     const ecosystemResult = args.scanResult.ecosystems[args.ecosystemKey ?? 'npm'] ?? emptyEcosystem();
-    const skippedProtected = ecosystemResult.vulnerabilities
-      .filter((v) => v.classification === 'breaking' && v.breakingReason === 'protected-constraint');
-    if (skippedProtected.length > 0) {
-      logger.warn(
-        `[OSV strategy] Skipping ${skippedProtected.length} protected-constraint package(s) — cannot be installed automatically: ` +
-        skippedProtected.map((v) => v.package).join(', '),
-      );
-    }
-    const breakingPkgs = ecosystemResult.vulnerabilities
-      .filter((v) => v.classification === 'breaking' && v.safeVersion && v.breakingReason !== 'protected-constraint')
-      .reduce<Map<string, string>>((map, v) => {
-        if (!map.has(v.package)) map.set(v.package, v.safeVersion!);
-        return map;
-      }, new Map());
+    const breakingPkgs = collectAuthorizedBreakingPackages(ecosystemResult);
 
     if (breakingPkgs.size === 0) return { status: 'success' };
 
@@ -211,66 +340,7 @@ export const npmPlugin: EcosystemPlugin = {
       return { status: 'success' };
     }
 
-    // Pre-install snapshot: read package-lock.json before npm install
-    let preInstallContent: string | undefined;
-    try {
-      preInstallContent = await readFile(join(args.cwd, 'package-lock.json'), 'utf-8') as string;
-    } catch {
-      logger.debug('[breaking install] Could not read package-lock.json before install — skipping pre-snapshot');
-    }
-    const rootBefore = preInstallContent !== undefined
-      ? collectRootNpmLockfileVersions(preInstallContent)
-      : new Map<string, string>();
-
-    // SEC: use runArgs (shell: false) so package-name/version data never reaches a shell tokenizer
-    const installResult = await args.runner.runArgs('npm', ['install', ...specArgs], { cwd: args.cwd, stream: true });
-    if (installResult.exitCode !== 0) {
-      logger.error(
-        `[OSV strategy] npm install for breaking packages failed (exit ${installResult.exitCode}): ${installResult.stderr}`,
-      );
-      return { status: 'error', error: `npm install ${specs} failed: ${installResult.stderr}` };
-    }
-
-    // Post-install snapshot: read package-lock.json after npm install
-    let postInstallContent: string | undefined;
-    try {
-      postInstallContent = await readFile(join(args.cwd, 'package-lock.json'), 'utf-8') as string;
-    } catch {
-      logger.debug('[breaking install] Could not read package-lock.json after install — skipping post-snapshot');
-    }
-    const rootAfter = postInstallContent !== undefined
-      ? collectRootNpmLockfileVersions(postInstallContent)
-      : new Map<string, string>();
-
-    // Verify each requested package landed in the lockfile diff
-    let verifiedCount = 0;
-    for (const spec of breakingPkgs.keys()) {
-      // Extract name: everything before the last '@'
-      const atIdx = spec.lastIndexOf('@');
-      const name = atIdx > 0 ? spec.slice(0, atIdx) : spec;
-      const versionAfter = rootAfter.get(name);
-      const versionBefore = rootBefore.get(name);
-      if (versionAfter === undefined || versionAfter === versionBefore) {
-        logger.warn(
-          `[breaking install] ${name} was requested but not found in lockfile diff after npm install`,
-        );
-      } else {
-        verifiedCount++;
-      }
-    }
-
-    if (verifiedCount === 0 && breakingPkgs.size > 0) {
-      const names = [...breakingPkgs.keys()].join(', ');
-      logger.error(
-        `[breaking install] None of the requested packages (${names}) were verified in the lockfile after npm install`,
-      );
-      return {
-        status: 'error',
-        error: `Breaking install produced no verified upgrades for: ${names}`,
-      };
-    }
-
-    return { status: 'success' };
+    return performBreakingInstall(args.runner, args.cwd, specArgs, breakingPkgs);
   },
 
   /**
@@ -295,26 +365,7 @@ export const npmPlugin: EcosystemPlugin = {
     {
       file: 'package.json',
       label: 'package.json#engines.node',
-      extract: (content: string): string | undefined => {
-        try {
-          const pkg: unknown = JSON.parse(content);
-          if (
-            pkg !== null &&
-            typeof pkg === 'object' &&
-            'engines' in pkg &&
-            typeof (pkg as Record<string, unknown>)['engines'] === 'object' &&
-            (pkg as Record<string, unknown>)['engines'] !== null
-          ) {
-            const engines = (pkg as Record<string, unknown>)['engines'] as Record<string, unknown>;
-            if (typeof engines['node'] === 'string') {
-              return parseEnginesNodeRange(engines['node']);
-            }
-          }
-        } catch {
-          // malformed JSON — fall through
-        }
-        return undefined;
-      },
+      extract: extractEnginesNodeVersion,
     },
   ] satisfies VersionSource[],
 };

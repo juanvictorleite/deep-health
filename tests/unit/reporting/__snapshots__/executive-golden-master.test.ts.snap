@@ -1,0 +1,229 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`golden master — generateExecutiveReport() output stability (ADR 0008 report-view-model extraction) > produces output byte-identical to the pre-refactor snapshot (consolidated report) 1`] = `
+"# Security Report
+
+> **Client:** Acme
+> **Project:** Project
+> **Period:** July 2026
+> **Branch:** main
+> **Scanners:** osv, sonarqube
+---
+
+## Task
+
+Security Maintenance — Monthly Routine
+
+Monthly scan of installed dependencies to identify packages with known vulnerabilities and apply available fixes.
+
+## Resolution
+
+After running the scan, the following issues were found and fixed:
+
+| Type | CVE/GHSA | CVSS | Package | Old Version | Fixed Version | Risk |
+|------|----------|------|---------|-------------|---------------|------|
+| npm (frontend) | [GHSA-frontend-0001](https://osv.dev/vulnerability/GHSA-frontend-0001) | 7.5 | lodash | 4.17.20 | 4.17.21 ⚠ | high |
+| PHP/Composer | CVE-2024-5555 | — | vendor/audit-pkg | 1.1.0 | 1.2.0 | SQL Injection |
+
+The following vulnerabilities were classified as auto-fixable but are blocked by dependency constraints:
+
+| Type | CVE/GHSA | CVSS | Package | Version | Block Reason | Blocked By |
+|------|----------|------|---------|---------|--------------|------------|
+| PHP/Composer | [GHSA-composer-0003](https://osv.dev/vulnerability/GHSA-composer-0003) | 9.1 | symfony/http-kernel | 5.4.0 | Dependency constraint | symfony/framework-bundle |
+
+The following vulnerabilities could not be fixed automatically and remain pending:
+
+| Type | CVE/GHSA | CVSS | Package | Current Version | Reason |
+|------|----------|------|---------|-----------------|--------|
+| npm (api) | [GHSA-api-0002](https://osv.dev/vulnerability/GHSA-api-0002) | 8.1 | express | 4.17.1 | Requires major version 5.0.0 — breaking change; authorization required |
+
+
+---
+
+### Evidence — Before
+
+Initial scan (before fixes): **4 vulnerabilities** — 1 in npm (frontend) (1 package), 1 in npm (api) (1 package), 2 in PHP/Composer (2 packages)
+
+---
+
+### Evidence — After
+
+npm (frontend) — post-fix scan summary:
+
+| Type | CVE/GHSA | CVSS | Package | Status after fixes | Risk |
+|------|----------|------|---------|-------------------|------|
+| npm (frontend) | GHSA-frontend-0001 | 7.5 | lodash | 4.17.20 | fixed (4.17.21) ⚠ residual CVE unverified — post-update scan detected remaining vulnerabilities | high |
+npm (api) — post-fix scan summary:
+
+| Type | CVE/GHSA | CVSS | Package | Status after fixes | Risk |
+|------|----------|------|---------|-------------------|------|
+| npm (api) | GHSA-api-0002 | 8.1 | express | 4.17.1 | pending (authorization required) | critical |
+PHP/Composer — post-fix scan summary:
+
+| Type | CVE/GHSA | CVSS | Package | Status after fixes | Risk |
+|------|----------|------|---------|-------------------|------|
+| PHP/Composer | GHSA-composer-0003 | 9.1 | symfony/http-kernel | 5.4.0 | blocked (constraint: symfony/framework-bundle) | critical |
+| PHP/Composer | CVE-2024-5555 | — | vendor/audit-pkg | 1.1.0 | fixed (1.2.0) | SQL Injection |
+Post-fix scan: **1 vulnerabilities remaining** — 0 in npm (frontend) (0 packages), 1 in npm (api) (1 package: express), 0 in PHP/Composer (0 packages)
+
+✅ **npm test** (\`npm test\`) — 42 passing
+
+phpunit verified successfully: 12 passing
+
+
+---
+
+### Code Quality Analysis — SonarQube
+
+**Quality Gate:** ❌ ERROR
+
+**Quality Gate Conditions:**
+- ❌ **coverage**: actual \`70\` / threshold \`80\`
+**Metrics:**
+- **Coverage:** 70
+
+---
+
+## Summary
+
+All vulnerabilities that could be fixed without breaking changes have been applied. The items listed below require evaluation or major version authorization:
+"
+`;
+
+exports[`golden master — generateExecutiveReport() output stability (ADR 0008 report-view-model extraction) > produces output byte-identical to the pre-refactor snapshot (entry scoped to composer with audit findings) 1`] = `
+"# Security Report
+
+> **Client:** Acme
+> **Project:** Project
+> **Period:** July 2026
+> **Branch:** main
+> **Scanners:** osv, sonarqube
+---
+
+## Task
+
+Security Maintenance — Monthly Routine
+
+Monthly scan of installed dependencies to identify packages with known vulnerabilities and apply available fixes.
+
+## Resolution
+
+After running the scan, the following issues were found and fixed:
+
+| Type | CVE/GHSA | CVSS | Package | Old Version | Fixed Version | Risk |
+|------|----------|------|---------|-------------|---------------|------|
+| PHP/Composer | CVE-2024-5555 | — | vendor/audit-pkg | 1.1.0 | 1.2.0 | SQL Injection |
+
+The following vulnerabilities were classified as auto-fixable but are blocked by dependency constraints:
+
+| Type | CVE/GHSA | CVSS | Package | Version | Block Reason | Blocked By |
+|------|----------|------|---------|---------|--------------|------------|
+| PHP/Composer | [GHSA-composer-0003](https://osv.dev/vulnerability/GHSA-composer-0003) | 9.1 | symfony/http-kernel | 5.4.0 | Dependency constraint | symfony/framework-bundle |
+
+
+
+---
+
+### Evidence — Before
+
+Initial scan (before fixes): **2 vulnerabilities** — 2 in PHP/Composer (2 packages)
+
+---
+
+### Evidence — After
+
+PHP/Composer — post-fix scan summary:
+
+| Type | CVE/GHSA | CVSS | Package | Status after fixes | Risk |
+|------|----------|------|---------|-------------------|------|
+| PHP/Composer | GHSA-composer-0003 | 9.1 | symfony/http-kernel | 5.4.0 | blocked (constraint: symfony/framework-bundle) | critical |
+| PHP/Composer | CVE-2024-5555 | — | vendor/audit-pkg | 1.1.0 | fixed (1.2.0) | SQL Injection |
+Post-fix scan: **0 vulnerabilities remaining** — 0 in PHP/Composer (0 packages)
+
+phpunit verified successfully: 12 passing
+
+
+---
+
+### Code Quality Analysis — SonarQube
+
+**Quality Gate:** ❌ ERROR
+
+**Quality Gate Conditions:**
+- ❌ **coverage**: actual \`70\` / threshold \`80\`
+**Metrics:**
+- **Coverage:** 70
+
+---
+
+## Summary
+
+Identified vulnerabilities require manual action — no automatic fixes were applied.
+"
+`;
+
+exports[`golden master — generateExecutiveReport() output stability (ADR 0008 report-view-model extraction) > produces output byte-identical to the pre-refactor snapshot (single-entry scoped report) 1`] = `
+"# Security Report
+
+> **Client:** Acme
+> **Project:** Project
+> **Period:** July 2026
+> **Branch:** main
+> **Scanners:** osv, sonarqube
+---
+
+## Task
+
+Security Maintenance — Monthly Routine
+
+Monthly scan of installed dependencies to identify packages with known vulnerabilities and apply available fixes.
+
+## Resolution
+
+After running the scan, the following issues were found and fixed:
+
+| Type | CVE/GHSA | CVSS | Package | Old Version | Fixed Version | Risk |
+|------|----------|------|---------|-------------|---------------|------|
+| npm (frontend) | [GHSA-frontend-0001](https://osv.dev/vulnerability/GHSA-frontend-0001) | 7.5 | lodash | 4.17.20 | 4.17.21 ⚠ | high |
+
+
+
+
+---
+
+### Evidence — Before
+
+Initial scan (before fixes): **1 vulnerabilities** — 1 in npm (frontend) (1 package)
+
+---
+
+### Evidence — After
+
+npm (frontend) — post-fix scan summary:
+
+| Type | CVE/GHSA | CVSS | Package | Status after fixes | Risk |
+|------|----------|------|---------|-------------------|------|
+| npm (frontend) | GHSA-frontend-0001 | 7.5 | lodash | 4.17.20 | fixed (4.17.21) ⚠ residual CVE unverified — post-update scan detected remaining vulnerabilities | high |
+Post-fix scan: **0 vulnerabilities remaining** — 0 in npm (frontend) (0 packages)
+
+✅ **npm test** (\`npm test\`) — 42 passing
+
+
+---
+
+### Code Quality Analysis — SonarQube
+
+**Quality Gate:** ❌ ERROR
+
+**Quality Gate Conditions:**
+- ❌ **coverage**: actual \`70\` / threshold \`80\`
+**Metrics:**
+- **Coverage:** 70
+
+---
+
+## Summary
+
+All identified vulnerabilities have been fixed. The project is up to date and secure regarding its dependencies.
+"
+`;

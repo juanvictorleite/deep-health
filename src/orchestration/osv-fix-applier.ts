@@ -2,14 +2,16 @@ import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import { join, resolve } from 'node:path';
 
-import semver from 'semver';
-
 import { CLI_NAME } from '@infra/brand';
 import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
 import { backupFiles } from '@infra/utils/fs-backup';
 import { logger } from '@infra/utils/logger';
 import { assertLockfilePathWithinCwd } from '@infra/utils/path-safety';
 import { collectNpmLockfileVersions, collectRootNpmLockfileVersions } from '@modules/ecosystem/utils/lockfile-inspect';
+
+import { parseOsvFixJson, reconcileFixClaims, type PackageUpdate } from './osv-fix-claims';
+
+export { parseOsvFixJson } from './osv-fix-claims';
 
 export interface OsvFixApplyInput {
   cwd: string;
@@ -35,76 +37,225 @@ export interface OsvFixApplyResult {
    * Packages whose `versionTo` was verified to be present in the host lockfile
    * after the fix was written. Never contains unverifiable claims from osv-scanner.
    */
-  packagesUpdated: { name: string; versionFrom: string; versionTo: string }[];
+  packagesUpdated: PackageUpdate[];
   /** Pre-fix snapshot of all osvFixSpec.backupFiles, for downstream rollback */
   backups: Map<string, string>;
   rawFixStdout: string;
   rawFixStderr: string;
 }
 
-type PackageUpdate = OsvFixApplyResult['packagesUpdated'][number];
+interface OsvFixRunResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
 
-/**
- * Parse the JSON output from `osv-scanner fix --format=json`.
- *
- * Accesses top-level patches[].packageUpdates[] and returns a deduplicated
- * (by name, last-wins) list of { name, versionFrom, versionTo }.
- */
-function parseOsvFixJson(stdout: string): PackageUpdate[] {
-  try {
-    const parsed: unknown = JSON.parse(stdout);
-
-    if (!parsed || typeof parsed !== 'object') return [];
-
-    const asObj = parsed as Record<string, unknown>;
-    const patches = asObj['patches'];
-    if (!Array.isArray(patches)) return [];
-
-    const dedupe = new Map<string, PackageUpdate>();
-
-    for (const patch of patches) {
-      if (!patch || typeof patch !== 'object') continue;
-      const packageUpdates = (patch as Record<string, unknown>)['packageUpdates'];
-      if (!Array.isArray(packageUpdates)) continue;
-
-      for (const update of packageUpdates) {
-        if (!update || typeof update !== 'object') continue;
-        const u = update as Record<string, unknown>;
-        const name = String(u['name'] ?? '');
-        const versionFrom = String(u['versionFrom'] ?? '');
-        const versionTo = String(u['versionTo'] ?? '');
-        if (!name) continue;
-        dedupe.set(name, { name, versionFrom, versionTo });
-      }
-    }
-
-    return Array.from(dedupe.values());
-  } catch (err) {
-    logger.tagged('osv', 'OSV fix', `Could not parse osv-scanner fix JSON output: ${err}`, 'warn');
-    return [];
-  }
+function emptyFixResult(
+  rawFixStdout = '',
+  rawFixStderr = '',
+  backups: Map<string, string> = new Map(),
+): OsvFixApplyResult {
+  return { applied: false, packagesUpdated: [], backups, rawFixStdout, rawFixStderr };
 }
 
 /**
- * Return true iff `versionTo` (or something strictly newer by semver) appears
- * among the versions we found in the lockfile for that package name. Non-semver
- * strings must match exactly — we refuse to speculate.
+ * Resolve the lockfile path this run targets and reject anything that would
+ * escape the project cwd before any runner is spawned or file is written.
  */
-function claimIsSatisfiedOnDisk(
-  claim: PackageUpdate,
-  versionsOnDisk: Set<string> | undefined,
-): boolean {
-  if (!versionsOnDisk || versionsOnDisk.size === 0) return false;
-  if (versionsOnDisk.has(claim.versionTo)) return true;
+function resolveEffectiveLockfile(input: OsvFixApplyInput): string {
+  const { cwd, osvFixSpec, fixLockfileOverride } = input;
+  const effectiveFixLockfile = fixLockfileOverride ?? osvFixSpec.fixLockfile;
 
-  const claimedValid = semver.valid(claim.versionTo);
-  if (!claimedValid) return false;
+  assertLockfilePathWithinCwd(effectiveFixLockfile, cwd);
 
-  for (const onDisk of versionsOnDisk) {
-    const onDiskValid = semver.valid(onDisk);
-    if (onDiskValid && semver.gte(onDiskValid, claimedValid)) return true;
+  if (fixLockfileOverride && fixLockfileOverride !== osvFixSpec.fixLockfile) {
+    logger.debug(
+      `[OSV fix] scan.paths override: using lockfile "${effectiveFixLockfile}" instead of "${osvFixSpec.fixLockfile}"`,
+    );
   }
-  return false;
+
+  return effectiveFixLockfile;
+}
+
+/**
+ * Take pre-fix backups for downstream rollback and copy them into a fresh
+ * isolated staging temp dir.
+ */
+async function stageFixInputs(
+  cwd: string,
+  filesToBackup: readonly string[],
+): Promise<{ backups: Map<string, string>; stagingDir: string }> {
+  const backups = await backupFiles(Array.from(filesToBackup), cwd);
+  const stagingDir = await mkdtemp(join(os.tmpdir(), `${CLI_NAME}-osv-fix-`));
+
+  for (const file of filesToBackup) {
+    if (backups.has(file)) {
+      await writeFile(join(stagingDir, file), backups.get(file)!, 'utf-8');
+    }
+  }
+
+  return { backups, stagingDir };
+}
+
+async function runOsvFix(
+  stagingDir: string,
+  osvConfig: OsvFixApplyInput['osvConfig'],
+  effectiveFixLockfile: string,
+): Promise<OsvFixRunResult> {
+  const runner = new OsvDockerRunner({
+    projectDir: stagingDir,
+    image: osvConfig?.image,
+    platform: osvConfig?.platform,
+    readonly: false,
+  });
+
+  const result = await runner.run([
+    'fix',
+    '--strategy=in-place',
+    '--format=json',
+    '-L',
+    effectiveFixLockfile,
+  ]);
+
+  logger.tagged('osv', 'OSV fix', `osv-scanner fix exited with code ${result.exitCode}`, 'debug');
+
+  return result;
+}
+
+/**
+ * The staging dir contains the lockfile at effectiveFixLockfile (which may include
+ * a subdirectory prefix, e.g. 'app/package-lock.json'). Use the basename to resolve
+ * the staging path because files were copied by filename only.
+ */
+async function readStagingLockfile(stagingDir: string, effectiveFixLockfile: string): Promise<string> {
+  const stagingLockfileName = effectiveFixLockfile.includes('/')
+    ? effectiveFixLockfile.split('/').pop()!
+    : effectiveFixLockfile;
+  return readFile(join(stagingDir, stagingLockfileName), 'utf-8');
+}
+
+/**
+ * osv-scanner produced no byte-level change to the lockfile. Any claims in JSON
+ * are false (this is the lockfileVersion 1 quirk) — drop them so the report
+ * does not overclaim.
+ */
+function logNoLockfileChange(claimedUpdates: PackageUpdate[]): void {
+  if (claimedUpdates.length > 0) {
+    logger.tagged('osv', 'OSV fix', `osv-scanner reported ${claimedUpdates.length} patch(es) in JSON but the staging lockfile is byte-identical to the host lockfile. This is a known osv-scanner limitation on lockfileVersion 1 (npm 6). Dropping unverifiable claims.`, 'warn');
+  } else {
+    logger.tagged('osv', 'OSV fix', 'No lockfile changes produced (lockfile already compliant or no patches found)');
+  }
+}
+
+async function writeVerifiedLockfile(cwd: string, effectiveFixLockfile: string, fixedContent: string): Promise<void> {
+  await writeFile(resolve(cwd, effectiveFixLockfile), fixedContent, 'utf-8');
+}
+
+/** Propagate package.json to host disk if osv-scanner fix also modified it. */
+async function propagateManifestIfChanged(
+  cwd: string,
+  stagingDir: string,
+  backups: Map<string, string>,
+): Promise<void> {
+  if (!backups.has('package.json')) return;
+
+  try {
+    const stagingManifest = await readFile(join(stagingDir, 'package.json'), 'utf-8');
+    if (stagingManifest === backups.get('package.json')) {
+      logger.tagged('osv', 'OSV fix', 'package.json unchanged in staging', 'debug');
+    } else {
+      await writeFile(resolve(cwd, 'package.json'), stagingManifest, 'utf-8');
+      logger.tagged('osv', 'OSV fix', 'package.json also updated on host disk (manifest range changed by osv-scanner fix)');
+    }
+  } catch {
+    // Staging package.json does not exist — skip silently.
+  }
+}
+
+function logDroppedClaims(dropped: PackageUpdate[], totalClaims: number): void {
+  if (dropped.length === 0) return;
+  logger.tagged('osv', 'OSV fix', `${dropped.length} of ${totalClaims} osv-scanner patch(es) could not be verified in the lockfile and were excluded from the report: ` +
+      dropped.map((p) => `${p.name}@${p.versionTo}`).join(', '), 'warn');
+}
+
+/**
+ * Case B: bytes changed — verify each claimed update against the actual
+ * staging lockfile contents before propagating to host disk.
+ */
+async function applyVerifiedLockfileChange(
+  input: OsvFixApplyInput,
+  effectiveFixLockfile: string,
+  stagingDir: string,
+  backups: Map<string, string>,
+  claimedUpdates: PackageUpdate[],
+  fixedContent: string,
+  result: OsvFixRunResult,
+): Promise<OsvFixApplyResult> {
+  const versionsInStaging = collectNpmLockfileVersions(fixedContent);
+  const rootVersionsInStaging = collectRootNpmLockfileVersions(fixedContent);
+
+  if (versionsInStaging.size === 0) {
+    // Parser could not extract any package versions from the patched lockfile.
+    // We refuse to write changes we cannot reason about.
+    logger.tagged('osv', 'OSV fix', `Staging lockfile differs from host but could not be parsed; refusing to propagate ${claimedUpdates.length} unverifiable claim(s) to host disk.`, 'warn');
+    return emptyFixResult(result.stdout, result.stderr, backups);
+  }
+
+  const { verified, dropped } = reconcileFixClaims(claimedUpdates, versionsInStaging, rootVersionsInStaging);
+
+  if (verified.length === 0) {
+    // Bytes changed but nothing we can attribute to a concrete upgrade.
+    // Refuse to write a change we cannot explain.
+    logger.tagged('osv', 'OSV fix', `Staging lockfile differs from host but none of the ${claimedUpdates.length} claimed upgrade(s) were verifiable in its contents. Refusing to write host disk — likely a non-functional normalization from osv-scanner.`, 'warn');
+    return emptyFixResult(result.stdout, result.stderr, backups);
+  }
+
+  await writeVerifiedLockfile(input.cwd, effectiveFixLockfile, fixedContent);
+  await propagateManifestIfChanged(input.cwd, stagingDir, backups);
+  logDroppedClaims(dropped, claimedUpdates.length);
+
+  logger.tagged('osv', 'OSV fix', `Applied and verified ${verified.length} package upgrade(s) on host disk`);
+
+  return {
+    applied: true,
+    packagesUpdated: verified,
+    backups,
+    rawFixStdout: result.stdout,
+    rawFixStderr: result.stderr,
+  };
+}
+
+async function interpretFixResult(
+  input: OsvFixApplyInput,
+  effectiveFixLockfile: string,
+  stagingDir: string,
+  backups: Map<string, string>,
+  result: OsvFixRunResult,
+): Promise<OsvFixApplyResult> {
+  if (result.exitCode !== 0) {
+    logger.tagged('osv', 'OSV fix', 'osv-scanner fix exited with non-zero exit code (no changes applied)', 'warn');
+    return emptyFixResult(result.stdout, result.stderr, backups);
+  }
+
+  const claimedUpdates = parseOsvFixJson(result.stdout);
+  const fixedContent = await readStagingLockfile(stagingDir, effectiveFixLockfile);
+  const backupContent = backups.get(input.osvFixSpec.fixLockfile) ?? '';
+  const bytesChanged = fixedContent !== backupContent;
+
+  if (!bytesChanged) {
+    logNoLockfileChange(claimedUpdates);
+    return emptyFixResult(result.stdout, result.stderr, backups);
+  }
+
+  return applyVerifiedLockfileChange(
+    input,
+    effectiveFixLockfile,
+    stagingDir,
+    backups,
+    claimedUpdates,
+    fixedContent,
+    result,
+  );
 }
 
 /**
@@ -118,186 +269,24 @@ function claimIsSatisfiedOnDisk(
  * (b) what the staging lockfile actually contains. Osv-scanner has been observed
  * to emit patches in its JSON output that never reach the lockfile on disk — most
  * commonly on `lockfileVersion: 1` (npm 6) projects. The verification step below
- * protects reporting from those false claims.
+ * protects reporting from those false claims. Claim interpretation and reconciliation
+ * live in `osv-fix-claims.ts`; this module owns staging I/O only.
  */
 export async function applyOsvFixViaStaging(
   input: OsvFixApplyInput,
 ): Promise<OsvFixApplyResult> {
-  const { cwd, osvConfig, osvFixSpec, fixLockfileOverride, dryRun } = input;
+  const effectiveFixLockfile = resolveEffectiveLockfile(input);
 
-  // When scan.paths is configured the caller may supply a path-qualified lockfile
-  // (e.g. 'app/package-lock.json').  Fall back to plugin default when absent.
-  const effectiveFixLockfile = fixLockfileOverride ?? osvFixSpec.fixLockfile;
-
-  // Defense-in-depth: reject any lockfile path that would escape the project cwd
-  // (absolute paths, '../' traversal, or empty string). Throws ConfigLoadError
-  // before any runner is spawned or any file is written.
-  assertLockfilePathWithinCwd(effectiveFixLockfile, cwd);
-
-  if (fixLockfileOverride && fixLockfileOverride !== osvFixSpec.fixLockfile) {
-    logger.debug(
-      `[OSV fix] scan.paths override: using lockfile "${effectiveFixLockfile}" instead of "${osvFixSpec.fixLockfile}"`,
-    );
-  }
-
-  if (dryRun) {
+  if (input.dryRun) {
     logger.tagged('osv', 'DRY-RUN', 'Would run osv-scanner fix in staging temp dir');
-    return {
-      applied: false,
-      packagesUpdated: [],
-      backups: new Map(),
-      rawFixStdout: '',
-      rawFixStderr: '',
-    };
+    return emptyFixResult();
   }
 
-  // Take pre-fix backups for downstream rollback
-  const backups = await backupFiles(Array.from(osvFixSpec.backupFiles), cwd);
-
-  // Create isolated staging temp dir
-  const stagingDir = await mkdtemp(join(os.tmpdir(), `${CLI_NAME}-osv-fix-`));
+  const { backups, stagingDir } = await stageFixInputs(input.cwd, input.osvFixSpec.backupFiles);
 
   try {
-    // Copy files into staging dir
-    for (const file of osvFixSpec.backupFiles) {
-      if (backups.has(file)) {
-        await writeFile(join(stagingDir, file), backups.get(file)!, 'utf-8');
-      }
-    }
-
-    // Run osv-scanner fix inside staging dir container
-    const runner = new OsvDockerRunner({
-      projectDir: stagingDir,
-      image: osvConfig?.image,
-      platform: osvConfig?.platform,
-      readonly: false,
-    });
-
-    const result = await runner.run([
-      'fix',
-      '--strategy=in-place',
-      '--format=json',
-      '-L',
-      effectiveFixLockfile,
-    ]);
-
-    logger.tagged('osv', 'OSV fix', `osv-scanner fix exited with code ${result.exitCode}`, 'debug');
-
-    if (result.exitCode !== 0) {
-      logger.tagged('osv', 'OSV fix', 'osv-scanner fix exited with non-zero exit code (no changes applied)', 'warn');
-      return {
-        applied: false,
-        packagesUpdated: [],
-        backups,
-        rawFixStdout: result.stdout,
-        rawFixStderr: result.stderr,
-      };
-    }
-
-    const claimedUpdates = parseOsvFixJson(result.stdout);
-
-    // The staging dir contains the lockfile at effectiveFixLockfile (which may include
-    // a subdirectory prefix, e.g. 'app/package-lock.json'). Use the basename to resolve
-    // the staging path because files were copied by filename only.
-    const stagingLockfileName = effectiveFixLockfile.includes('/')
-      ? effectiveFixLockfile.split('/').pop()!
-      : effectiveFixLockfile;
-    const fixedContent = await readFile(join(stagingDir, stagingLockfileName), 'utf-8');
-    const backupContent = backups.get(osvFixSpec.fixLockfile) ?? '';
-    const bytesChanged = fixedContent !== backupContent;
-
-    // Case A: osv-scanner produced no byte-level change to the lockfile.
-    // Any claims in JSON are false (this is the lockfileVersion 1 quirk) —
-    // drop them so the report does not overclaim.
-    if (!bytesChanged) {
-      if (claimedUpdates.length > 0) {
-        logger.tagged('osv', 'OSV fix', `osv-scanner reported ${claimedUpdates.length} patch(es) in JSON but the staging lockfile is byte-identical to the host lockfile. This is a known osv-scanner limitation on lockfileVersion 1 (npm 6). Dropping unverifiable claims.`, 'warn');
-      } else {
-        logger.tagged('osv', 'OSV fix', 'No lockfile changes produced (lockfile already compliant or no patches found)');
-      }
-      return {
-        applied: false,
-        packagesUpdated: [],
-        backups,
-        rawFixStdout: result.stdout,
-        rawFixStderr: result.stderr,
-      };
-    }
-
-    // Case B: bytes changed — verify each claimed update against the actual
-    // staging lockfile contents before propagating to host disk.
-    const versionsInStaging = collectNpmLockfileVersions(fixedContent);
-    const rootVersionsInStaging = collectRootNpmLockfileVersions(fixedContent);
-
-    if (versionsInStaging.size === 0) {
-      // Parser could not extract any package versions from the patched lockfile.
-      // We refuse to write changes we cannot reason about.
-      logger.tagged('osv', 'OSV fix', `Staging lockfile differs from host but could not be parsed; refusing to propagate ${claimedUpdates.length} unverifiable claim(s) to host disk.`, 'warn');
-      return {
-        applied: false,
-        packagesUpdated: [],
-        backups,
-        rawFixStdout: result.stdout,
-        rawFixStderr: result.stderr,
-      };
-    }
-
-    const verified: PackageUpdate[] = [];
-    const dropped: PackageUpdate[] = [];
-    for (const claim of claimedUpdates) {
-      const diskVersions = versionsInStaging.get(claim.name);
-      if (claimIsSatisfiedOnDisk(claim, diskVersions)) {
-        const rootVersion = rootVersionsInStaging.get(claim.name);
-        verified.push({ ...claim, versionTo: rootVersion ?? claim.versionTo });
-      } else {
-        dropped.push(claim);
-      }
-    }
-
-    if (verified.length === 0) {
-      // Bytes changed but nothing we can attribute to a concrete upgrade.
-      // Refuse to write a change we cannot explain.
-      logger.tagged('osv', 'OSV fix', `Staging lockfile differs from host but none of the ${claimedUpdates.length} claimed upgrade(s) were verifiable in its contents. Refusing to write host disk — likely a non-functional normalization from osv-scanner.`, 'warn');
-      return {
-        applied: false,
-        packagesUpdated: [],
-        backups,
-        rawFixStdout: result.stdout,
-        rawFixStderr: result.stderr,
-      };
-    }
-
-    await writeFile(resolve(cwd, effectiveFixLockfile), fixedContent, 'utf-8');
-
-    // Propagate package.json to host disk if osv-scanner fix also modified it.
-    if (backups.has('package.json')) {
-      try {
-        const stagingManifest = await readFile(join(stagingDir, 'package.json'), 'utf-8');
-        if (stagingManifest === backups.get('package.json')) {
-          logger.tagged('osv', 'OSV fix', 'package.json unchanged in staging', 'debug');
-        } else {
-          await writeFile(resolve(cwd, 'package.json'), stagingManifest, 'utf-8');
-          logger.tagged('osv', 'OSV fix', 'package.json also updated on host disk (manifest range changed by osv-scanner fix)');
-        }
-      } catch {
-        // Staging package.json does not exist — skip silently.
-      }
-    }
-
-    if (dropped.length > 0) {
-      logger.tagged('osv', 'OSV fix', `${dropped.length} of ${claimedUpdates.length} osv-scanner patch(es) could not be verified in the lockfile and were excluded from the report: ` +
-          dropped.map((p) => `${p.name}@${p.versionTo}`).join(', '), 'warn');
-    }
-
-    logger.tagged('osv', 'OSV fix', `Applied and verified ${verified.length} package upgrade(s) on host disk`);
-
-    return {
-      applied: true,
-      packagesUpdated: verified,
-      backups,
-      rawFixStdout: result.stdout,
-      rawFixStderr: result.stderr,
-    };
+    const result = await runOsvFix(stagingDir, input.osvConfig, effectiveFixLockfile);
+    return await interpretFixResult(input, effectiveFixLockfile, stagingDir, backups, result);
   } finally {
     try {
       await rm(stagingDir, { recursive: true, force: true });
