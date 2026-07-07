@@ -2,7 +2,7 @@
 type: Issue
 title: Declare runner capabilities on the provisioner contract; decompose the two hot run methods
 description: Execute ADR 0019 - runStreaming joins runShell as a declared optional member of EphemeralContainerRunner; duck-typed guards deleted from command-runner.ts; LocalExecutor.run (CCN 22) and EcosystemContainerCommandRunner.run (CCN 15) decompose within budget.
-status: open
+status: done
 tags: [architecture, infrastructure, security, complexity]
 timestamp: 2026-07-07T00:00:00Z
 ---

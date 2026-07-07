@@ -1,34 +1,98 @@
 import type { CommandRunner, CommandRunnerOptions, CommandResult, ExecutionEnv } from '@core/types/common';
-import type { EphemeralContainerRunner } from '@infra/provisioner/types';
+import type { EphemeralContainerRunner, ContainerRunResult } from '@infra/provisioner/types';
 
 import type { EcosystemRuntimeSpec } from './types';
 import { logger } from '../utils/logger';
 
-// ─── Duck-type interfaces ────────────────────────────────────────────────────
+// ─── Result mapping ────────────────────────────────────────────────────────────
 
-/**
- * Optional streaming extension on EphemeralContainerRunner<string[]>.
- * Detected at runtime via duck-typing so streaming stays entirely within
- * the provisioner layer.
- */
-interface StreamingContainerRunner {
-  runStreaming(args: string[]): Promise<import('@infra/provisioner/types').ContainerRunResult>;
+/** Maps a container run result onto the CommandRunner's CommandResult shape. */
+function toCommandResult(result: ContainerRunResult, command: string): CommandResult {
+  return {
+    stdout: result.stdout,
+    stderr: result.stderr,
+    exitCode: result.exitCode,
+    command,
+    dryRun: false,
+  };
+}
+
+/** Typed presence check for the declared optional `runShell` capability. */
+function hasRunShell(
+  container: EphemeralContainerRunner<string[]>,
+): container is EphemeralContainerRunner<string[]> & Required<Pick<EphemeralContainerRunner<string[]>, 'runShell'>> {
+  return typeof container.runShell === 'function';
+}
+
+/** Typed presence check for the declared optional `runStreaming` capability. */
+function hasRunStreaming(
+  container: EphemeralContainerRunner<string[]>,
+): container is EphemeralContainerRunner<string[]> & Required<Pick<EphemeralContainerRunner<string[]>, 'runStreaming'>> {
+  return typeof container.runStreaming === 'function';
+}
+
+/** Dispatch to runStreaming (if supported and stream=true) or plain run. */
+async function routeContainerCommand(
+  container: EphemeralContainerRunner<string[]>,
+  tokens: string[],
+  stream: boolean | undefined,
+): Promise<ContainerRunResult> {
+  if (stream && hasRunStreaming(container)) {
+    return container.runStreaming(tokens);
+  }
+  return container.run(tokens);
 }
 
 /**
- * Optional shell-execution extension on EphemeralContainerRunner<string[]>.
- * Detected at runtime via duck-typing.
+ * Routes through `container.runShell` when the capability is present and the
+ * command is not host-only. Returns undefined when the caller must fall
+ * through to the host runner.
  */
-interface RunShellContainer {
-  runShell(command: string, opts?: { cwd?: string }): Promise<import('@infra/provisioner/types').ContainerRunResult>;
+async function routeShellCommand(
+  container: EphemeralContainerRunner<string[]>,
+  invokeCommand: string,
+  resultCommand: string,
+  cwd: string | undefined,
+  isHostOnly: boolean,
+): Promise<CommandResult | undefined> {
+  if (isHostOnly || !hasRunShell(container)) return undefined;
+  logger.tagged('ecosystem-runtime', 'ecosystem-runtime', `routing to container shell: ${invokeCommand}`, 'debug');
+  const result = await container.runShell(invokeCommand, { cwd });
+  return toCommandResult(result, resultCommand);
 }
 
-function hasStreaming(c: unknown): c is StreamingContainerRunner {
-  return typeof (c as StreamingContainerRunner).runStreaming === 'function';
-}
+/**
+ * Shared routing decision for `run()`/`runArgs()`: container binary routes to
+ * the ephemeral container, otherwise `container.runShell` when available and
+ * the command is not host-only, otherwise the host fallback.
+ *
+ * The container and shell paths each carry their own log/result command
+ * strings since `run()` (trimmed) and `runArgs()` (joined) build them
+ * slightly differently.
+ */
+async function routeCommand(
+  container: EphemeralContainerRunner<string[]>,
+  isContainerBinary: boolean,
+  containerTokens: string[],
+  stream: boolean | undefined,
+  containerLogCommand: string,
+  containerResultCommand: string,
+  shellInvokeCommand: string,
+  shellResultCommand: string,
+  cwd: string | undefined,
+  isHostOnly: boolean,
+  hostFallback: () => Promise<CommandResult>,
+): Promise<CommandResult> {
+  if (isContainerBinary) {
+    logger.tagged('ecosystem-runtime', 'ecosystem-runtime', `routing to container: ${containerLogCommand}`, 'debug');
+    const result = await routeContainerCommand(container, containerTokens, stream);
+    return toCommandResult(result, containerResultCommand);
+  }
 
-function hasRunShell(c: unknown): c is RunShellContainer {
-  return typeof (c as RunShellContainer).runShell === 'function';
+  const shellResult = await routeShellCommand(container, shellInvokeCommand, shellResultCommand, cwd, isHostOnly);
+  if (shellResult) return shellResult;
+
+  return hostFallback();
 }
 
 // ─── Host-only commands ───────────────────────────────────────────────────────
@@ -108,88 +172,36 @@ export class EcosystemContainerCommandRunner implements CommandRunner {
     const trimmed = command.trim();
     const tokens = trimmed.match(/\S+/g) ?? [];
     const firstToken = tokens[0] ?? '';
+    const isContainerBinary = matchesContainerBinary(firstToken, this.spec.containerBinaries);
+    const containerTokens = isContainerBinary ? this._buildContainerTokensFromRun(firstToken, tokens) : [];
 
-    if (firstToken && matchesContainerBinary(firstToken, this.spec.containerBinaries)) {
-      // Route to container — argv shape depends on runMode
-      const containerTokens = this._buildContainerTokensFromRun(firstToken, tokens);
-      logger.tagged('ecosystem-runtime', 'ecosystem-runtime', `routing to container: ${trimmed}`, 'debug');
-      const result = await this._runContainer(containerTokens, options?.stream);
-      return {
-        stdout: result.stdout,
-        stderr: result.stderr,
-        exitCode: result.exitCode,
-        command,
-        dryRun: false,
-      };
-    }
-
-    if (hasRunShell(this.container) && !isHostOnlyCommand(firstToken)) {
-      logger.tagged('ecosystem-runtime', 'ecosystem-runtime', `routing to container shell: ${trimmed}`, 'debug');
-      const result = await this.container.runShell(trimmed, { cwd: options?.cwd });
-      return {
-        stdout: result.stdout,
-        stderr: result.stderr,
-        exitCode: result.exitCode,
-        command,
-        dryRun: false,
-      };
-    }
-
-    return this.hostRunner.run(command, options);
+    return routeCommand(
+      this.container, isContainerBinary, containerTokens, options?.stream,
+      trimmed, command, trimmed, command, options?.cwd, isHostOnlyCommand(firstToken),
+      () => this.hostRunner.run(command, options),
+    );
   }
 
   async runArgs(file: string, args: string[], options?: CommandRunnerOptions): Promise<CommandResult> {
+    const command = `${file} ${args.join(' ')}`;
+
     if (this.dryRun) {
-      const command = `${file} ${args.join(' ')}`;
       return { stdout: '', stderr: '', exitCode: 0, command, dryRun: true };
     }
 
-    if (matchesContainerBinary(file, this.spec.containerBinaries)) {
-      // Route to container — argv shape depends on runMode
-      const containerTokens = this._buildContainerTokensFromRunArgs(file, args);
-      logger.tagged('ecosystem-runtime', 'ecosystem-runtime', `routing to container: ${file} ${args.join(' ')}`, 'debug');
-      const result = await this._runContainer(containerTokens, options?.stream);
-      const command = `${file} ${args.join(' ')}`;
-      return {
-        stdout: result.stdout,
-        stderr: result.stderr,
-        exitCode: result.exitCode,
-        command,
-        dryRun: false,
-      };
-    }
+    const isContainerBinary = matchesContainerBinary(file, this.spec.containerBinaries);
+    const containerTokens = isContainerBinary ? this._buildContainerTokensFromRunArgs(file, args) : [];
+    const shellCmd = [file, ...args].join(' ');
 
-    if (hasRunShell(this.container) && !isHostOnlyCommand(file)) {
-      const shellCmd = [file, ...args].join(' ');
-      logger.tagged('ecosystem-runtime', 'ecosystem-runtime', `routing to container shell: ${shellCmd}`, 'debug');
-      const result = await this.container.runShell(shellCmd, { cwd: options?.cwd });
-      return {
-        stdout: result.stdout,
-        stderr: result.stderr,
-        exitCode: result.exitCode,
-        command: shellCmd,
-        dryRun: false,
-      };
-    }
-
-    return this.hostRunner.runArgs(file, args, options);
+    return routeCommand(
+      this.container, isContainerBinary, containerTokens, options?.stream,
+      command, command, shellCmd, shellCmd, options?.cwd, isHostOnlyCommand(file),
+      () => this.hostRunner.runArgs(file, args, options),
+    );
   }
 
   /**
-   * Dispatch to runStreaming (if supported and stream=true) or plain run.
-   */
-  private async _runContainer(
-    tokens: string[],
-    stream?: boolean,
-  ): Promise<import('@infra/provisioner/types').ContainerRunResult> {
-    if (stream && hasStreaming(this.container)) {
-      return this.container.runStreaming(tokens);
-    }
-    return this.container.run(tokens);
-  }
-
-  /**
-   * Build the argv array to pass to `_runContainer` for a `run(command)` call.
+   * Build the argv array to pass to `routeContainerCommand` for a `run(command)` call.
    *
    * Argv shape is determined by `spec.runMode.kind`:
    *
@@ -212,7 +224,7 @@ export class EcosystemContainerCommandRunner implements CommandRunner {
   }
 
   /**
-   * Build the argv array to pass to `_runContainer` for a `runArgs(file, args)` call.
+   * Build the argv array to pass to `routeContainerCommand` for a `runArgs(file, args)` call.
    *
    * Argv shape is determined by `spec.runMode.kind`:
    *

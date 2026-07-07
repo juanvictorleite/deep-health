@@ -20,4 +20,4 @@ Execution slices — discrete units of work tracing back to ADRs/BDRs. The local
 | [0014](0014-osv-fix-claims.md) | Extract pure osv-fix-claims; applier keeps staging I/O (ADR 0017) | Done |
 | [0015](0015-lockfile-format-adapters.md) | Lockfile format adapters v1 + v2/v3; public API unchanged (ADR 0018) | Done |
 | [0016](0016-install-breaking-packages-decomposition.md) | Decompose npm installBreakingPackages into phase helpers (ADR 0013 playbook) | Done |
-| [0017](0017-runner-capability-contract.md) | Runner capability contract; decompose the two hot run methods (ADR 0019) | Open |
+| [0017](0017-runner-capability-contract.md) | Runner capability contract; decompose the two hot run methods (ADR 0019) | Done |
