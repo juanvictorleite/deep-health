@@ -2,7 +2,7 @@
 type: Issue
 title: Artifact plan resolver in the app layer; decompose runFixPipeline and the artifact fan-out
 description: Execute ADR 0015 - new pure report-artifact-plan.ts resolver; generateAndSaveReportArtifacts becomes the plan executor; runFixPipeline/runFixCommand decompose into phase helpers within budget.
-status: open
+status: done
 tags: [architecture, app, reporting, complexity]
 timestamp: 2026-07-07T00:00:00Z
 ---
