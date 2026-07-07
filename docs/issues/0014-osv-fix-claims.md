@@ -2,7 +2,7 @@
 type: Issue
 title: Extract pure osv-fix-claims module; applyOsvFixViaStaging becomes the staging adapter
 description: Execute ADR 0017 - parseOsvFixJson (CCN 19) + claim-vs-lockfile reconciliation move to orchestration/osv-fix-claims.ts (pure); applyOsvFixViaStaging (CCN 25) keeps only staging I/O, decomposed within budget; new claim table tests.
-status: open
+status: done
 tags: [architecture, orchestration, complexity]
 timestamp: 2026-07-07T00:00:00Z
 ---

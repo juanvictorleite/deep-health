@@ -17,5 +17,5 @@ Execution slices — discrete units of work tracing back to ADRs/BDRs. The local
 | [0011](0011-osv-parse-extraction.md) | Extract pure osv-parse module; decompose scan + parsers (ADR 0014) | Done |
 | [0012](0012-report-artifact-plan.md) | Artifact plan resolver; decompose runFixPipeline + fan-out (ADR 0015) | Done |
 | [0013](0013-sonarqube-view-model.md) | SonarQube ViewModel — single normalization for the three surfaces (ADR 0016) | Done |
-| [0014](0014-osv-fix-claims.md) | Extract pure osv-fix-claims; applier keeps staging I/O (ADR 0017) | Open |
+| [0014](0014-osv-fix-claims.md) | Extract pure osv-fix-claims; applier keeps staging I/O (ADR 0017) | Done |
 | [0015](0015-lockfile-format-adapters.md) | Lockfile format adapters v1 + v2/v3; public API unchanged (ADR 0018) | Open |
