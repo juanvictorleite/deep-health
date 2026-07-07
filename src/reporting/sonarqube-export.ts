@@ -1,6 +1,9 @@
 import type { ScanResultJson } from '@core/types/scan';
 import type { SonarQubeQualityGateCondition, SonarQubeIssue } from '@core/types/scan';
 
+import type { SonarQubeQualityGateView } from './sonarqube-view-model';
+import { buildSonarQubeViewModel } from './sonarqube-view-model';
+
 // ─── Export types ──────────────────────────────────────────────────────────────
 
 export type SonarQubeQualityGateConditionExport = SonarQubeQualityGateCondition;
@@ -43,6 +46,15 @@ export interface SonarQubeDetailedExport {
 
 // ─── Builder ───────────────────────────────────────────────────────────────────
 
+function projectExportQualityGate(qualityGate: SonarQubeQualityGateView | null): SonarQubeDetailedExport['qualityGate'] {
+  if (!qualityGate) return null;
+  return {
+    status: qualityGate.status,
+    passed: qualityGate.passed ?? qualityGate.status === 'OK',
+    conditions: qualityGate.rawConditions,
+  };
+}
+
 /**
  * Build a detailed SonarQube export from the raw engine result.
  *
@@ -55,64 +67,33 @@ export interface SonarQubeDetailedExport {
 export function buildSonarQubeExport(
   engineResults: Record<string, ScanResultJson> | undefined,
 ): SonarQubeDetailedExport | null {
-  if (!engineResults) return null;
+  const vm = buildSonarQubeViewModel({ engineResults });
+  if (vm.state === 'absent' || vm.state === 'skipped') return null;
 
-  const result = engineResults['sonarqube'];
-  if (!result) return null;
-  if (result.status === 'skipped') return null;
+  const exportedAt = new Date().toISOString();
 
-  const now = new Date().toISOString();
-
-  if (result.status === 'error') {
+  if (vm.state === 'error') {
     return {
       $schema: 'sonarqube-export/v1',
-      exportedAt: now,
-      agent: result.agent,
+      exportedAt,
+      agent: vm.agent,
       status: 'error',
       qualityGate: null,
       metrics: null,
       issues: null,
-      error: result.error ?? 'unknown error',
+      error: vm.error ?? 'unknown error',
     };
   }
 
-  // Extract quality gate
-  const qualityGateStatus = result.metadata?.qualityGateStatus;
-  const qualityGatePassed = result.metadata?.qualityGatePassed;
-  const rawConditions = result.metadata?.qualityGateConditions;
-
-  const qualityGate = qualityGateStatus
-    ? {
-        status: qualityGateStatus,
-        passed: qualityGatePassed ?? qualityGateStatus === 'OK',
-        conditions: rawConditions ?? [],
-      }
-    : null;
-
-  // Extract metrics
-  const rawMetrics = result.metadata?.metrics;
-  const metrics: SonarQubeMetricsExport | null = rawMetrics ? { ...rawMetrics } : null;
-
-  // Extract issues — normalize component to file path
-  const rawIssues = result.metadata?.issues;
-
-  const issues: SonarQubeIssueExport[] | null = rawIssues
-    ? rawIssues.map((issue) => {
-        const colon = issue.component.indexOf(':');
-        const file = colon >= 0 ? issue.component.slice(colon + 1) : issue.component;
-        return { ...issue, file };
-      })
-    : null;
-
   return {
     $schema: 'sonarqube-export/v1',
-    exportedAt: now,
-    agent: result.agent,
-    status: result.status,
-    qualityGate,
-    metrics,
-    issues,
-    error: result.error,
+    exportedAt,
+    agent: vm.agent,
+    status: vm.rawStatus,
+    qualityGate: projectExportQualityGate(vm.qualityGate),
+    metrics: vm.rawMetrics,
+    issues: vm.issuesWithFile,
+    error: vm.error,
   };
 }
 

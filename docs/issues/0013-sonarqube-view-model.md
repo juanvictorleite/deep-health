@@ -2,7 +2,7 @@
 type: Issue
 title: SonarQube ViewModel - single pure normalization for HTML report, executive section and export
 description: Execute ADR 0016 - new pure sonarqube-view-model.ts consumed by generateSonarQubeHtmlReport (CCN 26), buildSonarQubeExecSection (CCN 24) and buildSonarQubeExport (CCN 14); outputs byte-identical; all within budget.
-status: open
+status: done
 tags: [architecture, reporting, sonarqube, complexity]
 timestamp: 2026-07-07T00:00:00Z
 ---
