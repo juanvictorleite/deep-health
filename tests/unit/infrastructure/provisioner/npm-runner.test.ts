@@ -1,11 +1,12 @@
 /**
- * Coverage for src/infrastructure/provisioner/npm-runner.ts
- * and EphemeralEcosystemContainer with direct-exec RunMode (npm).
+ * Coverage for EphemeralEcosystemContainer with direct-exec RunMode (npm).
  * Covers:
- *   - resolveNpmDockerImage() branches
  *   - EphemeralEcosystemContainer._buildDockerArgs() — direct-exec mode
  *   - EphemeralEcosystemContainer.run() — catch branch edge cases
  *   - EphemeralEcosystemContainer.runStreaming() — close with null code
+ *
+ * resolveNpmDockerImage() branch coverage moved to image-resolvers.test.ts
+ * (ADR 0007 — npm-runner.ts was deleted).
  */
 import { EventEmitter } from 'node:events';
 
@@ -26,7 +27,6 @@ vi.mock('node:child_process', () => ({
 }));
 
 import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
-import { resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
 import { needsHostGateway, resolvePlatform } from '@infra/utils/docker-platform';
 
 import { execFile, spawn } from 'node:child_process';
@@ -42,32 +42,6 @@ function makeNpmContainer(opts: { projectDir?: string; platform?: string } = {})
     platform: opts.platform,
   });
 }
-
-describe('resolveNpmDockerImage()', () => {
-  it('returns node:lts when no version given', () => {
-    expect(resolveNpmDockerImage()).toBe('node:lts');
-  });
-
-  it('returns node:lts for empty string', () => {
-    expect(resolveNpmDockerImage('')).toBe('node:lts');
-  });
-
-  it('returns node:lts for whitespace-only string', () => {
-    expect(resolveNpmDockerImage('  ')).toBe('node:lts');
-  });
-
-  it('returns major-only image for "20.11.1"', () => {
-    expect(resolveNpmDockerImage('20.11.1')).toBe('node:20');
-  });
-
-  it('returns node:lts when major part is non-numeric (e.g. "lts")', () => {
-    expect(resolveNpmDockerImage('lts')).toBe('node:lts');
-  });
-
-  it('returns node:22 for "22" (single number)', () => {
-    expect(resolveNpmDockerImage('22')).toBe('node:22');
-  });
-});
 
 describe('EphemeralEcosystemContainer._buildDockerArgs() — direct-exec mode (npm)', () => {
   it('includes standard docker run args', () => {

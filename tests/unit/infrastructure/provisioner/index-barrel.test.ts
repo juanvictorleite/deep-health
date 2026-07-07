@@ -5,7 +5,6 @@ import {
   DockerSonarQubeProvisioner,
   DockerSonarScannerRunner,
   OsvDockerRunner,
-  resolveComposerDockerImage,
 } from '@infra/provisioner/index';
 import { describe, it, expect } from 'vitest';
 
@@ -22,9 +21,5 @@ describe('src/infrastructure/provisioner/index.ts barrel exports', () => {
 
   it('OsvDockerRunner is exported', () => {
     expect(typeof OsvDockerRunner).toBe('function');
-  });
-
-  it('resolveComposerDockerImage is a function', () => {
-    expect(typeof resolveComposerDockerImage).toBe('function');
   });
 });

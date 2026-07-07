@@ -7,16 +7,19 @@ timestamp: 2026-07-06T00:00:00Z
 
 # Orchestrator Pipeline Flow
 
-The `runOrchestrator()` function in `orchestration/orchestrator.ts` owns the full `fix` pipeline. The per-entry body is delegated to `runEcosystemFix()` (`src/orchestration/run-ecosystem-fix.ts`); the orchestrator filters phases, runs advisors, dispatches, and aggregates.
+The `runOrchestrator()` function in `orchestration/orchestrator.ts` owns the full `fix` pipeline. Phase selection lives in the **Phase Router** (`src/orchestration/phase-router.ts`, [ADR 0010](/adr/0010-phase-router-extraction.md)): `resolveExecutionPlan(config, options, registry)` is pure (no I/O, no Docker) and returns the `ExecutionPlan` (`runScan`, `activeEcosystems`, `runReport`, `onFailureFor`) that the orchestrator executes. The per-entry body is delegated to `runEcosystemFix()` (`src/orchestration/run-ecosystem-fix.ts`); the orchestrator runs advisors, dispatches, and aggregates.
 
 ```mermaid
 flowchart TD
-    START([runOrchestrator called]) --> PRE_SNAP
+    START([runOrchestrator called]) --> PLAN
+
+    PLAN["resolveExecutionPlan()\nphase-router.ts — pure\nExecutionPlan: runScan, activeEcosystems,\nrunReport, onFailureFor (ADR 0010)"]
+    PLAN --> PRE_SNAP
 
     PRE_SNAP["Take pre-run snapshots\npackage.json + package-lock.json"]
     PRE_SNAP --> PHASE_CHECK
 
-    PHASE_CHECK{"scan phase\nenabled?"}
+    PHASE_CHECK{"plan.runScan?"}
     PHASE_CHECK -- no --> SKIP_SCAN([return: status=skipped])
     PHASE_CHECK -- yes --> ENGINES
 

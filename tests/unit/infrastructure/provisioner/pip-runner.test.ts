@@ -1,6 +1,8 @@
 /**
- * Coverage for src/infrastructure/provisioner/pip-runner.ts
- * and EphemeralEcosystemContainer with shell-wrap RunMode (pip).
+ * Coverage for EphemeralEcosystemContainer with shell-wrap RunMode (pip).
+ *
+ * resolvePipDockerImage() branch coverage moved to image-resolvers.test.ts
+ * (ADR 0007 — pip-runner.ts was deleted).
  */
 import { EventEmitter } from 'node:events';
 
@@ -24,7 +26,6 @@ vi.mock('node:child_process', () => ({
 import { execFile, spawn } from 'node:child_process';
 
 import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
-import { resolvePipDockerImage } from '@infra/provisioner/pip-runner';
 import { needsHostGateway, resolvePlatform } from '@infra/utils/docker-platform';
 
 const shellWrapRunMode = { kind: 'shell-wrap' as const };
@@ -38,28 +39,6 @@ function makePipContainer(opts: { projectDir?: string; image?: string; platform?
     platform: opts.platform,
   });
 }
-
-describe('resolvePipDockerImage()', () => {
-  it('returns python:3-slim when no version given', () => {
-    expect(resolvePipDockerImage()).toBe('python:3-slim');
-  });
-
-  it('returns python:3-slim for empty string', () => {
-    expect(resolvePipDockerImage('')).toBe('python:3-slim');
-  });
-
-  it('returns python:3.11-slim for "3.11.2"', () => {
-    expect(resolvePipDockerImage('3.11.2')).toBe('python:3.11-slim');
-  });
-
-  it('returns python:3-slim for "3"', () => {
-    expect(resolvePipDockerImage('3')).toBe('python:3-slim');
-  });
-
-  it('returns python:3-slim when version starts with non-numeric', () => {
-    expect(resolvePipDockerImage('abc')).toBe('python:3-slim');
-  });
-});
 
 describe('EphemeralEcosystemContainer._buildDockerArgs() — shell-wrap mode (pip)', () => {
   it('builds basic docker args', () => {

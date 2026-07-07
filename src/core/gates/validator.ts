@@ -1,7 +1,5 @@
 import { z } from 'zod';
 
-import { logger } from '@infra/utils/logger';
-
 import type { GateResult } from '../types/common';
 
 const VulnerabilityEntrySchema = z.object({
@@ -135,10 +133,8 @@ export function validateEcosystemGate(
     };
   }
   const allSkipped = result.data.validations.every((e) => e.status === 'skipped');
-  if (allSkipped) {
-    logger.warn(
-      `[gate] All validations were skipped for ${ecosystemId} ecosystem — no test coverage verified`,
-    );
-  }
-  return { valid: true, gate: ecosystemId, errors: [] };
+  const warnings = allSkipped
+    ? [`All validations were skipped for ${ecosystemId} ecosystem — no test coverage verified`]
+    : undefined;
+  return { valid: true, gate: ecosystemId, errors: [], warnings };
 }

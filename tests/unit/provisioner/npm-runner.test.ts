@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 
 import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
-import { resolveNpmDockerImage, NPM_DEFAULT_IMAGE } from '@infra/provisioner/npm-runner';
+import { NPM_DEFAULT_IMAGE } from '@infra/provisioner/image-resolvers';
 import { setLogLevel } from '@infra/utils/logger';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -88,40 +88,6 @@ describe('EphemeralEcosystemContainer runStreaming (npm mode)', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain('spawn docker ENOENT');
-  });
-});
-
-describe('resolveNpmDockerImage', () => {
-  it('NPM_DEFAULT_IMAGE is node:lts', () => {
-    expect(NPM_DEFAULT_IMAGE).toBe('node:lts');
-  });
-
-  it('returns NPM_DEFAULT_IMAGE for undefined', () => {
-    expect(resolveNpmDockerImage(undefined)).toBe('node:lts');
-  });
-
-  it('returns NPM_DEFAULT_IMAGE for empty string', () => {
-    expect(resolveNpmDockerImage('')).toBe('node:lts');
-  });
-
-  it('returns NPM_DEFAULT_IMAGE for whitespace-only string', () => {
-    expect(resolveNpmDockerImage('   ')).toBe('node:lts');
-  });
-
-  it('resolves major version string "20" to "node:20"', () => {
-    expect(resolveNpmDockerImage('20')).toBe('node:20');
-  });
-
-  it('extracts major from "20.11.1" → "node:20"', () => {
-    expect(resolveNpmDockerImage('20.11.1')).toBe('node:20');
-  });
-
-  it('returns NPM_DEFAULT_IMAGE for non-numeric major "abc"', () => {
-    expect(resolveNpmDockerImage('abc')).toBe('node:lts');
-  });
-
-  it('returns NPM_DEFAULT_IMAGE for "v20" (has non-digit prefix)', () => {
-    expect(resolveNpmDockerImage('v20')).toBe('node:lts');
   });
 });
 

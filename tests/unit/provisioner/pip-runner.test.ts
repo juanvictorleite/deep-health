@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 
 import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
-import { resolvePipDockerImage, PIP_DEFAULT_IMAGE } from '@infra/provisioner/pip-runner';
+import { PIP_DEFAULT_IMAGE } from '@infra/provisioner/image-resolvers';
 import { setLogLevel } from '@infra/utils/logger';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -87,44 +87,6 @@ describe('EphemeralEcosystemContainer runStreaming (pip mode)', () => {
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain('spawn docker ENOENT');
-  });
-});
-
-describe('resolvePipDockerImage', () => {
-  it('PIP_DEFAULT_IMAGE is python:3-slim', () => {
-    expect(PIP_DEFAULT_IMAGE).toBe('python:3-slim');
-  });
-
-  it('returns PIP_DEFAULT_IMAGE for undefined', () => {
-    expect(resolvePipDockerImage(undefined)).toBe('python:3-slim');
-  });
-
-  it('returns PIP_DEFAULT_IMAGE for empty string', () => {
-    expect(resolvePipDockerImage('')).toBe('python:3-slim');
-  });
-
-  it('returns PIP_DEFAULT_IMAGE for whitespace-only string', () => {
-    expect(resolvePipDockerImage('   ')).toBe('python:3-slim');
-  });
-
-  it('resolves "3.11" → "python:3.11-slim"', () => {
-    expect(resolvePipDockerImage('3.11')).toBe('python:3.11-slim');
-  });
-
-  it('resolves "3.11.2" → "python:3.11-slim" (major.minor only)', () => {
-    expect(resolvePipDockerImage('3.11.2')).toBe('python:3.11-slim');
-  });
-
-  it('resolves bare "3" → "python:3-slim"', () => {
-    expect(resolvePipDockerImage('3')).toBe('python:3-slim');
-  });
-
-  it('returns PIP_DEFAULT_IMAGE for non-numeric input "abc"', () => {
-    expect(resolvePipDockerImage('abc')).toBe('python:3-slim');
-  });
-
-  it('returns PIP_DEFAULT_IMAGE for "v3.11" (has non-digit prefix in first segment)', () => {
-    expect(resolvePipDockerImage('v3.11')).toBe('python:3-slim');
   });
 });
 

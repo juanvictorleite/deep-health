@@ -2,11 +2,7 @@
  * Branch coverage top-up for src/core/gates/validator.ts
  * Targets lines 103 and 131: the `?? 'unknown'` fallback when error field is undefined.
  */
-import { describe, it, expect, vi } from 'vitest';
-
-vi.mock('@infra/utils/logger', () => ({
-  logger: { warn: vi.fn(), debug: vi.fn(), info: vi.fn(), error: vi.fn(), tagged: vi.fn() },
-}));
+import { describe, it, expect } from 'vitest';
 
 import { validateGateA, validateEcosystemGate } from '@core/gates/validator';
 

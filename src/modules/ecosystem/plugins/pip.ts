@@ -2,7 +2,7 @@ import { basename } from 'node:path';
 
 import type { ProjectConfig, ProtectedPackage } from '@core/types/config';
 import type { UpdateResultJson } from '@core/types/update';
-import { resolvePipDockerImage, PIP_DEFAULT_IMAGE } from '@infra/provisioner/pip-runner';
+import { resolveEcosystemImage, PIP_DEFAULT_IMAGE } from '@infra/provisioner/image-resolvers';
 import type { VersionSource } from '@infra/utils/infer-version';
 
 import { runPipUpdater } from './pip-updater';
@@ -78,7 +78,7 @@ export const pipPlugin: EcosystemPlugin = {
 
   runtimeSpec: {
     defaultImage: PIP_DEFAULT_IMAGE,
-    resolveImage: resolvePipDockerImage,
+    resolveImage: (version) => resolveEcosystemImage('pip', version),
     containerBinaries: ['pip', 'pip3'],
     runMode: { kind: 'shell-wrap' },
   },

@@ -1,6 +1,7 @@
 /**
- * Coverage for src/infrastructure/provisioner/composer-runner.ts
- * and EphemeralEcosystemContainer with shell-wrap + preamble RunMode (composer).
+ * Coverage for EphemeralEcosystemContainer with shell-wrap + preamble RunMode
+ * (composer). COMPOSER_BOOTSTRAP + isPhpCliImage now live in php-profiles.ts
+ * (ADR 0007 — composer-runner.ts was deleted).
  */
 import { EventEmitter } from 'node:events';
 
@@ -24,8 +25,7 @@ vi.mock('node:child_process', () => ({
 import { execFile, spawn } from 'node:child_process';
 
 import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
-import { COMPOSER_BOOTSTRAP, isPhpCliImage } from '@infra/provisioner/composer-runner';
-import { COMPOSER_DEFAULT_IMAGE } from '@infra/provisioner/php-profiles';
+import { COMPOSER_BOOTSTRAP, COMPOSER_DEFAULT_IMAGE, isPhpCliImage } from '@infra/provisioner/php-profiles';
 import { needsHostGateway, resolvePlatform } from '@infra/utils/docker-platform';
 
 function makeComposerRunMode(_image: string) {

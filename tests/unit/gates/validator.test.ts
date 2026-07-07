@@ -1,15 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-
-vi.mock('@infra/utils/logger.js', () => ({
-  logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), phase: vi.fn(), skip: vi.fn(), header: vi.fn(), tagged: vi.fn() },
-}));
+import { describe, it, expect } from 'vitest';
 
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { validateGateA, validateEcosystemGate } from '@core/gates/validator';
-import { logger } from '@infra/utils/logger';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = resolve(__dirname, '../../fixtures');
@@ -234,10 +229,6 @@ function validComposerResult(overrides: Record<string, unknown> = {}): Record<st
 }
 
 describe('validateEcosystemGate (canonical validations[] model)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
   it('passes for valid npm update result (fixture)', async () => {
     const data = await loadFixture('update-result-npm.json');
     const result = validateEcosystemGate('npm', data);
@@ -354,17 +345,17 @@ describe('validateEcosystemGate (canonical validations[] model)', () => {
     expect(result.valid).toBe(true);
   });
 
-  it('emits logger.warn when all validations are skipped (non-fatal)', () => {
+  it('returns an all-skipped warning when all validations are skipped (non-fatal)', () => {
     const result = validateEcosystemGate('npm', validNpmResult({
       validations: [{ name: 'validation', status: 'skipped', detail: 'No validation commands configured' }],
     }));
     expect(result.valid).toBe(true);
-    expect(logger.warn).toHaveBeenCalledWith(
+    expect(result.warnings).toEqual([
       expect.stringContaining('All validations were skipped for npm ecosystem'),
-    );
+    ]);
   });
 
-  it('does not emit logger.warn when at least one validation passed', () => {
+  it('returns no warnings when at least one validation passed', () => {
     const result = validateEcosystemGate('npm', validNpmResult({
       validations: [
         { name: 'build', status: 'pass', detail: 'Build OK' },
@@ -372,10 +363,10 @@ describe('validateEcosystemGate (canonical validations[] model)', () => {
       ],
     }));
     expect(result.valid).toBe(true);
-    expect(logger.warn).not.toHaveBeenCalled();
+    expect(result.warnings).toBeUndefined();
   });
 
-  it('emits logger.warn when all of multiple validations are skipped', () => {
+  it('returns an all-skipped warning when all of multiple validations are skipped', () => {
     const result = validateEcosystemGate('composer', validComposerResult({
       validations: [
         { name: 'tests', status: 'skipped', detail: 'No test_command configured — skipped' },
@@ -383,8 +374,8 @@ describe('validateEcosystemGate (canonical validations[] model)', () => {
       ],
     }));
     expect(result.valid).toBe(true);
-    expect(logger.warn).toHaveBeenCalledWith(
+    expect(result.warnings).toEqual([
       expect.stringContaining('All validations were skipped for composer ecosystem'),
-    );
+    ]);
   });
 });

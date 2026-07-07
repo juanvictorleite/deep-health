@@ -11,6 +11,11 @@ Architecture Decision Records — one decision each, append-only, superseded nev
 | [0003](0003-architecture-deepening-candidates-2026-04-29.md) | Architecture deepening candidates (2026-04-29) | Accepted |
 | [0004](0004-ecosystem-runner-config-and-build-context-hardening.md) | Ecosystem runner config simplification and build context boundary hardening | Accepted (partial supersession note: nested `build{}` replaced the flat fields) |
 | [0005](0005-adopt-living-docs-governance.md) | Adopt living-docs governance (strict) and reorganize the docs bundle as OKF | Accepted |
+| [0006](0006-core-layer-purity.md) | Core layer purity — no runtime imports from outer layers | Accepted |
+| [0007](0007-consolidate-image-resolvers.md) | Consolidate ecosystem image resolvers into one table-driven module | Accepted |
+| [0008](0008-executive-report-view-model.md) | Executive report — separate data preparation from template rendering | Accepted |
+| [0009](0009-explicit-ecosystem-registry-factory.md) | Explicit ecosystem registry factory (no side-effect bootstrap) | Accepted |
+| [0010](0010-phase-router-extraction.md) | Phase Router — extract execution-plan resolution from the orchestrator | Accepted |
 
 ## Superseded
 

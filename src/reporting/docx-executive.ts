@@ -16,7 +16,7 @@ import {
 
 import type { ExecutiveReportOptions } from '@core/types/report';
 
-import { buildExecutiveReportContext } from './executive';
+import { buildExecutiveReportViewModel } from './report-view-model';
 
 // ── colour palette for table headers ────────────────────────────────────────
 
@@ -401,7 +401,7 @@ function buildDocumentChildren(ctx: Record<string, unknown>) {
  * Returns a Promise<Buffer> since docx v8+ Packer.toBuffer() is async.
  */
 export async function generateExecutiveReportDocx(opts: ExecutiveReportOptions): Promise<Buffer> {
-  const ctx = buildExecutiveReportContext(opts);
+  const ctx = buildExecutiveReportViewModel(opts);
   const children = buildDocumentChildren(ctx);
 
   const doc = new Document({

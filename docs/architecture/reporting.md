@@ -18,8 +18,12 @@ flowchart LR
     SCAN_AFTER --> GEN_RPT
 
     GEN_RPT{"split_reports?"}
-    GEN_RPT -- no --> CONSOLIDATED["generateExecutiveReport()\nreporting/executive.ts\nconsolidated report"]
-    GEN_RPT -- yes --> PER_ENTRY["generateEntryReport() per entry\nbuildEntryReportContext() filters\nscan+update results for one entryKey"]
+    GEN_RPT -- no --> VM["buildExecutiveReportViewModel()\nreporting/report-view-model.ts\ntyped ExecutiveReportViewModel (ADR 0008)"]
+    GEN_RPT -- yes --> VM_ENTRY["buildEntryReportViewModel() per entry\nfilters scan+update results\nfor one entryKey"]
+
+    VM --> CONSOLIDATED["generateExecutiveReport()\nreporting/executive.ts (render seam)"]
+    VM_ENTRY --> PER_ENTRY["generateEntryReport() per entry"]
+    VM --> DOCX["docx-executive.ts\nconsumes the same ViewModel"]
 
     CONSOLIDATED --> RPT_RENDER["HTML report renderer\n(reporting/templates/)"]
     PER_ENTRY --> RPT_RENDER

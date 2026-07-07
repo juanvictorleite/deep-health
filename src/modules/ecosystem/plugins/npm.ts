@@ -7,7 +7,7 @@ import type { ScanResultJson } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
 import { NPM_DEFAULT_FIXER } from '@infra/brand';
-import { resolveNpmDockerImage } from '@infra/provisioner/npm-runner';
+import { resolveEcosystemImage } from '@infra/provisioner/image-resolvers';
 import type { VersionSource } from '@infra/utils/infer-version';
 import { logger } from '@infra/utils/logger';
 import { collectRootNpmLockfileVersions } from '@modules/ecosystem/utils/lockfile-inspect';
@@ -94,7 +94,7 @@ export const npmPlugin: EcosystemPlugin = {
 
   runtimeSpec: {
     defaultImage: 'node:lts',
-    resolveImage: resolveNpmDockerImage,
+    resolveImage: (version) => resolveEcosystemImage('npm', version),
     containerBinaries: ['npm'],
     runMode: { kind: 'direct-exec', binary: 'npm' },
   },

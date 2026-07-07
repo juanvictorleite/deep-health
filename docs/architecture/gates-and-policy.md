@@ -26,8 +26,10 @@ flowchart TD
 
     ECO_GATE -- valid --> CONT([pipeline continues])
     ECO_GATE -- invalid --> ERR_ECO([throw GateValidationError gate=id])
-    ECO_GATE -- "all validations skipped" --> WARN["logger.warn — no test coverage verified\n(pipeline continues)"]
+    ECO_GATE -- "all validations skipped" --> WARN["GateResult.warnings[] returned as data\ncaller (run-ecosystem-fix) logs '[gate] …'\n(pipeline continues)"]
 ```
+
+**Warnings are data, not side effects** ([ADR 0006](/adr/0006-core-layer-purity.md)): `GateResult` carries an optional `warnings: string[]`; the validator never logs. The orchestration-layer call site (`run-ecosystem-fix.ts`) logs each warning via `logger.warn` after gate validation.
 
 **Key constraint:** `validations` array must always have at least one entry. When tests are not run (e.g., dry-run), emit a `{ name: ..., status: 'skipped' }` entry. An empty array fails the gate.
 

@@ -59,6 +59,11 @@ classDiagram
         +findByOsvEcosystem(osv) EcosystemPlugin?
     }
 
+    class createEcosystemRegistry {
+        <<factory>>
+        +createEcosystemRegistry(plugins) EcosystemRegistry
+    }
+
     EcosystemPlugin <|-- NpmPlugin
     EcosystemPlugin <|-- ComposerPlugin
     EcosystemPlugin <|-- PipPlugin
@@ -69,6 +74,6 @@ classDiagram
 
 1. Create `src/modules/ecosystem/plugins/<name>.ts` implementing `EcosystemPlugin`.
 2. Declare a `runtimeSpec: EcosystemRuntimeSpec` on the plugin object — see [Ecosystem Runtime Container](ecosystem-runtime.md) for the spec shape.
-3. Register the plugin in `src/modules/ecosystem/index.ts`.
+3. Add the plugin to the declarative list in `src/modules/ecosystem/index.ts`: `defaultRegistry = createEcosystemRegistry([npmPlugin, composerPlugin, pipPlugin, <newPlugin>])` ([ADR 0009](/adr/0009-explicit-ecosystem-registry-factory.md)). Array order = phase order. Tests build isolated registries via `createEcosystemRegistry([fake])` — no side-effect bootstrap.
 
 No new files in `infrastructure/`, no orchestrator edits. The unified runtime module reads `runtimeSpec` and wires the entire container chain.

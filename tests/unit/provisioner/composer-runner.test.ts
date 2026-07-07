@@ -1,8 +1,7 @@
 import { EventEmitter } from 'node:events';
 
 import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
-import { COMPOSER_BOOTSTRAP, isPhpCliImage } from '@infra/provisioner/composer-runner';
-import { COMPOSER_DEFAULT_IMAGE } from '@infra/provisioner/php-profiles';
+import { COMPOSER_BOOTSTRAP, COMPOSER_DEFAULT_IMAGE, isPhpCliImage } from '@infra/provisioner/php-profiles';
 import { setLogLevel } from '@infra/utils/logger';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
