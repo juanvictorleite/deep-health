@@ -10,3 +10,5 @@ Execution slices — discrete units of work tracing back to ADRs/BDRs. The local
 | [0004](0004-executive-report-view-model.md) | Executive report ViewModel split | Done |
 | [0005](0005-ecosystem-registry-factory.md) | Explicit ecosystem registry factory | Done |
 | [0006](0006-phase-router-extraction.md) | Phase Router extraction | Done |
+| [0007](0007-coverage-backfill.md) | Coverage backfill — raise the ratchet floors incrementally (ADR 0011) | Open |
+| [0008](0008-test-hygiene-dead-mocks-stale-names.md) | Test hygiene — remove dead vi.mocks of deleted runners; rename stale test files | Open |
