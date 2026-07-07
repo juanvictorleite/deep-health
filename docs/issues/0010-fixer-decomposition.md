@@ -2,7 +2,7 @@
 type: Issue
 title: Decompose applyNpmAuditFix and applyOsvThenAuditFix; deduplicate semver helpers
 description: Execute ADR 0013 - bring the two complexity-budget violations (CCN 38 and 20) within budget via phase-helper extraction, and move the byte-identical semverMax/isUpgraded pairs into fixers/semver-utils.ts.
-status: open
+status: done
 tags: [architecture, ecosystem, fixers, complexity]
 timestamp: 2026-07-06T00:00:00Z
 ---

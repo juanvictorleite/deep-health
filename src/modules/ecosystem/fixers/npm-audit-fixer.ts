@@ -4,10 +4,12 @@ import { join } from 'node:path';
 import semver from 'semver';
 
 import type { CommandRunner } from '@core/types/common';
-import type { ScanResultJson } from '@core/types/scan';
+import type { ScanResultJson, VulnerabilityEntry } from '@core/types/scan';
 import { emptyEcosystem } from '@core/types/scan';
 import { logger } from '@infra/utils/logger';
 import { collectNpmLockfileVersions, collectRootNpmLockfileVersions } from '@modules/ecosystem/utils/lockfile-inspect';
+
+import { isUpgraded, semverMax } from './semver-utils';
 
 export interface NpmAuditFixerOptions {
   runner: CommandRunner;
@@ -25,49 +27,220 @@ export interface NpmAuditFixerResult {
   packagesUpdated: string[];
 }
 
-/**
- * Return the semver-maximum version string from a set, or undefined if the set is empty
- * or contains no valid semver versions. Falls back to an arbitrary element for non-semver
- * sets (rare; non-semver packages are handled by exact-match verification elsewhere).
- */
-function semverMax(versions: Set<string>): string | undefined {
-  if (versions.size === 0) return undefined;
-  let best: string | undefined;
-  for (const v of versions) {
-    if (!best) { best = v; continue; }
-    const vValid = semver.valid(v);
-    const bestValid = semver.valid(best);
-    if (vValid && bestValid) {
-      if (semver.gt(vValid, bestValid)) best = v;
-    } else if (vValid && !bestValid) {
-      best = v;
-    }
-  }
-  return best;
+interface PreFixSnapshot {
+  content: string;
+  rootVersionsBefore: Map<string, string>;
+  treeVersionsBefore: Map<string, Set<string>>;
+}
+
+interface UpgradeVerification {
+  verified: string[];
+  falsePositives: string[];
+}
+
+interface BreakingInstallOutcome {
+  breakingInstallError: string | null;
+  verified: string[];
 }
 
 /**
- * Return true iff `versionAfter` is strictly newer than `versionBefore` by semver,
- * or `packageName` appeared post-fix but not pre-fix (net-new install counts as update).
- *
- * For non-semver strings we require `versionAfter !== versionBefore && versionBefore !== undefined`.
+ * Read and parse the pre-fix lockfile. Returns null (after logging why) when the
+ * lockfile is missing/unreadable or unparseable — callers treat that as "skip the fix".
  */
-function isUpgraded(
-  versionBefore: string | undefined,
-  versionAfter: string | undefined,
-): boolean {
-  if (!versionAfter) return false;
-  // Package appeared post-fix but was absent pre-fix: counts as an upgrade.
-  if (!versionBefore) return true;
-  if (versionBefore === versionAfter) return false;
-
-  const afterValid = semver.valid(versionAfter);
-  const beforeValid = semver.valid(versionBefore);
-  if (afterValid && beforeValid) {
-    return semver.gt(afterValid, beforeValid);
+async function loadPreFixSnapshot(cwd: string): Promise<PreFixSnapshot | null> {
+  let content: string;
+  try {
+    content = await readFile(join(cwd, 'package-lock.json'), 'utf-8');
+  } catch (err) {
+    logger.warn(
+      `[npm-audit fix] package-lock.json not found or unreadable before fix (${err}); skipping npm audit fix`,
+    );
+    return null;
   }
-  // Non-semver: any string change is conservatively rejected (we cannot order them).
-  return false;
+
+  const rootVersionsBefore = collectRootNpmLockfileVersions(content);
+  if (rootVersionsBefore.size === 0) {
+    logger.warn(
+      '[npm-audit fix] Could not parse package-lock.json before fix; skipping npm audit fix',
+    );
+    return null;
+  }
+
+  return { content, rootVersionsBefore, treeVersionsBefore: collectNpmLockfileVersions(content) };
+}
+
+async function runAutoSafeAuditFix(runner: CommandRunner, cwd: string): Promise<void> {
+  logger.info('Applying npm audit fix for auto-safe vulnerabilities...');
+  // SEC: use runArgs (shell: false) — 'npm audit fix' has no variable data but
+  // runArgs is used for consistency with all other npm invocations in this module.
+  const fixResult = await runner.runArgs('npm', ['audit', 'fix'], { cwd, stream: true });
+  if (fixResult.exitCode !== 0) {
+    // npm audit fix applies partial patches before failing in many cases — do not abort.
+    logger.warn(
+      `[npm-audit fix] npm audit fix exited with ${fixResult.exitCode}; checking lockfile for partial upgrades`,
+    );
+  }
+}
+
+/**
+ * Read the current package-lock.json, falling back to `fallback` (and warning) when
+ * the file cannot be read — used after both the auto-safe and breaking-install steps.
+ */
+async function readLockfileAfter(cwd: string, fallback: string, stage: string): Promise<string> {
+  try {
+    return await readFile(join(cwd, 'package-lock.json'), 'utf-8');
+  } catch (err) {
+    logger.tagged('npm', 'npm-audit fix', `Could not read package-lock.json after ${stage} (${err})`, 'warn');
+    return fallback;
+  }
+}
+
+/**
+ * auto_safe_packages is a string[] of "name@version" or bare "name" strings from the scanner.
+ * We only care about the package name for verification — the lockfile is the authority on which
+ * version actually landed.
+ *
+ * Hybrid rule: packages present at root level (in EITHER pre or post lockfile) use the existing
+ * root-only comparison — this preserves the nested-dedup false-positive guard for lockfileVersion 1.
+ * Packages that are purely transitive (absent at root both before and after) use the full-tree
+ * max-version comparison so genuine transitive upgrades (e.g. elliptic, ip) are counted.
+ */
+function classifyAutoSafeUpgrade(
+  name: string,
+  rootVersionsBefore: Map<string, string>,
+  rootVersionsAfter: Map<string, string>,
+  treeVersionsBefore: Map<string, Set<string>>,
+  treeVersionsAfter: Map<string, Set<string>>,
+): { upgraded: boolean; version: string | undefined } {
+  const rootBefore = rootVersionsBefore.get(name);
+  const rootAfter = rootVersionsAfter.get(name);
+
+  if (rootBefore !== undefined || rootAfter !== undefined) {
+    return { upgraded: isUpgraded(rootBefore, rootAfter), version: rootAfter };
+  }
+
+  const treeBeforeMax = semverMax(treeVersionsBefore.get(name) ?? new Set());
+  const treeAfterMax = semverMax(treeVersionsAfter.get(name) ?? new Set());
+  return { upgraded: isUpgraded(treeBeforeMax, treeAfterMax), version: treeAfterMax };
+}
+
+function verifyAutoSafeUpgrades(
+  autoSafePackages: string[],
+  rootVersionsBefore: Map<string, string>,
+  rootVersionsAfter: Map<string, string>,
+  treeVersionsBefore: Map<string, Set<string>>,
+  treeVersionsAfter: Map<string, Set<string>>,
+): UpgradeVerification {
+  const verified: string[] = [];
+  const falsePositives: string[] = [];
+
+  for (const pkgSpec of autoSafePackages) {
+    const name = pkgSpec.includes('@') && pkgSpec.lastIndexOf('@') > 0
+      ? pkgSpec.slice(0, pkgSpec.lastIndexOf('@'))
+      : pkgSpec;
+
+    const { upgraded, version } = classifyAutoSafeUpgrade(
+      name, rootVersionsBefore, rootVersionsAfter, treeVersionsBefore, treeVersionsAfter,
+    );
+
+    if (upgraded) {
+      verified.push(`${name}@${version!}`);
+    } else {
+      falsePositives.push(name);
+    }
+  }
+
+  return { verified, falsePositives };
+}
+
+function selectBreakingPackages(vulnerabilities: VulnerabilityEntry[]): Map<string, string> {
+  const skippedProtected = vulnerabilities
+    .filter((v) => v.classification === 'breaking' && v.breakingReason === 'protected-constraint');
+  if (skippedProtected.length > 0) {
+    logger.tagged('npm', 'npm-audit fix', `Skipping ${skippedProtected.length} protected-constraint package(s) — cannot be installed automatically: ` +
+      skippedProtected.map((v) => v.package).join(', '), 'warn');
+  }
+
+  return vulnerabilities
+    .filter((v) => v.classification === 'breaking' && v.safeVersion && v.breakingReason !== 'protected-constraint')
+    .reduce<Map<string, string>>((map, v) => {
+      if (!map.has(v.package)) map.set(v.package, v.safeVersion!);
+      return map;
+    }, new Map());
+}
+
+function isExactDiskMatch(targetVersion: string, diskVersions: Set<string> | undefined): boolean {
+  return diskVersions !== undefined && diskVersions.has(targetVersion);
+}
+
+function isSemverAtLeastTarget(targetVersion: string, diskMax: string | undefined): boolean {
+  if (!diskMax) return false;
+  const targetValid = semver.valid(targetVersion);
+  const diskValid = semver.valid(diskMax);
+  if (!targetValid || !diskValid) return false;
+  return semver.gte(diskValid, targetValid);
+}
+
+// Exact match, or disk has a version >= target (semver-aware).
+function classifyBreakingUpgrade(
+  targetVersion: string,
+  diskVersions: Set<string> | undefined,
+): { verified: boolean; version: string | undefined } {
+  const diskMax = semverMax(diskVersions ?? new Set());
+  const verified = isExactDiskMatch(targetVersion, diskVersions) || isSemverAtLeastTarget(targetVersion, diskMax);
+  return { verified, version: verified ? (diskMax ?? targetVersion) : targetVersion };
+}
+
+function verifyBreakingUpgrades(
+  breakingPkgs: Map<string, string>,
+  versionsAfterBreaking: Map<string, Set<string>>,
+): { verified: string[]; unverified: string[] } {
+  const verified: string[] = [];
+  const unverified: string[] = [];
+
+  for (const [name, targetVersion] of breakingPkgs) {
+    const outcome = classifyBreakingUpgrade(targetVersion, versionsAfterBreaking.get(name));
+    if (outcome.verified) {
+      verified.push(`${name}@${outcome.version}`);
+    } else {
+      unverified.push(`${name}@${targetVersion}`);
+    }
+  }
+
+  return { verified, unverified };
+}
+
+/**
+ * Install the authorized breaking-change packages and verify what actually landed on disk.
+ * Returns `breakingInstallError` only when the install failed AND nothing verified —
+ * partial success (some packages verified) is not treated as a hard failure.
+ */
+async function applyBreakingInstall(
+  runner: CommandRunner,
+  cwd: string,
+  breakingPkgs: Map<string, string>,
+  postAutoSafeLockfile: string,
+): Promise<BreakingInstallOutcome> {
+  const specs = [...breakingPkgs.entries()].map(([name, ver]) => `${name}@${ver}`);
+  const specsStr = specs.join(' ');
+  logger.info(`Installing authorized breaking-change packages: ${specsStr}`);
+  // SEC: use runArgs (shell: false) — package-name@version data must not reach a shell tokenizer
+  const installResult = await runner.runArgs('npm', ['install', ...specs], { cwd, stream: true });
+
+  const postBreakingLockfile = await readLockfileAfter(cwd, postAutoSafeLockfile, 'breaking install');
+  const versionsAfterBreaking = collectNpmLockfileVersions(postBreakingLockfile);
+
+  const { verified, unverified } = verifyBreakingUpgrades(breakingPkgs, versionsAfterBreaking);
+
+  if (unverified.length > 0) {
+    logger.tagged('npm', 'npm-audit fix', `${verified.length} of ${breakingPkgs.size} authorized breaking upgrade(s) verified on disk; unverified: ${unverified.join(', ')}`, 'warn');
+  }
+
+  const breakingInstallError = installResult.exitCode !== 0 && verified.length === 0
+    ? `npm install ${specsStr} failed: ${installResult.stderr}`
+    : null;
+
+  return { breakingInstallError, verified };
 }
 
 /**
@@ -80,97 +253,28 @@ function isUpgraded(
  */
 export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmAuditFixerResult> {
   const { runner, cwd, scanResult, authorizeBreaking } = opts;
-
   const npmEcosystem = scanResult.ecosystems[opts.ecosystemKey ?? 'npm'] ?? emptyEcosystem();
 
-  // ── Pre-fix lockfile snapshot ─────────────────────────────────────────────
-  let preLockfileContent: string;
-  try {
-    preLockfileContent = await readFile(join(cwd, 'package-lock.json'), 'utf-8');
-  } catch (err) {
-    logger.warn(
-      `[npm-audit fix] package-lock.json not found or unreadable before fix (${err}); skipping npm audit fix`,
-    );
+  const preFix = await loadPreFixSnapshot(cwd);
+  if (!preFix) {
     return { breakingInstallError: null, packagesUpdated: [] };
   }
 
-  const rootVersionsBefore = collectRootNpmLockfileVersions(preLockfileContent);
-  if (rootVersionsBefore.size === 0) {
-    logger.warn(
-      '[npm-audit fix] Could not parse package-lock.json before fix; skipping npm audit fix',
-    );
-    return { breakingInstallError: null, packagesUpdated: [] };
-  }
+  await runAutoSafeAuditFix(runner, cwd);
 
-  const treeVersionsBefore = collectNpmLockfileVersions(preLockfileContent);
-
-  // ── Run npm audit fix ─────────────────────────────────────────────────────
-  logger.info('Applying npm audit fix for auto-safe vulnerabilities...');
-  // SEC: use runArgs (shell: false) — 'npm audit fix' has no variable data but
-  // runArgs is used for consistency with all other npm invocations in this module.
-  const fixResult = await runner.runArgs('npm', ['audit', 'fix'], { cwd, stream: true });
-  if (fixResult.exitCode !== 0) {
-    // npm audit fix applies partial patches before failing in many cases — do not abort.
-    logger.warn(
-      `[npm-audit fix] npm audit fix exited with ${fixResult.exitCode}; checking lockfile for partial upgrades`,
-    );
-  }
-
-  // ── Post-fix lockfile snapshot ────────────────────────────────────────────
-  let postAutoSafeLockfile: string;
-  try {
-    postAutoSafeLockfile = await readFile(join(cwd, 'package-lock.json'), 'utf-8');
-  } catch (err) {
-    logger.tagged('npm', 'npm-audit fix', `Could not read package-lock.json after npm audit fix (${err})`, 'warn');
-    postAutoSafeLockfile = preLockfileContent;
-  }
-
+  const postAutoSafeLockfile = await readLockfileAfter(cwd, preFix.content, 'npm audit fix');
   const rootVersionsAfterAutoSafe = collectRootNpmLockfileVersions(postAutoSafeLockfile);
   const treeVersionsAfterAutoSafe = collectNpmLockfileVersions(postAutoSafeLockfile);
 
-  // ── Verify auto-safe upgrades ─────────────────────────────────────────────
-  // auto_safe_packages is a string[] of "name@version" or bare "name" strings from the scanner.
-  // We only care about the package name for verification — the lockfile is the authority on which
-  // version actually landed.
-  //
-  // Hybrid rule: packages present at root level (in EITHER pre or post lockfile) use the existing
-  // root-only comparison — this preserves the nested-dedup false-positive guard for lockfileVersion 1.
-  // Packages that are purely transitive (absent at root both before and after) use the full-tree
-  // max-version comparison so genuine transitive upgrades (e.g. elliptic, ip) are counted.
-  const autoSafeVerified: string[] = [];
-  const autoSafeFalsePositives: string[] = [];
-
-  for (const pkgSpec of npmEcosystem.auto_safe_packages) {
-    const name = pkgSpec.includes('@') && pkgSpec.lastIndexOf('@') > 0
-      ? pkgSpec.slice(0, pkgSpec.lastIndexOf('@'))
-      : pkgSpec;
-
-    const rootBefore = rootVersionsBefore.get(name);
-    const rootAfter = rootVersionsAfterAutoSafe.get(name);
-
-    if (rootBefore !== undefined || rootAfter !== undefined) {
-      // Package is present at root level (at least one side) — use root-only comparison.
-      // This preserves the nested-dedup false-positive guard for lockfileVersion 1.
-      if (isUpgraded(rootBefore, rootAfter)) {
-        autoSafeVerified.push(`${name}@${rootAfter!}`);
-      } else {
-        autoSafeFalsePositives.push(name);
-      }
-    } else {
-      // Package is purely transitive — absent at root both before and after.
-      // Compare full-tree max versions to detect genuine transitive upgrades.
-      const treeBeforeMax = semverMax(treeVersionsBefore.get(name) ?? new Set());
-      const treeAfterMax = semverMax(treeVersionsAfterAutoSafe.get(name) ?? new Set());
-      if (isUpgraded(treeBeforeMax, treeAfterMax)) {
-        autoSafeVerified.push(`${name}@${treeAfterMax!}`);
-      } else {
-        autoSafeFalsePositives.push(name);
-      }
-    }
-  }
+  const { verified: autoSafeVerified, falsePositives: autoSafeFalsePositives } = verifyAutoSafeUpgrades(
+    npmEcosystem.auto_safe_packages,
+    preFix.rootVersionsBefore,
+    rootVersionsAfterAutoSafe,
+    preFix.treeVersionsBefore,
+    treeVersionsAfterAutoSafe,
+  );
 
   logger.tagged('npm', 'npm-audit fix', `Verified ${autoSafeVerified.length} of ${npmEcosystem.auto_safe_packages.length} auto-safe upgrade(s) on host disk`);
-
   if (autoSafeFalsePositives.length > 0) {
     logger.tagged('npm', 'npm-audit fix', `Scanner classified ${autoSafeFalsePositives.length} package(s) as auto_safe but post-fix lockfile has no newer version: ${autoSafeFalsePositives.join(', ')}`, 'warn');
   }
@@ -181,79 +285,19 @@ export async function applyNpmAuditFix(opts: NpmAuditFixerOptions): Promise<NpmA
     return { breakingInstallError: null, packagesUpdated };
   }
 
-  // ── Breaking install (authorized) ────────────────────────────────────────
-  const skippedProtected = npmEcosystem.vulnerabilities
-    .filter((v) => v.classification === 'breaking' && v.breakingReason === 'protected-constraint');
-  if (skippedProtected.length > 0) {
-    logger.tagged('npm', 'npm-audit fix', `Skipping ${skippedProtected.length} protected-constraint package(s) — cannot be installed automatically: ` +
-      skippedProtected.map((v) => v.package).join(', '), 'warn');
-  }
-  const breakingPkgs = npmEcosystem.vulnerabilities
-    .filter((v) => v.classification === 'breaking' && v.safeVersion && v.breakingReason !== 'protected-constraint')
-    .reduce<Map<string, string>>((map, v) => {
-      if (!map.has(v.package)) map.set(v.package, v.safeVersion!);
-      return map;
-    }, new Map());
-
+  const breakingPkgs = selectBreakingPackages(npmEcosystem.vulnerabilities);
   if (breakingPkgs.size === 0) {
     return { breakingInstallError: null, packagesUpdated };
   }
 
-  const specs = [...breakingPkgs.entries()].map(([name, ver]) => `${name}@${ver}`);
-  const specsStr = specs.join(' ');
-  logger.info(`Installing authorized breaking-change packages: ${specsStr}`);
-  // SEC: use runArgs (shell: false) — package-name@version data must not reach a shell tokenizer
-  const installResult = await runner.runArgs('npm', ['install', ...specs], { cwd, stream: true });
-
-  // Read lockfile after breaking install regardless of exit code — partial patches may apply.
-  let postBreakingLockfile: string;
-  try {
-    postBreakingLockfile = await readFile(join(cwd, 'package-lock.json'), 'utf-8');
-  } catch (err) {
-    logger.tagged('npm', 'npm-audit fix', `Could not read package-lock.json after breaking install (${err})`, 'warn');
-    postBreakingLockfile = postAutoSafeLockfile;
-  }
-
-  const versionsAfterBreaking = collectNpmLockfileVersions(postBreakingLockfile);
-
-  const breakingVerified: string[] = [];
-  const breakingUnverified: string[] = [];
-
-  for (const [name, targetVersion] of breakingPkgs) {
-    const diskVersions = versionsAfterBreaking.get(name);
-    const diskMax = semverMax(diskVersions ?? new Set());
-
-    const targetValid = semver.valid(targetVersion);
-    const diskValid = diskMax ? semver.valid(diskMax) : null;
-
-    let verified = false;
-    if (diskVersions && diskVersions.has(targetVersion)) {
-      // Exact match
-      verified = true;
-    } else if (targetValid && diskValid && semver.gte(diskValid, targetValid)) {
-      // Disk has a version >= target (semver-aware)
-      verified = true;
-    }
-
-    if (verified) {
-      breakingVerified.push(`${name}@${diskMax ?? targetVersion}`);
-    } else {
-      breakingUnverified.push(`${name}@${targetVersion}`);
-    }
-  }
-
-  if (breakingUnverified.length > 0) {
-    logger.tagged('npm', 'npm-audit fix', `${breakingVerified.length} of ${breakingPkgs.size} authorized breaking upgrade(s) verified on disk; unverified: ${breakingUnverified.join(', ')}`, 'warn');
-  }
+  const { breakingInstallError, verified: breakingVerified } = await applyBreakingInstall(
+    runner,
+    cwd,
+    breakingPkgs,
+    postAutoSafeLockfile,
+  );
 
   packagesUpdated.push(...breakingVerified);
 
-  if (installResult.exitCode !== 0 && breakingVerified.length === 0) {
-    return {
-      breakingInstallError: `npm install ${specsStr} failed: ${installResult.stderr}`,
-      packagesUpdated,
-    };
-  }
-
-  return { breakingInstallError: null, packagesUpdated };
+  return { breakingInstallError, packagesUpdated };
 }
