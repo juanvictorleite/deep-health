@@ -24,23 +24,8 @@ vi.mock("@infra/utils/git-branch.js", () => ({
   detectGitBranch: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock("@infra/provisioner/npm-runner.js", () => ({
-  NpmDockerRunner: vi.fn(),
-  resolveNpmDockerImage: vi.fn(() => "node:lts"),
-}));
 vi.mock("@infra/provisioner/osv-runner.js", () => ({
   OsvDockerRunner: vi.fn(),
-}));
-vi.mock("@infra/provisioner/pip-runner.js", () => ({
-  PipDockerRunner: vi.fn(),
-  resolvePipDockerImage: vi.fn(() => "python:3-slim"),
-  PIP_DEFAULT_IMAGE: "python:3-slim",
-}));
-vi.mock("@infra/provisioner/composer-runner.js", () => ({
-  ComposerDockerRunner: vi.fn(),
-}));
-vi.mock("@infra/provisioner/php-image-resolver.js", () => ({
-  resolveComposerDockerImage: vi.fn(() => "composer:2"),
 }));
 vi.mock("@infra/executor/npm-container-runner.js", () => ({
   NpmContainerCommandRunner: vi.fn(),
