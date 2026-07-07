@@ -21,6 +21,9 @@ Architecture Decision Records — one decision each, append-only, superseded nev
 | [0013](0013-fixer-decomposition-shared-semver-helpers.md) | Decompose the audit fixers; shared home for the duplicated semver helpers | Accepted |
 | [0014](0014-osv-parse-seam.md) | Extract the OSV engine's pure parsing into osv-parse; decompose within budget | Accepted |
 | [0015](0015-report-artifact-plan.md) | Report artifact plan — pure resolver + thin executor in the app layer | Accepted |
+| [0016](0016-sonarqube-view-model.md) | SonarQube ViewModel — one pure normalization for HTML, executive section and export | Accepted |
+| [0017](0017-osv-fix-claims-seam.md) | OSV fix claims — pure claim parsing/reconciliation vs staging adapter | Accepted |
+| [0018](0018-lockfile-format-adapters.md) | Lockfile inspection — version-map interface with v1 and v2/v3 adapters | Accepted |
 
 ## Superseded
 
