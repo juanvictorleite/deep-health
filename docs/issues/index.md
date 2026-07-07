@@ -14,3 +14,5 @@ Execution slices — discrete units of work tracing back to ADRs/BDRs. The local
 | [0008](0008-test-hygiene-dead-mocks-stale-names.md) | Test hygiene — remove dead vi.mocks of deleted runners; rename stale test files | Done |
 | [0009](0009-pip-updater-split.md) | Split pip-updater.ts into seam-aligned submodules (ADR 0012) | Done |
 | [0010](0010-fixer-decomposition.md) | Decompose audit fixers; deduplicate semver helpers (ADR 0013) | Done |
+| [0011](0011-osv-parse-extraction.md) | Extract pure osv-parse module; decompose scan + parsers (ADR 0014) | Open |
+| [0012](0012-report-artifact-plan.md) | Artifact plan resolver; decompose runFixPipeline + fan-out (ADR 0015) | Open |

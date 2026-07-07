@@ -19,6 +19,8 @@ Architecture Decision Records — one decision each, append-only, superseded nev
 | [0011](0011-coverage-ratchet-policy.md) | Coverage thresholds become a ratchet at the measured baseline (statements 94.5, functions 94.5, lines 95.5, branches 86 — raise-only) | Accepted |
 | [0012](0012-pip-updater-module-split.md) | Split pip-updater into seam-aligned submodules behind a stable facade | Accepted |
 | [0013](0013-fixer-decomposition-shared-semver-helpers.md) | Decompose the audit fixers; shared home for the duplicated semver helpers | Accepted |
+| [0014](0014-osv-parse-seam.md) | Extract the OSV engine's pure parsing into osv-parse; decompose within budget | Accepted |
+| [0015](0015-report-artifact-plan.md) | Report artifact plan — pure resolver + thin executor in the app layer | Accepted |
 
 ## Superseded
 
