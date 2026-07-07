@@ -2,7 +2,7 @@
 type: Issue
 title: Extract pure osv-parse module from osv-engine; decompose scan and parsers within budget
 description: Execute ADR 0014 - move parseOsvJsonOutput/extractSafeVersionFromVuln/parseCvssBaseScore + OsvJsonOutput into scanner/osv-parse.ts (pure), decompose them and the engine's scan to cyclomatic <= 10, add fixture-driven table tests for the parse seam.
-status: open
+status: done
 tags: [architecture, scanner, complexity]
 timestamp: 2026-07-07T00:00:00Z
 ---

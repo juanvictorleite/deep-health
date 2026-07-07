@@ -1,14 +1,10 @@
 import { join } from 'node:path';
 
-import semver from 'semver';
-
 import { PhaseError, EnvironmentError } from '@core/errors';
 import { enrichWithReachability, type ReachabilityAdapter } from '@core/policy/reachability';
-import { classifyPackage } from '@core/policy/safe-update';
-import type { ProjectConfig } from '@core/types/config';
+import type { EcosystemConfig, OsvRunnerMode, ProjectConfig } from '@core/types/config';
 import { ecosystemEntryKey } from '@core/types/config';
-import { emptyEcosystem } from '@core/types/scan';
-import type { ScanResultJson, EcosystemScanResult, VulnerabilityEntry } from '@core/types/scan';
+import type { ScanResultJson, EcosystemScanResult } from '@core/types/scan';
 import { OsvDockerRunner } from '@infra/provisioner/osv-runner';
 import { logger } from '@infra/utils/logger';
 import {
@@ -24,255 +20,12 @@ import { NpmReachabilityAdapter } from '@modules/ecosystem/plugins/npm-reachabil
 import { PipReachabilityAdapter } from '@modules/ecosystem/plugins/pip-reachability';
 import type { EcosystemRegistry } from '@modules/ecosystem/registry';
 
+import { parseOsvJsonOutput, type OsvJsonOutput } from './osv-parse';
 import type { ScannerEngine, ScannerEngineContext } from './types';
 
+export type { OsvJsonOutput };
 
-// ─── Internal types ────────────────────────────────────────────────────────────
-
-interface OsvVulnerability {
-  id?: string;
-  summary?: string;
-  severity?: { type?: string; score?: string }[];
-  affected?: {
-    ranges?: {
-      /**
-       * OSV range type: 'SEMVER' | 'ECOSYSTEM' | 'GIT'.
-       * GIT ranges carry commit SHAs, not installable package versions — must be
-       * excluded from version-based fix detection to avoid semver.coerce() treating
-       * a leading-digit SHA (e.g. "9e08eb8f…") as "9.0.0".
-       */
-      type?: string;
-      events?: {
-        fixed?: string;
-        introduced?: string;
-        last_affected?: string;
-      }[];
-    }[];
-  }[];
-}
-
-export interface OsvJsonOutput {
-  results?: {
-    packages?: {
-      package?: { name?: string; version?: string; ecosystem?: string };
-      vulnerabilities?: OsvVulnerability[];
-    }[];
-  }[];
-}
-
-// ─── CVSS helpers ─────────────────────────────────────────────────────────────
-
-function parseCvssBaseScore(score: string): string {
-  try {
-    const match = score.match(/CVSS:\d+\.\d+\/(.+)/);
-    if (!match) return '—';
-    const metrics: Record<string, string> = {};
-    for (const part of match[1]!.split('/')) {
-      const [k, v] = part.split(':');
-      if (k && v) metrics[k] = v;
-    }
-
-    const av = ({ N: 0.85, A: 0.62, L: 0.55, P: 0.2 })[metrics['AV'] ?? ''] ?? 0;
-    const ac = ({ L: 0.77, H: 0.44 })[metrics['AC'] ?? ''] ?? 0;
-    const scope = metrics['S'] === 'C';
-    const prMap = scope
-      ? { N: 0.85, L: 0.68, H: 0.50 }
-      : { N: 0.85, L: 0.62, H: 0.27 };
-    const pr = prMap[metrics['PR'] as keyof typeof prMap] ?? 0;
-    const ui = ({ N: 0.85, R: 0.62 })[metrics['UI'] ?? ''] ?? 0;
-    const impMap = { N: 0, L: 0.22, H: 0.56 };
-    const c = impMap[metrics['C'] as keyof typeof impMap] ?? 0;
-    const i = impMap[metrics['I'] as keyof typeof impMap] ?? 0;
-    const a = impMap[metrics['A'] as keyof typeof impMap] ?? 0;
-
-    const iscBase = 1 - (1 - c) * (1 - i) * (1 - a);
-    if (iscBase <= 0) return '0.0';
-
-    let isc: number;
-    if (!scope) {
-      isc = 6.42 * iscBase;
-    } else {
-      isc = 7.52 * (iscBase - 0.029) - 3.25 * Math.pow(iscBase - 0.02, 15);
-    }
-
-    const exploitability = 8.22 * av * ac * pr * ui;
-
-    let raw: number;
-    if (!scope) {
-      raw = Math.min(isc + exploitability, 10);
-    } else {
-      raw = Math.min(1.08 * (isc + exploitability), 10);
-    }
-
-    const rounded = Math.ceil(raw * 10) / 10;
-    return rounded.toFixed(1);
-  } catch {
-    return '—';
-  }
-}
-
-function extractCvss(vuln: { severity?: { type?: string; score?: string }[] }): string {
-  for (const s of vuln.severity ?? []) {
-    if (s.type === 'CVSS_V3' && s.score) {
-      return parseCvssBaseScore(s.score);
-    }
-  }
-  return '—';
-}
-
-function extractSafeVersionFromVuln(
-  vuln: OsvVulnerability,
-  currentVersion: string,
-): string | null {
-  const coercedCurrent = semver.coerce(currentVersion);
-  if (!coercedCurrent) {
-    // Fallback for non-semver versions: return the first fixed found from a non-GIT range.
-    for (const affected of vuln.affected ?? []) {
-      for (const range of affected.ranges ?? []) {
-        if (range.type === 'GIT') continue;
-        for (const event of range.events ?? []) {
-          if (event.fixed) return event.fixed;
-        }
-      }
-    }
-    return null;
-  }
-
-  for (const affected of vuln.affected ?? []) {
-    for (const range of affected.ranges ?? []) {
-      // GIT ranges carry commit SHAs — semver.coerce() on a leading-digit SHA
-      // (e.g. "9e08eb8f…") would produce "9.0.0", falsely treating it as a
-      // semver fix target. Only SEMVER and ECOSYSTEM ranges are package-installable.
-      if (range.type === 'GIT') continue;
-      let introduced: string | undefined;
-      let fixed: string | undefined;
-
-      for (const event of range.events ?? []) {
-        if (event.introduced !== undefined) introduced = event.introduced;
-        if (event.fixed !== undefined) fixed = event.fixed;
-      }
-
-      if (!fixed) continue; // range without fixed (e.g. last_affected only) — skip
-
-      const coercedIntroduced = introduced ? semver.coerce(introduced) : null;
-      const coercedFixed = semver.coerce(fixed);
-
-      if (!coercedFixed) continue;
-
-      // Current version must be >= introduced (or no introduced = since 0) AND < fixed
-      const afterIntroduced = !coercedIntroduced || semver.gte(coercedCurrent, coercedIntroduced);
-      const beforeFixed = semver.lt(coercedCurrent, coercedFixed);
-
-      if (afterIntroduced && beforeFixed) {
-        return fixed;
-      }
-    }
-  }
-
-  return null;
-}
-
-// ─── Parse helpers ─────────────────────────────────────────────────────────────
-
-function parseOsvJsonOutput(
-  stdout: string,
-  config: ProjectConfig,
-  registry: EcosystemRegistry,
-): Pick<ScanResultJson, 'ecosystems'> {
-  const data = JSON.parse(stdout) as OsvJsonOutput;
-  const ecosystems: Record<string, EcosystemScanResult> = {};
-
-  if (!data.results) return { ecosystems };
-
-  const protectedByPlugin = new Map(
-    registry.getAll().map((plugin) => [
-      plugin.id,
-      new Map(plugin.getProtectedPackages(config).map((p) => [p.package, p])),
-    ]),
-  );
-
-  const ecosystemSets: Record<
-    string,
-    { auto_safe: Set<string>; breaking: Set<string>; manual: Set<string> }
-  > = {};
-
-  for (const result of data.results) {
-    for (const pkg of result.packages ?? []) {
-      const pkgName = pkg.package?.name ?? '';
-      const pkgVersion = pkg.package?.version ?? '';
-      const osvEcosystem = pkg.package?.ecosystem ?? '';
-
-      const plugin = registry.findByOsvEcosystem(osvEcosystem);
-      if (!plugin) continue;
-
-      const pluginId = plugin.id;
-
-      if (!ecosystems[pluginId]) {
-        ecosystems[pluginId] = emptyEcosystem();
-        ecosystemSets[pluginId] = {
-          auto_safe: new Set<string>(),
-          breaking: new Set<string>(),
-          manual: new Set<string>(),
-        };
-      }
-      const target = ecosystems[pluginId]!;
-      const targetSets = ecosystemSets[pluginId]!;
-      const protectedMap = protectedByPlugin.get(pluginId) ?? new Map();
-
-      for (const vuln of pkg.vulnerabilities ?? []) {
-        const ghsaId = vuln.id ?? '';
-        const risk = vuln.summary ?? '';
-        const cvss = extractCvss(vuln);
-        const safeVersion = extractSafeVersionFromVuln(vuln, pkgVersion);
-
-        const classified = classifyPackage(
-          { name: pkgName, currentVersion: pkgVersion, safeVersion },
-          protectedMap,
-        );
-
-        const entry: VulnerabilityEntry = {
-          ecosystem: pluginId,
-          package: pkgName,
-          currentVersion: pkgVersion,
-          safeVersion,
-          cvss,
-          ghsaId,
-          risk,
-          classification: classified.classification,
-          reason: classified.reason ?? '',
-          ...(classified.breakingReason !== undefined ? { breakingReason: classified.breakingReason } : {}),
-        };
-
-        target.vulnerabilities.push(entry);
-        target.vulnerabilities_total++;
-
-        const packageRef = `${pkgName}@${pkgVersion}`;
-
-        if (classified.classification === 'auto_safe') {
-          target.auto_safe++;
-          if (!targetSets.auto_safe.has(packageRef)) {
-            targetSets.auto_safe.add(packageRef);
-            target.auto_safe_packages.push(packageRef);
-          }
-        } else if (classified.classification === 'breaking') {
-          target.breaking++;
-          if (!targetSets.breaking.has(packageRef)) {
-            targetSets.breaking.add(packageRef);
-            target.breaking_packages.push(packageRef);
-          }
-        } else {
-          target.manual++;
-          if (!targetSets.manual.has(packageRef)) {
-            targetSets.manual.add(packageRef);
-            target.manual_packages.push(packageRef);
-          }
-        }
-      }
-    }
-  }
-
-  return { ecosystems };
-}
+type Plugin = ReturnType<EcosystemRegistry['getAll']>[number];
 
 // ─── OsvScannerEngine ──────────────────────────────────────────────────────────
 
@@ -339,180 +92,26 @@ export class OsvScannerEngine implements ScannerEngine {
   // ── Scan ─────────────────────────────────────────────────────────────────────
 
   async scan(ctx: ScannerEngineContext): Promise<ScanResultJson> {
-    const { runner, config, cwd, ecosystemRegistry } = ctx;
-
     logger.info('Running OSV vulnerability scan...');
-
-    const base: ScanResultJson = {
-      $schema: 'osv-scan-result/v1',
-      agent: 'osv',
-      status: 'success',
-      environment: runner.environment,
-      ecosystems: {},
-      error: null,
-      // Stamp branch when available (null omitted by consumers — treated as unknown)
-      ...(ctx.branch !== null && ctx.branch !== undefined ? { branch: ctx.branch } : {}),
-    };
+    const base = this.buildBaseResult(ctx);
 
     try {
       await this.assertAvailable(ctx);
 
-      const runnerMode = config.scanners?.osv?.runner ?? 'docker';
-
-      // Warn when using local runner (non-default)
-      if (runnerMode === 'local') {
-        logger.warn(
-          '[OSV runner] runner=local: using local osv-scanner binary. ' +
-          'Docker (runner: docker) is the recommended default for reproducible, ' +
-          'platform-independent scans. Set scanners.osv.runner to "docker" in your config.',
-        );
-      }
-
+      const runnerMode = ctx.config.scanners?.osv?.runner ?? 'docker';
+      this.warnIfLocalRunner(runnerMode);
       const useDocker = runnerMode === 'docker';
-      const scanConfig = config.scan;
+      const scanConfig = ctx.config.scan;
 
       // ── scan.paths override: single combined scan (legacy / explicit path mode) ──
       if (scanConfig?.paths && scanConfig.paths.length > 0) {
-        for (const p of scanConfig.paths) {
-          validateScanPath(p);
-        }
-        const rawArgs = resolveScanPathArgs(scanConfig.paths, scanConfig.exclude ?? []);
-        if (rawArgs.length === 0) {
-          throw new PhaseError(
-            'scan.paths is configured but resolved to zero lockfile args — ' +
-            'this would silently report zero vulnerabilities',
-            'scanner',
-          );
-        }
-
-        if (runner.dryRun) {
-          if (useDocker) {
-            logger.tagged('osv', 'DRY-RUN', 'Would execute osv-scanner via Docker container');
-          } else {
-            logger.tagged('osv', 'DRY-RUN', `Would execute: osv-scanner ${rawArgs.join(' ')} --format json`);
-          }
-          return base;
-        }
-
-        const { stdout, exitCode, stderr } = await this.runSingleScan(rawArgs, useDocker, config, cwd, runner);
-        if (exitCode !== 0 && !stdout) {
-          return { ...base, status: 'error', error: `Scan failed (exit ${exitCode}): ${stderr}` };
-        }
-        const parsed = parseOsvJsonOutput(stdout, config, ecosystemRegistry);
-        return { ...base, ...parsed };
+        return await this.runCombinedPathScan(ctx, base, scanConfig.paths, scanConfig.exclude ?? [], useDocker);
       }
 
       // ── Per-entry scan mode: one invocation per config.ecosystems entry ──────
       // Each entry is scanned independently so results are keyed by ecosystemEntryKey(entry)
       // (e.g. 'npm', 'npm:frontend', 'npm:api') with no cross-entry collision.
-      const mergedEcosystems: Record<string, EcosystemScanResult> = {};
-
-      const reachabilityConfig = config.reachability;
-      const reachabilityEnabled = reachabilityConfig?.enabled !== false;
-      const deep = reachabilityConfig?.deep !== false;
-
-      const adapters = new Map<string, ReachabilityAdapter>(
-        reachabilityEnabled
-          ? [
-              ['npm', new NpmReachabilityAdapter({ deep })],
-              ['pip', new PipReachabilityAdapter()],
-              ['composer', new ComposerReachabilityAdapter({ deep })],
-            ]
-          : [],
-      );
-
-      // Ecosystem resolution uses config.ecosystems[] declaratively.
-      // Use getAll().find() so the logic works with both real and test-mocked registries
-      // (some test registries implement getAll() but not get()).
-      const allPlugins = ecosystemRegistry.getAll();
-      const activePlugins = allPlugins.filter((p) =>
-        config.ecosystems.some((e) => e.id === p.id),
-      );
-
-      if (runner.dryRun) {
-        if (useDocker) {
-          logger.tagged('osv', 'DRY-RUN', 'Would execute osv-scanner via Docker container');
-        } else {
-          logger.tagged('osv', 'DRY-RUN', `Would execute: ${buildScanCommand(activePlugins)}`);
-        }
-        return base;
-      }
-
-      for (const entry of config.ecosystems) {
-        const plugin = allPlugins.find((p) => p.id === entry.id);
-        if (!plugin) continue;
-
-        const entryKey = ecosystemEntryKey(entry);
-        const entryCwd = entry.path ? join(cwd, entry.path) : cwd;
-
-        // Allow plugin to inspect entry directory before buildScanArgs (e.g. pip tooling detection).
-        if (plugin.prepareScan) {
-          await plugin.prepareScan(entryCwd);
-        }
-
-        // Build lockfile args from plugin defaults, then rewrite them to be path-aware.
-        // When entry.path is set (monorepo), prepend it to each --lockfile arg so
-        // osv-scanner resolves the lockfile relative to the project root.
-        const pluginArgs = plugin.buildScanArgs();
-        let rawArgs: string[];
-        if (!entry.path) {
-          rawArgs = pluginArgs;
-        } else {
-          // Rewrite every '--lockfile <file>' pair: prepend entry.path to the file.
-          rawArgs = [];
-          for (let i = 0; i < pluginArgs.length; i++) {
-            if (pluginArgs[i] === '--lockfile' && i + 1 < pluginArgs.length) {
-              rawArgs.push('--lockfile', join(entry.path, pluginArgs[i + 1]!));
-              i++;
-            } else {
-              rawArgs.push(pluginArgs[i]!);
-            }
-          }
-        }
-
-        logger.debug(`Running OSV scan for entry "${entryKey}" (args: ${rawArgs.join(' ')})`);
-
-        const { stdout, exitCode, stderr } = await this.runSingleScan(rawArgs, useDocker, config, cwd, runner);
-
-        if (exitCode !== 0 && !stdout) {
-          // Scan completely failed for this entry (no output to parse).
-          // Return an error result immediately — this preserves the original behaviour
-          // where a hard scan failure causes the pipeline to abort.
-          return {
-            ...base,
-            status: 'error',
-            error: `Scan failed (exit ${exitCode}): ${stderr}`,
-          };
-        }
-
-        const parsed = parseOsvJsonOutput(stdout, config, ecosystemRegistry);
-
-        // parseOsvJsonOutput keys by plugin.id and sets VulnerabilityEntry.ecosystem = plugin.id.
-        // Re-key the result to entryKey and update the ecosystem field in each vulnerability
-        // so downstream consumers (report builder, dedup logic) use the composite key naturally.
-        const pluginData = parsed.ecosystems[plugin.id];
-        if (pluginData) {
-          const rekeyedData: EcosystemScanResult = {
-            ...pluginData,
-            vulnerabilities: pluginData.vulnerabilities.map((v) => ({
-              ...v,
-              ecosystem: entryKey,
-            })),
-          };
-          if (adapters.size > 0) {
-            const enriched = await enrichWithReachability(
-              { [entryKey]: rekeyedData },
-              adapters,
-              entryCwd,
-            );
-            mergedEcosystems[entryKey] = enriched[entryKey] ?? rekeyedData;
-          } else {
-            mergedEcosystems[entryKey] = rekeyedData;
-          }
-        }
-      }
-
-      return { ...base, ecosystems: mergedEcosystems };
+      return await this.runPerEntryScan(ctx, base, useDocker);
     } catch (err) {
       if (err instanceof EnvironmentError) throw err;
       throw new PhaseError(
@@ -521,6 +120,211 @@ export class OsvScannerEngine implements ScannerEngine {
         err,
       );
     }
+  }
+
+  // ── Scan phase helpers ───────────────────────────────────────────────────────
+
+  /** Builds the zero-state result stamped with environment and (when known) branch. */
+  private buildBaseResult(ctx: ScannerEngineContext): ScanResultJson {
+    return {
+      $schema: 'osv-scan-result/v1',
+      agent: 'osv',
+      status: 'success',
+      environment: ctx.runner.environment,
+      ecosystems: {},
+      error: null,
+      // Stamp branch when available (null omitted by consumers — treated as unknown)
+      ...(ctx.branch !== null && ctx.branch !== undefined ? { branch: ctx.branch } : {}),
+    };
+  }
+
+  /** Warns when the (non-default) local runner mode is in effect. */
+  private warnIfLocalRunner(runnerMode: OsvRunnerMode): void {
+    if (runnerMode !== 'local') return;
+    logger.warn(
+      '[OSV runner] runner=local: using local osv-scanner binary. ' +
+      'Docker (runner: docker) is the recommended default for reproducible, ' +
+      'platform-independent scans. Set scanners.osv.runner to "docker" in your config.',
+    );
+  }
+
+  /** Combined-scan mode: single osv-scanner invocation across explicit scan.paths. */
+  private async runCombinedPathScan(
+    ctx: ScannerEngineContext,
+    base: ScanResultJson,
+    paths: string[],
+    exclude: string[],
+    useDocker: boolean,
+  ): Promise<ScanResultJson> {
+    const { runner, config, cwd, ecosystemRegistry } = ctx;
+
+    for (const p of paths) {
+      validateScanPath(p);
+    }
+    const rawArgs = resolveScanPathArgs(paths, exclude);
+    if (rawArgs.length === 0) {
+      throw new PhaseError(
+        'scan.paths is configured but resolved to zero lockfile args — ' +
+        'this would silently report zero vulnerabilities',
+        'scanner',
+      );
+    }
+
+    if (runner.dryRun) {
+      if (useDocker) {
+        logger.tagged('osv', 'DRY-RUN', 'Would execute osv-scanner via Docker container');
+      } else {
+        logger.tagged('osv', 'DRY-RUN', `Would execute: osv-scanner ${rawArgs.join(' ')} --format json`);
+      }
+      return base;
+    }
+
+    const { stdout, exitCode, stderr } = await this.runSingleScan(rawArgs, useDocker, config, cwd, runner);
+    if (exitCode !== 0 && !stdout) {
+      return { ...base, status: 'error', error: `Scan failed (exit ${exitCode}): ${stderr}` };
+    }
+    const parsed = parseOsvJsonOutput(stdout, config, ecosystemRegistry);
+    return { ...base, ...parsed };
+  }
+
+  /** Builds the reachability adapter map per config.reachability gating. */
+  private buildReachabilityAdapters(config: ProjectConfig): Map<string, ReachabilityAdapter> {
+    const reachabilityConfig = config.reachability;
+    const reachabilityEnabled = reachabilityConfig?.enabled !== false;
+    const deep = reachabilityConfig?.deep !== false;
+
+    return new Map<string, ReachabilityAdapter>(
+      reachabilityEnabled
+        ? [
+            ['npm', new NpmReachabilityAdapter({ deep })],
+            ['pip', new PipReachabilityAdapter()],
+            ['composer', new ComposerReachabilityAdapter({ deep })],
+          ]
+        : [],
+    );
+  }
+
+  /**
+   * Builds lockfile args for a single ecosystem entry, rewriting them to be
+   * path-aware when entry.path is set (monorepo).
+   */
+  private resolveEntryScanArgs(plugin: Plugin, entry: EcosystemConfig): string[] {
+    const pluginArgs = plugin.buildScanArgs();
+    if (!entry.path) return pluginArgs;
+
+    // Rewrite every '--lockfile <file>' pair: prepend entry.path to the file.
+    const rawArgs: string[] = [];
+    for (let i = 0; i < pluginArgs.length; i++) {
+      if (pluginArgs[i] === '--lockfile' && i + 1 < pluginArgs.length) {
+        rawArgs.push('--lockfile', join(entry.path, pluginArgs[i + 1]!));
+        i++;
+      } else {
+        rawArgs.push(pluginArgs[i]!);
+      }
+    }
+    return rawArgs;
+  }
+
+  /**
+   * Re-keys parsed ecosystem data to the composite entryKey and, when reachability
+   * adapters are active, enriches it in place.
+   */
+  private async mergeEntryEcosystemData(
+    pluginData: EcosystemScanResult,
+    entryKey: string,
+    adapters: Map<string, ReachabilityAdapter>,
+    entryCwd: string,
+  ): Promise<EcosystemScanResult> {
+    // parseOsvJsonOutput keys by plugin.id and sets VulnerabilityEntry.ecosystem = plugin.id.
+    // Re-key the result to entryKey and update the ecosystem field in each vulnerability
+    // so downstream consumers (report builder, dedup logic) use the composite key naturally.
+    const rekeyedData: EcosystemScanResult = {
+      ...pluginData,
+      vulnerabilities: pluginData.vulnerabilities.map((v) => ({ ...v, ecosystem: entryKey })),
+    };
+
+    if (adapters.size === 0) return rekeyedData;
+
+    const enriched = await enrichWithReachability({ [entryKey]: rekeyedData }, adapters, entryCwd);
+    return enriched[entryKey] ?? rekeyedData;
+  }
+
+  /**
+   * Runs a single ecosystem entry's scan and merges its findings into mergedEcosystems.
+   * Returns a non-null ScanResultJson to signal an immediate hard-failure abort
+   * (preserving the original behaviour where a failed entry aborts the whole scan).
+   */
+  private async processEcosystemEntry(
+    entry: EcosystemConfig,
+    plugin: Plugin,
+    ctx: ScannerEngineContext,
+    base: ScanResultJson,
+    useDocker: boolean,
+    adapters: Map<string, ReachabilityAdapter>,
+    mergedEcosystems: Record<string, EcosystemScanResult>,
+  ): Promise<ScanResultJson | null> {
+    const { runner, config, cwd, ecosystemRegistry } = ctx;
+    const entryKey = ecosystemEntryKey(entry);
+    const entryCwd = entry.path ? join(cwd, entry.path) : cwd;
+
+    // Allow plugin to inspect entry directory before buildScanArgs (e.g. pip tooling detection).
+    if (plugin.prepareScan) {
+      await plugin.prepareScan(entryCwd);
+    }
+
+    const rawArgs = this.resolveEntryScanArgs(plugin, entry);
+    logger.debug(`Running OSV scan for entry "${entryKey}" (args: ${rawArgs.join(' ')})`);
+
+    const { stdout, exitCode, stderr } = await this.runSingleScan(rawArgs, useDocker, config, cwd, runner);
+    if (exitCode !== 0 && !stdout) {
+      // Scan completely failed for this entry (no output to parse).
+      // Return an error result immediately — this preserves the original behaviour
+      // where a hard scan failure causes the pipeline to abort.
+      return { ...base, status: 'error', error: `Scan failed (exit ${exitCode}): ${stderr}` };
+    }
+
+    const parsed = parseOsvJsonOutput(stdout, config, ecosystemRegistry);
+    const pluginData = parsed.ecosystems[plugin.id];
+    if (!pluginData) return null;
+
+    mergedEcosystems[entryKey] = await this.mergeEntryEcosystemData(pluginData, entryKey, adapters, entryCwd);
+    return null;
+  }
+
+  /** Per-entry scan mode: one osv-scanner invocation per config.ecosystems entry. */
+  private async runPerEntryScan(
+    ctx: ScannerEngineContext,
+    base: ScanResultJson,
+    useDocker: boolean,
+  ): Promise<ScanResultJson> {
+    const { config, ecosystemRegistry } = ctx;
+    const mergedEcosystems: Record<string, EcosystemScanResult> = {};
+    const adapters = this.buildReachabilityAdapters(config);
+
+    // Ecosystem resolution uses config.ecosystems[] declaratively.
+    // Use getAll().find() so the logic works with both real and test-mocked registries
+    // (some test registries implement getAll() but not get()).
+    const allPlugins = ecosystemRegistry.getAll();
+    const activePlugins = allPlugins.filter((p) => config.ecosystems.some((e) => e.id === p.id));
+
+    if (ctx.runner.dryRun) {
+      if (useDocker) {
+        logger.tagged('osv', 'DRY-RUN', 'Would execute osv-scanner via Docker container');
+      } else {
+        logger.tagged('osv', 'DRY-RUN', `Would execute: ${buildScanCommand(activePlugins)}`);
+      }
+      return base;
+    }
+
+    for (const entry of config.ecosystems) {
+      const plugin = allPlugins.find((p) => p.id === entry.id);
+      if (!plugin) continue;
+
+      const errorResult = await this.processEcosystemEntry(entry, plugin, ctx, base, useDocker, adapters, mergedEcosystems);
+      if (errorResult) return errorResult;
+    }
+
+    return { ...base, ecosystems: mergedEcosystems };
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────────
