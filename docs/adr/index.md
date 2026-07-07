@@ -24,6 +24,7 @@ Architecture Decision Records — one decision each, append-only, superseded nev
 | [0016](0016-sonarqube-view-model.md) | SonarQube ViewModel — one pure normalization for HTML, executive section and export | Accepted |
 | [0017](0017-osv-fix-claims-seam.md) | OSV fix claims — pure claim parsing/reconciliation vs staging adapter | Accepted |
 | [0018](0018-lockfile-format-adapters.md) | Lockfile inspection — version-map interface with v1 and v2/v3 adapters | Accepted |
+| [0019](0019-runner-capability-contract.md) | Runner capability contract — declared runShell/runStreaming; duck typing deleted | Accepted |
 
 ## Superseded
 
