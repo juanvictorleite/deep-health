@@ -65,6 +65,32 @@ Docker is used to run OSV Scanner (and optionally SonarQube) in ephemeral contai
 
 ## Installation
 
+### Quick install (prebuilt binary)
+
+Install the latest prebuilt binary into `~/.local/bin` — no sudo, no Node required:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ejklock/deep-health/main/install.sh | sh
+```
+
+The installer detects your platform, lets you choose the `security-scan` or `deep-health` build, downloads the matching release binary from GitHub Releases, and installs it to `~/.local/bin`. Override the defaults with flags or environment variables:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ejklock/deep-health/main/install.sh | sh -s -- --name deep-health --version 0.2.3 --dir ~/bin
+```
+
+| Flag | Env | Default |
+|---|---|---|
+| `--name` | `CLI_NAME` | prompted (falls back to `security-scan`) |
+| `--version` | `VERSION` | `latest` |
+| `--dir` | `INSTALL_DIR` | `~/.local/bin` |
+| `--repo` | `REPO` | `ejklock/deep-health` |
+| — | `GITHUB_TOKEN` | unset (set for a private repo or to avoid API rate limits) |
+
+If `~/.local/bin` is not on your `PATH`, the installer prints the exact line to add.
+
+### From npm
+
 ```bash
 npm install -g security-scan
 ```
