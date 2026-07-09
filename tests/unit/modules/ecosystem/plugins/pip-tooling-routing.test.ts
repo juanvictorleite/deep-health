@@ -10,6 +10,7 @@ import type { ScanResultJson } from '@core/types/scan';
 import { pipPlugin, _resetDetectionCache } from '@modules/ecosystem/plugins/pip';
 import type { PipToolingDetection } from '@modules/ecosystem/plugins/pip-tooling-detector';
 import { detectPipTooling } from '@modules/ecosystem/plugins/pip-tooling-detector';
+import { applyToolingFix } from '@modules/ecosystem/plugins/pip/tooling';
 import {
   runPipUpdater,
   resolveBackupFiles,
@@ -420,8 +421,6 @@ describe('reachability-filtered packages (AC3)', () => {
   });
 });
 
-// ─── resolveBackupFiles ───────────────────────────────────────────────────────
-
 describe('resolveBackupFiles', () => {
   it('returns PIP_FILES (requirements.txt) for bare-pip', () => {
     const det = makeDetection({ tier: 3, tooling: 'bare-pip' });
@@ -451,9 +450,12 @@ describe('resolveBackupFiles', () => {
     const det = makeDetection({ tier: 2, tooling: 'pip-tools', lockfile: undefined });
     expect(resolveBackupFiles(det)).toEqual(['requirements.txt', 'requirements.in']);
   });
-});
 
-// ─── resolveBootstrapSpec ─────────────────────────────────────────────────────
+  it('returns PIP_FILES when a lockfile-tier tooling has no lockfile recorded (defensive default)', () => {
+    const det = makeDetection({ tier: 1, tooling: 'poetry', lockfile: undefined });
+    expect(resolveBackupFiles(det)).toEqual(['requirements.txt']);
+  });
+});
 
 describe('resolveBootstrapSpec', () => {
   it('returns pip install for bare-pip', () => {
@@ -501,5 +503,156 @@ describe('resolveBootstrapSpec', () => {
     const spec = resolveBootstrapSpec(det);
     expect(spec.binary).toBe('pip');
     expect(spec.args).toEqual(['install', '-r', 'requirements.txt']);
+  });
+
+  it('falls back to pip install for an unrecognized tooling value (defensive default)', () => {
+    const det = { tier: 3, tooling: 'unknown-tool', manifest: `${CWD}/requirements.txt` } as unknown as PipToolingDetection;
+    const spec = resolveBootstrapSpec(det);
+    expect(spec).toEqual({
+      binary: 'pip',
+      args: ['install', '-r', 'requirements.txt'],
+      label: 'pip install -r requirements.txt (revert)',
+    });
+  });
+});
+
+function makeFixedResultRunner(exitCode: number, stdout?: string, stderr?: string): CommandRunner {
+  return {
+    run: vi.fn(),
+    runArgs: vi.fn().mockResolvedValue({ exitCode, stdout, stderr }),
+    dryRun: false,
+    environment: 'host',
+  } as unknown as CommandRunner;
+}
+
+describe('applyToolingFix — apply*Update failure branches', () => {
+  const toolingCases = [
+    { tooling: 'poetry', lockfileName: 'poetry.lock', errorPrefix: 'poetry update failed', failStderr: 'version solving failed' },
+    { tooling: 'uv', lockfileName: 'uv.lock', errorPrefix: 'uv pip install failed', failStderr: 'No solution found' },
+    { tooling: 'pipenv', lockfileName: 'Pipfile.lock', errorPrefix: 'pipenv install failed', failStderr: 'Locking failed' },
+    { tooling: 'pdm', lockfileName: 'pdm.lock', errorPrefix: 'pdm update failed', failStderr: 'Dependency resolution failed' },
+  ] as const;
+
+  describe.each(toolingCases)('$tooling', ({ tooling, lockfileName, errorPrefix, failStderr }) => {
+    function makeToolingDetection(): PipToolingDetection {
+      return makeDetection({ tier: 1, tooling, lockfile: `${CWD}/${lockfileName}` });
+    }
+
+    it(`returns "${errorPrefix}: <stderr>" when the update fails`, async () => {
+      const runner = makeFixedResultRunner(1, '', failStderr);
+      const result = await applyToolingFix(runner, CWD, makeToolingDetection(), ['django'], ['django==3.2.15']);
+      expect(result).toEqual({ ok: false, error: `${errorPrefix}: ${failStderr}` });
+    });
+
+    it('defaults the error suffix to an empty string when stderr is undefined', async () => {
+      const runner = makeFixedResultRunner(1, '', undefined);
+      const result = await applyToolingFix(runner, CWD, makeToolingDetection(), ['django'], ['django==3.2.15']);
+      expect(result).toEqual({ ok: false, error: `${errorPrefix}: ` });
+    });
+
+    it('defaults success stdout to an empty string when the runner returns none', async () => {
+      const runner = makeFixedResultRunner(0, undefined, '');
+      const result = await applyToolingFix(runner, CWD, makeToolingDetection(), ['django'], ['django==3.2.15']);
+      expect(result).toEqual({ ok: true, value: { mode: 'pip-install', stdout: '' } });
+    });
+  });
+});
+
+function makePipToolsRunner(handlers: Record<string, { exitCode: number; stdout?: string; stderr?: string }>): CommandRunner {
+  return {
+    run: vi.fn(),
+    runArgs: vi.fn().mockImplementation((file: string) =>
+      Promise.resolve(handlers[file] ?? { exitCode: 0, stdout: '', stderr: '' }),
+    ),
+    dryRun: false,
+    environment: 'host',
+  } as unknown as CommandRunner;
+}
+
+describe('applyToolingFix — pip-tools two-step failures', () => {
+  const detection = makeDetection({ tier: 2, tooling: 'pip-tools', lockfile: undefined });
+
+  it('returns the pip-compile error when compile fails', async () => {
+    const runner = makePipToolsRunner({
+      'pip-compile': { exitCode: 1, stdout: '', stderr: 'Could not find a version' },
+    });
+    const result = await applyToolingFix(runner, CWD, detection, ['django'], ['django==3.2.15']);
+    expect(result).toEqual({ ok: false, error: 'pip-compile failed: Could not find a version' });
+  });
+
+  it('defaults the pip-compile error suffix to an empty string when stderr is undefined', async () => {
+    const runner = makePipToolsRunner({
+      'pip-compile': { exitCode: 1, stdout: '', stderr: undefined },
+    });
+    const result = await applyToolingFix(runner, CWD, detection, ['django'], ['django==3.2.15']);
+    expect(result).toEqual({ ok: false, error: 'pip-compile failed: ' });
+  });
+
+  it('returns the pip-sync error when compile succeeds but sync fails', async () => {
+    const runner = makePipToolsRunner({
+      'pip-compile': { exitCode: 0, stdout: 'compiled', stderr: '' },
+      'pip-sync': { exitCode: 1, stdout: '', stderr: 'Failed to install' },
+    });
+    const result = await applyToolingFix(runner, CWD, detection, ['django'], ['django==3.2.15']);
+    expect(result).toEqual({ ok: false, error: 'pip-sync failed: Failed to install' });
+  });
+
+  it('defaults the pip-sync error suffix to an empty string when stderr is undefined', async () => {
+    const runner = makePipToolsRunner({
+      'pip-compile': { exitCode: 0, stdout: 'compiled', stderr: '' },
+      'pip-sync': { exitCode: 1, stdout: '', stderr: undefined },
+    });
+    const result = await applyToolingFix(runner, CWD, detection, ['django'], ['django==3.2.15']);
+    expect(result).toEqual({ ok: false, error: 'pip-sync failed: ' });
+  });
+
+  it('defaults pip-sync success stdout to an empty string when the runner returns none', async () => {
+    const runner = makePipToolsRunner({
+      'pip-compile': { exitCode: 0, stdout: 'compiled', stderr: '' },
+      'pip-sync': { exitCode: 0, stdout: undefined, stderr: '' },
+    });
+    const result = await applyToolingFix(runner, CWD, detection, ['django'], ['django==3.2.15']);
+    expect(result).toEqual({ ok: true, value: { mode: 'pip-install', stdout: '' } });
+  });
+});
+
+describe('applyToolingFix — error propagation and default routing', () => {
+  it('rethrows a non-ENOENT Error from the native tool without falling back to pip', async () => {
+    const runner: CommandRunner = {
+      run: vi.fn(),
+      runArgs: vi.fn().mockRejectedValue(new Error('permission denied')),
+      dryRun: false,
+      environment: 'host',
+    } as unknown as CommandRunner;
+    const detection = makeDetection({ tier: 1, tooling: 'poetry', lockfile: `${CWD}/poetry.lock` });
+    await expect(
+      applyToolingFix(runner, CWD, detection, ['django'], ['django==3.2.15']),
+    ).rejects.toThrow('permission denied');
+  });
+
+  it('rethrows a non-Error rejection that does not match ENOENT or "not found"', async () => {
+    const runner: CommandRunner = {
+      run: vi.fn(),
+      runArgs: vi.fn().mockRejectedValue('connection dropped'),
+      dryRun: false,
+      environment: 'host',
+    } as unknown as CommandRunner;
+    const detection = makeDetection({ tier: 1, tooling: 'uv', lockfile: `${CWD}/uv.lock` });
+    await expect(
+      applyToolingFix(runner, CWD, detection, ['django'], ['django==3.2.15']),
+    ).rejects.toBe('connection dropped');
+  });
+
+  it('routes bare-pip detection to applyPipInstall via the default switch case', async () => {
+    const runner: CommandRunner = {
+      run: vi.fn(),
+      runArgs: vi.fn().mockResolvedValue({ exitCode: 0, stdout: 'Successfully installed django-3.2.15', stderr: '' }),
+      dryRun: false,
+      environment: 'host',
+    } as unknown as CommandRunner;
+    const detection = makeDetection({ tier: 3, tooling: 'bare-pip' });
+    const result = await applyToolingFix(runner, CWD, detection, ['django'], ['django==3.2.15']);
+    expect(result).toEqual({ ok: true, value: { mode: 'pip-install', stdout: 'Successfully installed django-3.2.15' } });
+    expect(runner.runArgs).toHaveBeenCalledWith('pip', ['install', 'django==3.2.15'], expect.objectContaining({ cwd: CWD }));
   });
 });

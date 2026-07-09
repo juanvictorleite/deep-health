@@ -15,13 +15,32 @@ vi.mock('@infra/utils/docker-platform', () => ({
 }));
 
 vi.mock('@infra/utils/retry', () => ({
-  withRetry: async (fn: () => Promise<unknown>) => fn(),
+  withRetry: vi.fn(async (fn: () => Promise<unknown>) => fn()),
   isDockerTransientError: () => false,
 }));
 
+vi.mock('@infra/ecosystem-runtime/child-process-tracker', () => ({
+  trackChildProcess: vi.fn(),
+  trackKillable: vi.fn(),
+  execFileTracked: vi.fn(),
+}));
+
+vi.mock('node:child_process', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:child_process')>();
+  return { ...actual, execFile: vi.fn(), spawn: vi.fn() };
+});
+
 import { CLI_NAME } from '@infra/brand';
+import { execFileTracked } from '@infra/ecosystem-runtime/child-process-tracker';
 import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
 import type { RunMode } from '@infra/ecosystem-runtime/types';
+import { withRetry } from '@infra/utils/retry';
+
+import { execFile } from 'node:child_process';
+
+const mockExecFileTracked = vi.mocked(execFileTracked);
+const mockWithRetry = vi.mocked(withRetry);
+const mockExecFile = vi.mocked(execFile);
 
 function makeContainer(opts: {
   runMode?: RunMode;
@@ -166,9 +185,113 @@ describe('EphemeralEcosystemContainer — _buildDockerArgs', () => {
     expect(args).toContain('--workdir');
     expect(args[args.indexOf('--workdir') + 1]).toBe('/project');
   });
+
+  // ─── readonly mount ─────────────────────────────────────────────────────────
+
+  it('mounts the project directory read-only (":ro") when readonly is set', () => {
+    const container = new EphemeralEcosystemContainer({
+      runMode: { kind: 'direct-exec', binary: 'osv-scanner' },
+      projectDir: '/project',
+      image: 'osv-scanner:latest',
+      logPrefix: 'osv',
+      readonly: true,
+    });
+    const args = container._buildDockerArgs(['scan']);
+    const volIdx = args.indexOf('--volume');
+    expect(args[volIdx + 1]).toBe('/project:/project:ro');
+  });
 });
 
-// ─── _ensureImagePresent pull timeout ────────────────────────────────────────
+describe('EphemeralEcosystemContainer — run() and runShell()', () => {
+  function makeRunner() {
+    return new EphemeralEcosystemContainer({
+      runMode: { kind: 'direct-exec', binary: 'npm' },
+      projectDir: '/project',
+      image: 'node:20',
+      logPrefix: 'npm',
+    });
+  }
+
+  beforeEach(() => {
+    // _ensureImagePresent: docker image inspect always succeeds (image cached, no pull).
+    mockExecFile.mockImplementation((..._args: unknown[]) => {
+      const cb = _args[_args.length - 1] as (err: Error | null, stdout?: string, stderr?: string) => void;
+      cb(null, '[]', '');
+      return {} as never;
+    });
+  });
+
+  afterEach(() => {
+    mockExecFileTracked.mockReset();
+  });
+
+  describe('run() — inner catch fallback defaults', () => {
+    it('uses the rejection message for stderr when code and stderr are absent', async () => {
+      mockExecFileTracked.mockRejectedValueOnce({ message: 'connection reset' });
+      const result = await makeRunner().run(['install']);
+      expect(result).toEqual({ exitCode: 1, stdout: '', stderr: 'connection reset' });
+    });
+
+    it('falls back to a generated message when the rejection carries no code, stdout, stderr, or message', async () => {
+      mockExecFileTracked.mockRejectedValueOnce('');
+      const result = await makeRunner().run(['install']);
+      expect(result).toEqual({ exitCode: 1, stdout: '', stderr: '' });
+    });
+  });
+
+  describe('run() — outer catch fallback defaults (malformed withRetry rejection)', () => {
+    it('maps a bare rejection with no fields to safe ContainerRunResult defaults', async () => {
+      mockWithRetry.mockRejectedValueOnce({});
+      const result = await makeRunner().run(['install']);
+      expect(result).toEqual({ exitCode: 1, stdout: '', stderr: '[object Object]' });
+    });
+
+    it('uses the message field when the rejection carries no exitCode/stdout/stderr', async () => {
+      mockWithRetry.mockRejectedValueOnce({ message: 'retry pool exhausted' });
+      const result = await makeRunner().run(['install']);
+      expect(result).toEqual({ exitCode: 1, stdout: '', stderr: 'retry pool exhausted' });
+    });
+  });
+
+  describe('runShell()', () => {
+    it('returns exitCode 0 with stdout/stderr on success', async () => {
+      mockExecFileTracked.mockResolvedValueOnce({ stdout: 'shell output', stderr: '' });
+      const result = await makeRunner().runShell('echo hi');
+      expect(result).toEqual({ exitCode: 0, stdout: 'shell output', stderr: '' });
+    });
+
+    it('mounts the provided cwd instead of projectDir', async () => {
+      mockExecFileTracked.mockResolvedValueOnce({ stdout: '', stderr: '' });
+      await makeRunner().runShell('pwd', { cwd: '/custom/dir' });
+      const dockerArgs = mockExecFileTracked.mock.calls[0]![1] as string[];
+      expect(dockerArgs.join(' ')).toContain('/custom/dir:/project');
+    });
+
+    it('maps a retry-exhausted failure with fully-populated fields to ContainerRunResult', async () => {
+      mockExecFileTracked.mockRejectedValueOnce(Object.assign(new Error('boom'), { code: 3, stdout: 'partial', stderr: 'oops' }));
+      const result = await makeRunner().runShell('false');
+      expect(result).toEqual({ exitCode: 3, stdout: 'partial', stderr: 'oops' });
+    });
+
+    it('falls back to exitCode 1 and empty fields when the rejection carries no code/stdout/stderr/message', async () => {
+      mockExecFileTracked.mockRejectedValueOnce('');
+      const result = await makeRunner().runShell('false');
+      expect(result).toEqual({ exitCode: 1, stdout: '', stderr: '' });
+    });
+
+    it('maps a bare withRetry rejection with no fields to safe ContainerRunResult defaults', async () => {
+      mockWithRetry.mockRejectedValueOnce({});
+      const result = await makeRunner().runShell('false');
+      expect(result).toEqual({ exitCode: 1, stdout: '', stderr: '[object Object]' });
+    });
+
+    it('uses the message field when the withRetry rejection carries no exitCode/stdout/stderr', async () => {
+      mockWithRetry.mockRejectedValueOnce({ message: 'retry pool exhausted' });
+      const result = await makeRunner().runShell('false');
+      expect(result).toEqual({ exitCode: 1, stdout: '', stderr: 'retry pool exhausted' });
+    });
+  });
+});
 
 describe('EphemeralEcosystemContainer — pull timeout', () => {
   let spawnStreamingMock: ReturnType<typeof vi.fn>;
@@ -236,60 +359,13 @@ describe('EphemeralEcosystemContainer — pull timeout', () => {
     vi.resetModules();
   });
 
-  it('passes timeoutMs to spawnStreaming during docker pull', async () => {
+  async function makePullTestContext() {
     // docker image inspect fails → image not cached → pull happens
     execFileMock.mockImplementation(
       (_file: unknown, _args: unknown, callback: (err: Error | null, result?: unknown) => void) => {
         callback(new Error('image not found'));
       },
     );
-
-    spawnStreamingMock.mockResolvedValue({
-      exitCode: 0,
-      stdout: '',
-      stderr: '',
-      timedOut: false,
-    });
-
-    const { EphemeralEcosystemContainer: Container } = await import(
-      '@infra/ecosystem-runtime/ephemeral-container'
-    );
-
-    const container = new Container({
-      runMode: { kind: 'direct-exec', binary: 'npm' },
-      projectDir: '/project',
-      image: 'node:20',
-      logPrefix: 'npm',
-    });
-
-    // run() calls _ensureImagePresent internally
-    // We stub it by spying; instead just verify spawnStreaming was called with timeoutMs
-    await container.run(['--version']).catch(() => {
-      // docker run itself may fail since execFile is mocked — that's fine
-    });
-
-    expect(spawnStreamingMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        file: 'docker',
-        args: ['pull', 'node:20'],
-        timeoutMs: 300_000,
-      }),
-    );
-  });
-
-  it('logs a warning when docker pull times out', async () => {
-    execFileMock.mockImplementation(
-      (_file: unknown, _args: unknown, callback: (err: Error | null, result?: unknown) => void) => {
-        callback(new Error('image not found'));
-      },
-    );
-
-    spawnStreamingMock.mockResolvedValue({
-      exitCode: 1,
-      stdout: '',
-      stderr: 'Timed out after 300000ms',
-      timedOut: true,
-    });
 
     const { EphemeralEcosystemContainer: Container } = await import(
       '@infra/ecosystem-runtime/ephemeral-container'
@@ -301,6 +377,41 @@ describe('EphemeralEcosystemContainer — pull timeout', () => {
       projectDir: '/project',
       image: 'node:20',
       logPrefix: 'npm',
+    });
+
+    return { container, logger };
+  }
+
+  it('passes timeoutMs to spawnStreaming during docker pull', async () => {
+    const { container } = await makePullTestContext();
+
+    spawnStreamingMock.mockResolvedValue({
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      timedOut: false,
+    });
+
+    // run() itself may reject since execFile is mocked — only spawnStreaming's call matters here
+    await container.run(['--version']).catch(() => {});
+
+    expect(spawnStreamingMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        file: 'docker',
+        args: ['pull', 'node:20'],
+        timeoutMs: 300_000,
+      }),
+    );
+  });
+
+  it('logs a warning when docker pull times out', async () => {
+    const { container, logger } = await makePullTestContext();
+
+    spawnStreamingMock.mockResolvedValue({
+      exitCode: 1,
+      stdout: '',
+      stderr: 'Timed out after 300000ms',
+      timedOut: true,
     });
 
     await container.run(['--version']).catch(() => {});
@@ -314,29 +425,13 @@ describe('EphemeralEcosystemContainer — pull timeout', () => {
   });
 
   it('does NOT log a warning when docker pull succeeds (timedOut=false)', async () => {
-    execFileMock.mockImplementation(
-      (_file: unknown, _args: unknown, callback: (err: Error | null, result?: unknown) => void) => {
-        callback(new Error('image not found'));
-      },
-    );
+    const { container, logger } = await makePullTestContext();
 
     spawnStreamingMock.mockResolvedValue({
       exitCode: 0,
       stdout: 'Digest: sha256:abc',
       stderr: '',
       timedOut: false,
-    });
-
-    const { EphemeralEcosystemContainer: Container } = await import(
-      '@infra/ecosystem-runtime/ephemeral-container'
-    );
-    const { logger } = await import('@infra/utils/logger');
-
-    const container = new Container({
-      runMode: { kind: 'direct-exec', binary: 'npm' },
-      projectDir: '/project',
-      image: 'node:20',
-      logPrefix: 'npm',
     });
 
     await container.run(['--version']).catch(() => {});

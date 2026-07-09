@@ -33,6 +33,16 @@ Floors raised (raise-only): statements 94.5 -> 95.5, functions 94.5 -> 96, lines
 
 Status stays open — next lowest-covered files are `docker-sonar-scanner.ts`, `pip/tooling.ts`, and `ephemeral-container.ts`.
 
+### Slice 2 — 2026-07-09
+
+Backfilled `docker-sonar-scanner.ts` (82.35% lines / 64.51% branches -> 100% / 96.77%), `pip/tooling.ts` (83.87% lines / 60.56% branches -> 100% / 100%), and `ephemeral-container.ts` (83.96% lines / 55.38% branches -> 100% / 100%) with behavior-asserting unit tests — real-stream `onLine` forwarding and result-field defaults for the sonar-scanner runner, the full `apply*Update` failure/fallback matrix plus `applyToolingFix`'s default-routing and rethrow paths for pip, and `runShell()` plus both `run()`/`runShell()` retry-exhausted error-mapping fallbacks for the ephemeral container.
+
+Measured totals (unit+integration): statements 96.14 -> 96.78, functions 96.75 -> 97.14, lines 97.36 -> 98.02, branches 87.97 -> 89.67.
+
+Floors raised (raise-only): statements 95.5 -> 96, functions 96 -> 96.5, lines 97 -> 97.5, branches 87.5 -> 89.
+
+Status stays open — next lowest-covered files (per the refreshed coverage summary) are `spawn-streaming.ts`, `git-commit.ts`, and `build-project-image.ts`.
+
 # References
 
 - [ADR 0011](/adr/0011-coverage-ratchet-policy.md)
