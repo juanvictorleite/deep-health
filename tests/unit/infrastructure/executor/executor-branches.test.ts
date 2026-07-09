@@ -1,8 +1,5 @@
-/**
- * Branch coverage top-up for src/infrastructure/executor/local-executor.ts
- * Covers ENOENT detection in both run() and runArgs(), plus stream option,
- * and non-ENOENT error fallback.
- */
+import { PassThrough } from 'node:stream';
+
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('execa', () => ({
@@ -15,6 +12,37 @@ import { LocalExecutor } from '@infra/executor/local-executor';
 import { execa } from 'execa';
 
 const mockExeca = vi.mocked(execa);
+
+/**
+ * Builds a fake execa subprocess: a Promise (resolving with `result`) that
+ * also exposes `.stdout`/`.stderr` PassThrough streams, matching execa's
+ * real shape (an awaitable that is also a StreamablePipes). The promise only
+ * resolves once both streams have ended, mirroring how a real child process
+ * only exits after its stdio streams close — this removes any race between
+ * stream data delivery and the awaited resolution in the test.
+ */
+function createStreamableSubprocess(result: Record<string, unknown>) {
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  let stdoutEnded = false;
+  let stderrEnded = false;
+  const promise = new Promise((resolve) => {
+    const tryResolve = () => {
+      if (stdoutEnded && stderrEnded) resolve(result);
+    };
+    stdout.on('end', () => {
+      stdoutEnded = true;
+      tryResolve();
+    });
+    stderr.on('end', () => {
+      stderrEnded = true;
+      tryResolve();
+    });
+  }) as Promise<unknown> & { stdout: PassThrough; stderr: PassThrough };
+  promise.stdout = stdout;
+  promise.stderr = stderr;
+  return promise;
+}
 
 describe('LocalExecutor.run()', () => {
   beforeEach(() => {
@@ -88,8 +116,7 @@ describe('LocalExecutor.run()', () => {
     expect(result.stderr).toBe('string error');
   });
 
-  it('falls back to empty strings and exitCode=1 when execa result fields are undefined (lines 39-41)', async () => {
-    // Execa returns an object without stdout/stderr/exitCode
+  it('falls back to empty strings and exitCode=1 when execa result fields are undefined', async () => {
     mockExeca.mockResolvedValue({} as any);
     const executor = new LocalExecutor();
     const result = await executor.run('cmd');
@@ -142,7 +169,7 @@ describe('LocalExecutor.runArgs()', () => {
     expect(result.exitCode).toBe(1);
   });
 
-  it('falls back to empty strings and exitCode=1 when runArgs execa result fields are undefined (lines 85-87)', async () => {
+  it('falls back to empty strings and exitCode=1 when runArgs execa result fields are undefined', async () => {
     mockExeca.mockResolvedValue({} as any);
     const executor = new LocalExecutor();
     const result = await executor.runArgs('npm', ['install']);
@@ -151,7 +178,7 @@ describe('LocalExecutor.runArgs()', () => {
     expect(result.exitCode).toBe(1);
   });
 
-  it('uses String(err) when runArgs catches a non-Error value (line 101 in runArgs)', async () => {
+  it('uses String(err) when runArgs catches a non-Error value', async () => {
     mockExeca.mockRejectedValue('runArgs string error');
     const executor = new LocalExecutor();
     const result = await executor.runArgs('cmd', ['arg']);
@@ -159,11 +186,127 @@ describe('LocalExecutor.runArgs()', () => {
     expect(result.stderr).toBe('runArgs string error');
   });
 
-  it('uses process.env when options.env is absent (line 80 false branch)', async () => {
+  it('uses process.env when options.env is absent', async () => {
     mockExeca.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 } as any);
     const executor = new LocalExecutor();
-    // runArgs with no env option → options.env is undefined → false branch fires
     const result = await executor.runArgs('npm', ['install'], {});
     expect(result.exitCode).toBe(0);
+  });
+
+  it('returns dryRun result with the joined command and never spawns execa', async () => {
+    const executor = new LocalExecutor({ dryRun: true });
+    const result = await executor.runArgs('npm', ['install', '--save-dev']);
+    expect(result).toMatchObject({
+      dryRun: true,
+      command: 'npm install --save-dev',
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+    });
+    expect(execa).not.toHaveBeenCalled();
+  });
+});
+
+describe('LocalExecutor stdio resolution', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('resolves stdio to pipe+inherit when stream=true and no onLine callback is given', async () => {
+    mockExeca.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 } as any);
+    const executor = new LocalExecutor();
+    await executor.run('npm install', { stream: true });
+    expect(mockExeca).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ stdout: ['pipe', 'inherit'], stderr: ['pipe', 'inherit'] }),
+    );
+  });
+
+  it('resolves stdio to plain pipe when stream=true but an onLine callback is given', async () => {
+    mockExeca.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 } as any);
+    const executor = new LocalExecutor();
+    await executor.run('npm install', { stream: true, onLine: () => {} });
+    expect(mockExeca).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ stdout: 'pipe', stderr: 'pipe' }),
+    );
+  });
+
+  it('resolves stdio to plain pipe when stream is not set', async () => {
+    mockExeca.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 } as any);
+    const executor = new LocalExecutor();
+    await executor.run('npm install');
+    expect(mockExeca).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ stdout: 'pipe', stderr: 'pipe' }),
+    );
+  });
+});
+
+describe('LocalExecutor.run() onLine streaming', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('forwards complete lines to onLine as chunks arrive, even when a chunk splits a line mid-way', async () => {
+    const subprocess = createStreamableSubprocess({ stdout: '', stderr: '', exitCode: 0 });
+    mockExeca.mockReturnValue(subprocess as any);
+    const lines: string[] = [];
+    const executor = new LocalExecutor();
+
+    const runPromise = executor.run('tail -f build.log', { onLine: (line) => lines.push(line) });
+    subprocess.stdout.write('line1\nli');
+    subprocess.stdout.write('ne2\n');
+    subprocess.stdout.end();
+    subprocess.stderr.end();
+    await runPromise;
+
+    expect(lines).toEqual(['line1', 'line2']);
+  });
+
+  it('flushes a trailing unterminated buffer to onLine when the stream ends', async () => {
+    const subprocess = createStreamableSubprocess({ stdout: '', stderr: '', exitCode: 0 });
+    mockExeca.mockReturnValue(subprocess as any);
+    const lines: string[] = [];
+    const executor = new LocalExecutor();
+
+    const runPromise = executor.run('tail -f build.log', { onLine: (line) => lines.push(line) });
+    subprocess.stdout.write('complete\nincomplete tail');
+    subprocess.stdout.end();
+    subprocess.stderr.end();
+    await runPromise;
+
+    expect(lines).toEqual(['complete', 'incomplete tail']);
+  });
+
+  it('forwards stderr lines to onLine alongside stdout lines', async () => {
+    const subprocess = createStreamableSubprocess({ stdout: '', stderr: '', exitCode: 0 });
+    mockExeca.mockReturnValue(subprocess as any);
+    const lines: string[] = [];
+    const executor = new LocalExecutor();
+
+    const runPromise = executor.run('build', { onLine: (line) => lines.push(line) });
+    subprocess.stdout.write('stdout line\n');
+    subprocess.stderr.write('stderr line\n');
+    subprocess.stdout.end();
+    subprocess.stderr.end();
+    await runPromise;
+
+    expect(lines.sort()).toEqual(['stderr line', 'stdout line']);
+  });
+
+  it('does not call onLine for blank lines', async () => {
+    const subprocess = createStreamableSubprocess({ stdout: '', stderr: '', exitCode: 0 });
+    mockExeca.mockReturnValue(subprocess as any);
+    const lines: string[] = [];
+    const executor = new LocalExecutor();
+
+    const runPromise = executor.run('build', { onLine: (line) => lines.push(line) });
+    subprocess.stdout.write('real line\n\n   \n');
+    subprocess.stdout.end();
+    subprocess.stderr.end();
+    await runPromise;
+
+    expect(lines).toEqual(['real line']);
   });
 });
