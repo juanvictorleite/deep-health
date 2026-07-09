@@ -15,7 +15,10 @@ vi.mock('@infra/utils/logger', () => ({
   },
 }));
 
+import { logger } from '@infra/utils/logger';
 import { spawnStreaming } from '@infra/utils/spawn-streaming';
+
+const taggedMock = vi.mocked(logger.tagged);
 
 describe('spawnStreaming — normal operation', () => {
   afterEach(() => {
@@ -54,6 +57,30 @@ describe('spawnStreaming — normal operation', () => {
     });
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toBeTruthy();
+    expect(result.timedOut).toBe(false);
+  });
+
+  it('clears the pending timeout when the spawn itself errors while timeoutMs is set', async () => {
+    const result = await spawnStreaming({
+      file: 'nonexistent-binary-xyz-12345',
+      args: [],
+      logPrefix: 'test',
+      label: 'test-label',
+      timeoutMs: 5000,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBeTruthy();
+    expect(result.timedOut).toBe(false);
+  });
+
+  it('resolves with exitCode 1 when the child is terminated by a signal (non-number exit code)', async () => {
+    const result = await spawnStreaming({
+      file: 'sh',
+      args: ['-c', 'kill -9 $$'],
+      logPrefix: 'test',
+      label: 'test-label',
+    });
+    expect(result.exitCode).toBe(1);
     expect(result.timedOut).toBe(false);
   });
 
@@ -137,4 +164,63 @@ describe('spawnStreaming — timeout behavior', () => {
       }),
     ).resolves.toBeDefined();
   }, 3000);
+
+  it('falls back to child.kill when process.kill(-pgid) throws, and still resolves with timedOut:true', async () => {
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation(() => {
+      throw new Error('ESRCH: no such process group');
+    });
+
+    const result = await spawnStreaming({
+      file: 'sh',
+      args: ['-c', 'sleep 10'],
+      logPrefix: 'test',
+      label: 'test-timeout',
+      timeoutMs: 100,
+    });
+
+    expect(killSpy).toHaveBeenCalled();
+    expect(result.timedOut).toBe(true);
+    expect(result.exitCode).toBe(1);
+  }, 3000);
+});
+
+describe('spawnStreaming — log level forwarding', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    taggedMock.mockClear();
+  });
+
+  it('forwards stderr lines to logger.tagged using the configured stderrLevel', async () => {
+    await spawnStreaming({
+      file: 'sh',
+      args: ['-c', "echo err-line 1>&2"],
+      logPrefix: 'test',
+      label: 'test-label',
+      stderrLevel: 'error',
+    });
+
+    expect(taggedMock).toHaveBeenCalledWith(
+      'test',
+      'test-label',
+      expect.stringContaining('err-line'),
+      'error',
+    );
+  });
+
+  it('forwards stdout lines to logger.tagged using a custom stdoutLevel', async () => {
+    await spawnStreaming({
+      file: 'echo',
+      args: ['out-line'],
+      logPrefix: 'test',
+      label: 'test-label',
+      stdoutLevel: 'info',
+    });
+
+    expect(taggedMock).toHaveBeenCalledWith(
+      'test',
+      'test-label',
+      expect.stringContaining('out-line'),
+      'info',
+    );
+  });
 });

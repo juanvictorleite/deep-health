@@ -74,10 +74,12 @@ import {
   resolveAllowedBuildContextRoot,
   assertBuildContextWithinBoundary,
 } from '@infra/ecosystem-runtime/resolve-build-context-boundary';
+import { logger } from '@infra/utils/logger';
 
 const mockExecFile = vi.mocked(execFile);
 const mockResolveRoot = vi.mocked(resolveAllowedBuildContextRoot);
 const mockAssertBoundary = vi.mocked(assertBuildContextWithinBoundary);
+const taggedMock = vi.mocked(logger.tagged);
 
 /**
  * Replicates the hash logic used in buildProjectImage:
@@ -112,6 +114,7 @@ describe('buildProjectImage', () => {
     spawnStreamingMock.mockResolvedValue({ exitCode: 0, stdout: '', stderr: '' });
     mockResolveRoot.mockResolvedValue({ root: '', source: 'project-dir' });
     mockAssertBoundary.mockResolvedValue(undefined);
+    taggedMock.mockClear();
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'build-project-image-test-'));
   });
 
@@ -559,5 +562,65 @@ describe('buildProjectImage', () => {
     expect(result.image).not.toMatch(/\/npm:/);
     expect(result.image).not.toMatch(/\/pip:/);
     expect(result.image).not.toMatch(/\/composer:/);
+  });
+
+  describe('large build-context warning', () => {
+    it('emits a warn-level tagged log when the context exceeds 50MB and no .dockerignore exists', async () => {
+      await fs.writeFile(path.join(tmpDir, 'Dockerfile'), 'FROM node:20\n');
+
+      mockExecFile
+        .mockRejectedValueOnce(new Error('No such image')) // inspect miss
+        .mockResolvedValueOnce({ stdout: `60000\t${tmpDir}`, stderr: '' } as any); // du: ~58MB
+
+      await buildProjectImage({ projectDir: tmpDir, dockerfilePath: 'Dockerfile', logPrefix: 'npm' });
+
+      expect(taggedMock).toHaveBeenCalledWith(
+        'npm',
+        'ecosystem-runtime/npm',
+        expect.stringContaining('Build context is large'),
+        'warn',
+      );
+    });
+
+    it('does not warn when the context exceeds 50MB but a .dockerignore exists', async () => {
+      await fs.writeFile(path.join(tmpDir, 'Dockerfile'), 'FROM node:20\n');
+      await fs.writeFile(path.join(tmpDir, '.dockerignore'), 'node_modules\n');
+
+      mockExecFile
+        .mockRejectedValueOnce(new Error('No such image'))
+        .mockResolvedValueOnce({ stdout: `60000\t${tmpDir}`, stderr: '' } as any);
+
+      await buildProjectImage({ projectDir: tmpDir, dockerfilePath: 'Dockerfile', logPrefix: 'npm' });
+
+      expect(taggedMock).not.toHaveBeenCalledWith(
+        'npm',
+        'ecosystem-runtime/npm',
+        expect.stringContaining('Build context is large'),
+        'warn',
+      );
+    });
+
+    it('proceeds with the build when du fails to estimate context size (non-fatal)', async () => {
+      await fs.writeFile(path.join(tmpDir, 'Dockerfile'), 'FROM node:20\n');
+
+      mockExecFile
+        .mockRejectedValueOnce(new Error('No such image')) // inspect miss
+        .mockRejectedValueOnce(new Error('du: command not found')); // du fails
+
+      const result = await buildProjectImage({
+        projectDir: tmpDir,
+        dockerfilePath: 'Dockerfile',
+        logPrefix: 'npm',
+      });
+
+      expect(result.entrypointOverride).toBe('');
+      expect(spawnStreamingMock).toHaveBeenCalledTimes(1);
+      expect(taggedMock).not.toHaveBeenCalledWith(
+        'npm',
+        'ecosystem-runtime/npm',
+        expect.stringContaining('Build context is large'),
+        'warn',
+      );
+    });
   });
 });

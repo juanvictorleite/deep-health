@@ -43,6 +43,16 @@ Floors raised (raise-only): statements 95.5 -> 96, functions 96 -> 96.5, lines 9
 
 Status stays open — next lowest-covered files (per the refreshed coverage summary) are `spawn-streaming.ts`, `git-commit.ts`, and `build-project-image.ts`.
 
+### Slice 3 — 2026-07-09
+
+Backfilled `spawn-streaming.ts` (84.21% lines / 77.27% branches -> 100% / 95.45%), `git-commit.ts` (86.48% lines / 43.33% branches -> 100% / 100% — worst branch coverage in the repo, previously only exercised indirectly via `fix-command-branches.test.ts` and now has a dedicated unit test file), and `build-project-image.ts` (89.09% lines / 60% functions -> 100% / 100%) with behavior-asserting unit tests — the detached-spawn timeout kill fallback, stderr/stdout log-level forwarding, and the non-number exit-code and spawn-error-with-pending-timeout paths for spawn-streaming; the full `createBranchAndCommit` rollback/commit-failure matrices (both tolerated and failing `branch -D`, both "nothing to commit" message variants, checkout-failure stderr/stdout fallback) plus `buildBranchName` timestamp formatting for git-commit; and the `warnIfLargeContext` large-context/.dockerignore/du-failure matrix for build-project-image.
+
+Measured totals (unit+integration): statements 96.78 -> 97.08, functions 97.14 -> 97.44, lines 98.02 -> 98.34, branches 89.67 -> 90.28.
+
+Floors raised (raise-only): statements 96 -> 96.5, functions 96.5 -> 97, lines 97.5 -> 98, branches 89 -> 89.5.
+
+Status stays open — next lowest-covered files (per the refreshed coverage summary) are `config/loader.ts` (89.33% lines), `lockfile-utils.ts` (90% lines), and `pip-reachability.ts` (90.82% lines).
+
 # References
 
 - [ADR 0011](/adr/0011-coverage-ratchet-policy.md)
