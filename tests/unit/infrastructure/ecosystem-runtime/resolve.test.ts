@@ -31,16 +31,23 @@ vi.mock('@infra/ecosystem-runtime/build-project-image', () => ({
   buildProjectImage: vi.fn(),
 }));
 
+vi.mock('@infra/utils/infer-version', () => ({
+  inferVersionFromSources: vi.fn(),
+}));
+
 import type { CommandRunner } from '@core/types/common';
 import type { ProjectConfig, RunnerConfig } from '@core/types/config';
 import { CLI_NAME } from '@infra/brand';
 import { buildProjectImage } from '@infra/ecosystem-runtime/build-project-image';
 import { EphemeralEcosystemContainer } from '@infra/ecosystem-runtime/ephemeral-container';
 import { resolveEcosystemRuntime } from '@infra/ecosystem-runtime/resolve';
+import { inferVersionFromSources } from '@infra/utils/infer-version';
+import { logger } from '@infra/utils/logger';
 import type { EcosystemPlugin } from '@modules/ecosystem/types';
 
 const MockContainer = vi.mocked(EphemeralEcosystemContainer);
 const mockBuildProjectImage = vi.mocked(buildProjectImage);
+const mockInferVersion = vi.mocked(inferVersionFromSources);
 
 function makeHostRunner(): CommandRunner {
   return {
@@ -69,6 +76,16 @@ function makePlugin(overrides: Partial<EcosystemPlugin> = {}): EcosystemPlugin {
     runUpdater: vi.fn(),
     ...overrides,
   };
+}
+
+function makeRuntimeSpec(overrides: Record<string, unknown> = {}): EcosystemPlugin['runtimeSpec'] {
+  return {
+    defaultImage: 'node:lts',
+    resolveImage: () => 'node:lts',
+    containerBinaries: ['npm', 'npx'],
+    runMode: { kind: 'direct-exec', binary: 'npm' },
+    ...overrides,
+  } as EcosystemPlugin['runtimeSpec'];
 }
 
 function makeConfig(): ProjectConfig {
@@ -268,5 +285,161 @@ describe('resolveEcosystemRuntime — build-based image resolution', () => {
     );
   });
 
+});
+
+describe('resolveEcosystemRuntime — runtimeSpec guard', () => {
+  it('throws when the plugin has no runtimeSpec configured', async () => {
+    const plugin = makePlugin({ runtimeSpec: undefined });
+
+    await expect(
+      resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/project' }),
+    ).rejects.toThrow(/runtimeSpec/);
+  });
+});
+
+describe('resolveEcosystemRuntime — pull-based image resolution precedence', () => {
+  beforeEach(() => {
+    MockContainer.mockClear();
+    MockContainer.mockImplementation(function () { return {} as any; });
+    mockInferVersion.mockReset();
+    vi.mocked(logger.warn).mockClear();
+  });
+
+  it.each([
+    {
+      label: 'the explicit runner image (highest priority, skips version resolution entirely)',
+      runnerConfig: { image: 'custom/npm:pinned', language_version: '18' } as RunnerConfig,
+      versionSources: undefined,
+      inferredVersion: undefined,
+      expectedImage: 'custom/npm:pinned',
+      resolveImageCalled: false,
+      inferCalled: false,
+    },
+    {
+      label: 'language_version when no explicit image is configured',
+      runnerConfig: { language_version: '20' } as RunnerConfig,
+      versionSources: undefined,
+      inferredVersion: undefined,
+      expectedImage: 'node:20',
+      resolveImageCalled: true,
+      inferCalled: false,
+    },
+    {
+      label: 'the inferred version when language_version is absent',
+      runnerConfig: undefined,
+      versionSources: [{ file: '.nvmrc', extract: (c: string) => c, label: '.nvmrc' }],
+      inferredVersion: '16',
+      expectedImage: 'node:16',
+      resolveImageCalled: true,
+      inferCalled: true,
+    },
+    {
+      label: 'the plugin default when no version is configured or inferred',
+      runnerConfig: undefined,
+      versionSources: undefined,
+      inferredVersion: undefined,
+      expectedImage: 'node:lts',
+      resolveImageCalled: true,
+      inferCalled: true,
+    },
+  ])('resolves the image from $label', async ({ runnerConfig, versionSources, inferredVersion, expectedImage, resolveImageCalled, inferCalled }) => {
+    mockInferVersion.mockResolvedValue(inferredVersion);
+    const resolveImage = vi.fn((v?: string) => (v ? `node:${v}` : 'node:lts'));
+    const plugin = makePlugin({ versionSources, runtimeSpec: makeRuntimeSpec({ resolveImage }) });
+
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/project', runnerConfig });
+
+    const containerOptions = (MockContainer as Mock).mock.calls[0][0] as Record<string, unknown>;
+    expect(containerOptions.image).toBe(expectedImage);
+    expect(resolveImage).toHaveBeenCalledTimes(resolveImageCalled ? 1 : 0);
+    expect(mockInferVersion).toHaveBeenCalledTimes(inferCalled ? 1 : 0);
+  });
+
+  it.each([
+    { pluginId: 'pip', shouldWarn: true },
+    { pluginId: 'composer', shouldWarn: false },
+  ])('warn-on-no-version behaviour for plugin id=$pluginId', async ({ pluginId, shouldWarn }) => {
+    mockInferVersion.mockResolvedValue(undefined);
+    const plugin = makePlugin({ id: pluginId });
+
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/project' });
+
+    if (shouldWarn) {
+      expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining('No language_version configured'));
+    } else {
+      expect(logger.warn).not.toHaveBeenCalled();
+    }
+  });
+});
+
+describe('resolveEcosystemRuntime — native_deps preamble composition', () => {
+  beforeEach(() => {
+    MockContainer.mockClear();
+    MockContainer.mockImplementation(function () { return {} as any; });
+  });
+
+  it('injects a bare apt-get install command when the runMode has no existing preamble', async () => {
+    const plugin = makePlugin();
+    const runnerConfig: RunnerConfig = { native_deps: ['libvips-dev'] };
+
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/project', runnerConfig });
+
+    const containerOptions = (MockContainer as Mock).mock.calls[0][0] as { runMode: { preamble?: (image: string) => string | undefined } };
+    const composed = containerOptions.runMode.preamble?.('node:lts');
+    expect(composed).toBe(
+      'apt-get update -qq -o APT::Sandbox::User=root && apt-get install -y --no-install-recommends -o APT::Sandbox::User=root libvips-dev',
+    );
+  });
+
+  it('prepends the apt-get install command to an existing preamble', async () => {
+    const plugin = makePlugin({
+      runtimeSpec: makeRuntimeSpec({
+        runMode: { kind: 'direct-exec', binary: 'npm', preamble: (img: string) => `echo preparing ${img}` },
+      }),
+    });
+    const runnerConfig: RunnerConfig = { native_deps: ['libvips-dev', 'ca-certificates'] };
+
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/project', runnerConfig });
+
+    const containerOptions = (MockContainer as Mock).mock.calls[0][0] as { runMode: { preamble?: (image: string) => string | undefined } };
+    const composed = containerOptions.runMode.preamble?.('node:lts');
+    expect(composed).toBe(
+      'apt-get update -qq -o APT::Sandbox::User=root && apt-get install -y --no-install-recommends -o APT::Sandbox::User=root libvips-dev ca-certificates && echo preparing node:lts',
+    );
+  });
+
+  it('leaves runMode unchanged when native_deps is absent', async () => {
+    const plugin = makePlugin();
+
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/project' });
+
+    const containerOptions = (MockContainer as Mock).mock.calls[0][0] as { runMode: unknown };
+    expect(containerOptions.runMode).toBe(plugin.runtimeSpec!.runMode);
+  });
+});
+
+describe('resolveEcosystemRuntime — mountReadonly forwarding', () => {
+  beforeEach(() => {
+    MockContainer.mockClear();
+    MockContainer.mockImplementation(function () { return {} as any; });
+  });
+
+  it('forwards mountReadonly=true from the runtimeSpec to the container', async () => {
+    const plugin = makePlugin({ runtimeSpec: makeRuntimeSpec({ mountReadonly: true }) });
+
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/project' });
+
+    const containerOptions = (MockContainer as Mock).mock.calls[0][0] as Record<string, unknown>;
+    expect(containerOptions.readonly).toBe(true);
+  });
+
+  it('defaults readonly to false when the runtimeSpec omits mountReadonly', async () => {
+    const plugin = makePlugin();
+
+    await resolveEcosystemRuntime({ plugin, hostRunner: makeHostRunner(), config: makeConfig(), cwd: '/project' });
+
+    const containerOptions = (MockContainer as Mock).mock.calls[0][0] as Record<string, unknown>;
+    expect(containerOptions.readonly).toBe(false);
+  });
 });
 

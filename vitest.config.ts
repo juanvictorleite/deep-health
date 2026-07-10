@@ -25,7 +25,7 @@ export default defineConfig({
         'src/reporting/i18n/types.ts',
       ],
       thresholds: {
-        statements: 97,
+        statements: 97.5,
         functions: 98,
         lines: 98.5,
         branches: 90.5,

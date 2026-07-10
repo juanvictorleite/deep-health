@@ -63,6 +63,16 @@ Floors raised (raise-only): statements 96.5 -> 97, functions 97 -> 98, lines 98 
 
 Status stays open — next lowest-covered files (per the refreshed coverage summary) are `lockfile-utils.ts` (90% lines, still deliberately skipped), `ecosystem-runtime/resolve.ts` (90.9% lines), and `scanner/osv-engine.ts` (92.03% lines).
 
+### Slice 5 — 2026-07-09
+
+Backfilled `ecosystem-runtime/resolve.ts` (90.9% lines / 88.46% branches -> 100% / 100%), `scanner/osv-engine.ts` (92.03% lines / 84.72% branches -> 98.23% / 95.83% — new sibling `osv-engine-branches.test.ts` alongside the existing 1379-line suite to preserve cohesion), and `lockfile-utils.ts` (90% lines / 85.71% branches -> 100% / 100%, finally given its own dedicated test file) with behavior-asserting unit tests — the runtimeSpec-undefined guard, the full pull-based image resolution precedence (explicit image, `language_version`, inferred version, plugin default) including the pip-only no-version warning, and the `native_deps` apt-get preamble composition (with and without an existing preamble) plus `mountReadonly` forwarding for resolve.ts; the unrecognized-runner fallthrough in `assertAvailable`, the local-runner recommendation warning, the `scan.paths` dry-run/zero-args/scan-failure branches, monorepo `entry.path` lockfile-arg rewriting, the `prepareScan` hook, the no-matching-scan-output continue, and unregistered-ecosystem-entry skipping for osv-engine.ts; and the full null-path matrix (unreadable file, invalid JSON, array/non-object/null root, missing/non-numeric `lockfileVersion`) plus the valid-version happy path for lockfile-utils.ts.
+
+Measured totals (unit+integration): statements 97.77 -> 97.96, functions 98.62 -> 98.62, lines 98.81 -> 99.02, branches 90.98 -> 91.29.
+
+Floors raised (raise-only): statements 97 -> 97.5, functions 98 -> 98 (unchanged — computed floor did not exceed the current value), lines 98.5 -> 98.5 (unchanged), branches 90.5 -> 90.5 (unchanged).
+
+Status stays open — the ratchet is now near-saturated: the lowest-covered files remaining are all at or above roughly 92% lines, so further slices will yield smaller floor increments. Per the refreshed coverage summary, the next lowest-covered files (unconfirmed high-value targets) would need a fresh `npx vitest run --coverage` per-file scan before starting a slice 6.
+
 # References
 
 - [ADR 0011](/adr/0011-coverage-ratchet-policy.md)
