@@ -53,6 +53,16 @@ Floors raised (raise-only): statements 96 -> 96.5, functions 96.5 -> 97, lines 9
 
 Status stays open — next lowest-covered files (per the refreshed coverage summary) are `config/loader.ts` (89.33% lines), `lockfile-utils.ts` (90% lines), and `pip-reachability.ts` (90.82% lines).
 
+### Slice 4 — 2026-07-09
+
+Backfilled `progress-reporter.ts` (91.37% lines / 65.21% functions -> 100% / 100% — worst function coverage in the repo), `pip-reachability.ts` (90.82% lines / 77.10% branches -> 100% / 98.79%), and `config/loader.ts` (89.33% lines / 81.35% branches -> 97.33% / 94.91%) with behavior-asserting unit tests — driving the ecosystem-fix subtask closures (Docker runtime with a runtimeSpec present, the OSV fix staging phase, breaking-install/residual/error verification titles, and the progress-sink routing for every active phase) plus the `buildEcosystemFixTaskList`/`buildScanTaskList` `newListr`/`run()`/sink-routing branches for progress-reporter; the full PEP 440 operator/wildcard matrix, all four tier-1 lockfile tooling formats (poetry/uv/pipenv/pdm), the no-lockfile/unrecognized-tooling/tier-3-catch branches of `buildGraphFromDetection`, the `findInGraph` normalize-and-scan fallback, the parent/dependsOn no-constraint skip branches, and the adapter's malformed-ref and non-Error-catch branches for pip-reachability; and the legacy `scanners.*`/top-level-`runners`/`ecosystems[].runner.mode` (including the `?` id fallback) migration-rejection matrix plus `formatZodIssue`'s `unrecognized_keys` and `invalid_enum_value` rendering for config/loader (`lockfile-utils.ts` remains deliberately skipped — still only 1 uncovered line of 10).
+
+Measured totals (unit+integration): statements 97.08 -> 97.77, functions 97.44 -> 98.62, lines 98.34 -> 98.81, branches 90.28 -> 90.98.
+
+Floors raised (raise-only): statements 96.5 -> 97, functions 97 -> 98, lines 98 -> 98.5, branches 89.5 -> 90.5.
+
+Status stays open — next lowest-covered files (per the refreshed coverage summary) are `lockfile-utils.ts` (90% lines, still deliberately skipped), `ecosystem-runtime/resolve.ts` (90.9% lines), and `scanner/osv-engine.ts` (92.03% lines).
+
 # References
 
 - [ADR 0011](/adr/0011-coverage-ratchet-policy.md)

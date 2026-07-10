@@ -10,6 +10,14 @@ vi.mock('@infra/utils/logger', () => ({
   makeProgressSink: vi.fn(),
 }));
 
+vi.mock('@infra/ecosystem-runtime', () => ({
+  resolveEcosystemRuntime: vi.fn(),
+}));
+
+vi.mock('@infra/utils/quiet-runner', () => ({
+  createQuietRunner: vi.fn(),
+}));
+
 import {
   selectRenderer,
   buildScanTaskList,
@@ -21,6 +29,8 @@ import type { EcosystemFixStepFns, EcosystemFixSubtasksParams } from '@app/progr
 import type { CommandRunner, CommandResult } from '@core/types/common';
 import type { ProjectConfig } from '@core/types/config';
 import type { UpdateResultJson } from '@core/types/update';
+import { resolveEcosystemRuntime } from '@infra/ecosystem-runtime';
+import { createQuietRunner } from '@infra/utils/quiet-runner';
 import type { EcosystemPlugin } from '@modules/ecosystem/types';
 import type { ScannerEngine, ScannerEngineContext } from '@modules/scanner/types';
 import { Listr, PRESET_TIMER } from 'listr2';
@@ -108,6 +118,20 @@ describe('buildScanTaskList()', () => {
     const list = buildScanTaskList(engines, ctx, config, 'silent');
     const opts = (list as unknown as { options: { rendererOptions?: unknown } }).options;
     expect(opts.rendererOptions).toBeUndefined();
+  });
+
+  it('routes progress messages to the task output while a scan runs', async () => {
+    const { setProgressSink } = await import('@infra/utils/logger');
+    vi.mocked(setProgressSink).mockImplementation((cb?: (msg: string) => void) => {
+      if (typeof cb === 'function') cb('scanning…');
+    });
+    const engine = makeMockEngine('osv', 'OSV Scanner');
+    const list = buildScanTaskList([engine], ctx, config, 'silent');
+    await list.run();
+    const tasks = (list as unknown as { tasks: { output: string }[] }).tasks;
+    expect(tasks[0].output).toBe('scanning…');
+    expect(engine.scan).toHaveBeenCalled();
+    vi.mocked(setProgressSink).mockImplementation(() => undefined);
   });
 });
 
@@ -226,6 +250,39 @@ describe('buildEcosystemFixTaskList()', () => {
     const tasks = (list as unknown as { tasks: { title: string }[] }).tasks;
     expect(tasks[0].title).toBe('[NPM] npm');
   });
+
+  it('delegates to nested subtasks via newListr when an entry provides buildSubtasks', async () => {
+    const innerTask = vi.fn().mockResolvedValue(undefined);
+    const entries = [
+      { title: '[NPM] npm', buildSubtasks: () => [{ title: 'inner step', task: innerTask }] },
+    ];
+    const list = buildEcosystemFixTaskList(entries, 'silent');
+    await list.run();
+    expect(innerTask).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs entry.run() and clears the progress sink afterward when an entry has no buildSubtasks', async () => {
+    const { setProgressSink } = await import('@infra/utils/logger');
+    const runFn = vi.fn().mockResolvedValue(undefined);
+    const entries = [{ title: '[PIP] pip', run: runFn }];
+    const list = buildEcosystemFixTaskList(entries, 'silent');
+    await list.run();
+    expect(runFn).toHaveBeenCalledTimes(1);
+    expect(setProgressSink).toHaveBeenLastCalledWith(null);
+  });
+
+  it('routes progress messages to the task output while entry.run() executes', async () => {
+    const { setProgressSink } = await import('@infra/utils/logger');
+    vi.mocked(setProgressSink).mockImplementation((cb?: (msg: string) => void) => {
+      if (typeof cb === 'function') cb('applying fix…');
+    });
+    const entries = [{ title: '[PIP] pip', run: vi.fn().mockResolvedValue(undefined) }];
+    const list = buildEcosystemFixTaskList(entries, 'silent');
+    await list.run();
+    const tasks = (list as unknown as { tasks: { output: string }[] }).tasks;
+    expect(tasks[0].output).toBe('applying fix…');
+    vi.mocked(setProgressSink).mockImplementation(() => undefined);
+  });
 });
 
 // ─── buildEcosystemFixSubtasks() ─────────────────────────────────────────────
@@ -334,6 +391,24 @@ describe('buildEcosystemFixSubtasks()', () => {
     const subtasks = buildEcosystemFixSubtasks(params);
     const result = await runSubtask(subtasks, 0);
     expect(result.title).toContain('host runner');
+  });
+
+  it('Docker runtime subtask resolves a containerized runner and reports "ready" when plugin has a runtimeSpec', async () => {
+    const resolvedRunner = makeMockRunner();
+    const quietRunner = makeMockRunner();
+    vi.mocked(resolveEcosystemRuntime).mockResolvedValue(resolvedRunner);
+    vi.mocked(createQuietRunner).mockReturnValue(quietRunner);
+    const params = makeSubtaskParams({ runtimeSpec: {} as unknown as EcosystemPlugin['runtimeSpec'] });
+    const subtasks = buildEcosystemFixSubtasks(params);
+    const result = await runSubtask(subtasks, 0);
+    expect(resolveEcosystemRuntime).toHaveBeenCalledWith(expect.objectContaining({
+      plugin: params.plugin,
+      hostRunner: params.hostRunner,
+      config: params.config,
+      cwd: params.cwd,
+    }));
+    expect(createQuietRunner).toHaveBeenCalledWith(resolvedRunner);
+    expect(result.title).toContain('— ready');
   });
 
   it('Docker runtime subtask sets done=true and calls onOutcome with skipped when hasUpdates is false', async () => {
@@ -493,6 +568,23 @@ describe('buildEcosystemFixSubtasks()', () => {
     expect(result.title).toContain('residual CVEs');
   });
 
+  it('Verification subtask reports "error" title when the finalized outcome status is error', async () => {
+    const onOutcome = vi.fn();
+    const errorOutcome = { status: 'error' as const, updateResult: { ...makeSuccessUpdateResult(), status: 'error' as const, error: 'validation failed' } };
+    const steps = makeMinimalSteps({
+      finalizeOutcome: vi.fn().mockReturnValue(errorOutcome),
+    });
+    const params = { ...makeSubtaskParams({ postUpdateOsvVerify: 'always' }, steps), onOutcome };
+    const subtasks = buildEcosystemFixSubtasks(params);
+    await runSubtask(subtasks, 0);
+    await runSubtask(subtasks, 1);
+    await runSubtask(subtasks, 2);
+    await runSubtask(subtasks, 3);
+    const result = await runSubtask(subtasks, 4);
+    expect(onOutcome).toHaveBeenCalledWith(errorOutcome);
+    expect(result.title).toContain('— error');
+  });
+
   it('Verification subtask calls onOutcome with breaking error when executeBreakingInstall returns error', async () => {
     const onOutcome = vi.fn();
     const breakingError = { status: 'error' as const, updateResult: { ...makeSuccessUpdateResult(), status: 'error' as const, error: 'breaking install failed' } };
@@ -521,5 +613,51 @@ describe('buildEcosystemFixSubtasks()', () => {
     await runSubtask(subtasks, 1);
     await expect(runSubtask(subtasks, 2)).rejects.toThrow('staging failed');
     expect(setProgressSink).toHaveBeenLastCalledWith(null);
+  });
+
+  it('routes progress messages to the task output for every active phase', async () => {
+    const { setProgressSink } = await import('@infra/utils/logger');
+    vi.mocked(setProgressSink).mockImplementation((cb?: (msg: string) => void) => {
+      if (typeof cb === 'function') cb('working…');
+    });
+    vi.mocked(resolveEcosystemRuntime).mockResolvedValue(makeMockRunner());
+    vi.mocked(createQuietRunner).mockReturnValue(makeMockRunner());
+
+    const advisorResults = [{ name: 'audit', command: 'npm audit', exitCode: 0, status: 'clean' as const, output: '' }];
+    const steps = makeMinimalSteps({
+      resolveContext: vi.fn().mockResolvedValue({
+        ecoEntry: { id: 'npm', advisors: [{ name: 'audit', command: 'npm audit', format: 'text' }] },
+        validationCommands: undefined,
+        fixerStrategy: 'osv',
+        entryKey: 'npm',
+        ecosystemResult: { vulnerabilities_total: 1, auto_safe: 1, breaking: 0, manual: 0, auto_safe_packages: [], breaking_packages: [], manual_packages: [], vulnerabilities: [] },
+        hasUpdates: true,
+      }),
+      resolveAdvisors: vi.fn().mockResolvedValue(advisorResults),
+      executeOsvStagingPhase: vi.fn().mockResolvedValue({ preFixBackups: undefined, osvFixOutcome: { applied: true, packagesUpdated: [] } }),
+    });
+    const params = makeSubtaskParams(
+      {
+        runtimeSpec: {} as unknown as EcosystemPlugin['runtimeSpec'],
+        osvFixSpec: { fixLockfile: 'package-lock.json', backupFiles: [] },
+        postUpdateOsvVerify: 'always',
+      },
+      steps,
+    );
+    const subtasks = buildEcosystemFixSubtasks(params);
+
+    const dockerRuntime = await runSubtask(subtasks, 0);
+    const advisors = await runSubtask(subtasks, 1);
+    const osvFix = await runSubtask(subtasks, 2);
+    const ecosystemFixer = await runSubtask(subtasks, 3);
+    const verification = await runSubtask(subtasks, 4);
+
+    expect(dockerRuntime.output).toBe('working…');
+    expect(advisors.output).toBe('working…');
+    expect(osvFix.output).toBe('working…');
+    expect(ecosystemFixer.output).toBe('working…');
+    expect(verification.output).toBe('working…');
+
+    vi.mocked(setProgressSink).mockImplementation(() => undefined);
   });
 });

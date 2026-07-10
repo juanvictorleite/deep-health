@@ -14,6 +14,7 @@ vi.mock('@modules/ecosystem/plugins/pip-uv-resolver', () => ({
 
 import { readFile } from 'node:fs/promises';
 
+import { logger } from '@infra/utils/logger';
 import type { PythonDependencyGraph } from '@modules/ecosystem/plugins/pip-dep-graph';
 import {
   satisfiesPep440,
@@ -22,6 +23,7 @@ import {
   buildGraphFromDetection,
   PipReachabilityAdapter,
 } from '@modules/ecosystem/plugins/pip-reachability';
+import type { PipToolingDetection } from '@modules/ecosystem/plugins/pip-tooling-detector';
 import { detectPipTooling } from '@modules/ecosystem/plugins/pip-tooling-detector';
 import { resolveWithUv } from '@modules/ecosystem/plugins/pip-uv-resolver';
 
@@ -122,6 +124,26 @@ describe('satisfiesPep440', () => {
   });
 });
 
+describe.each([
+  { version: '3.2.15', specifier: '===3.2.15', expected: true, label: '=== matches an identical version' },
+  { version: '3.2.16', specifier: '===3.2.15', expected: false, label: '=== rejects a differing version' },
+  { version: '3.5.0', specifier: '~=3', expected: true, label: '~= with a single-part base treats it as >=' },
+  { version: '2.9.0', specifier: '~=3', expected: false, label: '~= with a single-part base rejects an earlier version' },
+  { version: '3.2.0', specifier: '!=3.2.*', expected: false, label: '!= wildcard excludes a matching prefix' },
+  { version: '4.0.0', specifier: '!=3.2.*', expected: true, label: '!= wildcard allows a non-matching prefix' },
+  { version: '3.2.15', specifier: '<=3.2.15', expected: true, label: '<= satisfies an equal version' },
+  { version: '3.2.16', specifier: '<=3.2.15', expected: false, label: '<= rejects a greater version' },
+  { version: '3.2.16', specifier: '>3.2.15', expected: true, label: '> satisfies a greater version' },
+  { version: '3.2.15', specifier: '>3.2.15', expected: false, label: '> rejects an equal version' },
+  { version: '1.0.0', specifier: '^1.0.0', expected: true, label: 'an unrecognized operator falls through as satisfied' },
+  { version: '3.2', specifier: '>=3.2.0', expected: true, label: 'a version with fewer segments than the operand is zero-padded when comparing' },
+  { version: '5.0.0', specifier: '>=1.0,*', expected: true, label: 'a wildcard segment within a compound specifier always matches' },
+])('satisfiesPep440 operator matrix: $label', ({ version, specifier, expected }) => {
+  it(`${specifier} vs ${version} resolves to ${expected}`, () => {
+    expect(satisfiesPep440(version, specifier)).toBe(expected);
+  });
+});
+
 // ─── normalizePep503 ──────────────────────────────────────────────────────────
 
 describe('normalizePep503', () => {
@@ -162,6 +184,20 @@ describe('checkPackageReachability — parent-blocks-child', () => {
     ]);
     const safeVersionByName = new Map([['lodash', '4.17.21']]);
     const result = checkPackageReachability('lodash@4.17.21', graph, safeVersionByName, 1);
+    expect(result.reachable).toBe(true);
+  });
+
+  it('a requiredBy parent without a constraint does not block the upgrade', () => {
+    const graph = makeGraph([
+      {
+        name: 'six',
+        version: '1.15.0',
+        direct: true,
+        requiredBy: [{ name: 'legacy-lib' }],
+      },
+    ]);
+    const safeVersionByName = new Map([['six', '1.16.0']]);
+    const result = checkPackageReachability('six@1.16.0', graph, safeVersionByName, 1);
     expect(result.reachable).toBe(true);
   });
 
@@ -262,6 +298,28 @@ describe('checkPackageReachability — cross-package-conflict', () => {
     const result = checkPackageReachability('mylib@1.1.0', graph, safeVersionByName, 1);
     expect(result.reachable).toBe(true);
   });
+
+  it('a dependsOn entry without a constraint does not trigger a cross-package conflict', () => {
+    const graph = makeGraph([
+      {
+        name: 'mylib',
+        version: '1.0.0',
+        direct: true,
+        requiredBy: [],
+        dependsOn: [{ name: 'six' }],
+      },
+      {
+        name: 'six',
+        version: '1.16.0',
+        direct: false,
+        requiredBy: [{ name: 'mylib' }],
+        dependsOn: [],
+      },
+    ]);
+    const safeVersionByName = new Map([['mylib', '1.1.0'], ['six', '1.16.0']]);
+    const result = checkPackageReachability('mylib@1.1.0', graph, safeVersionByName, 1);
+    expect(result.reachable).toBe(true);
+  });
 });
 
 // ─── checkPackageReachability — AC5 transitive deps ─────────────────────────
@@ -335,6 +393,21 @@ describe('checkPackageReachability — edge cases', () => {
     );
     expect(result.reachable).toBe(true);
   });
+
+  it('falls back to a scan-and-normalize match when the graph key is not stored pre-normalized', () => {
+    const graph = makeGraph([
+      { name: 'flask', version: '3.0.0', direct: true },
+      { name: 'Django_REST_Framework', version: '3.14.0', direct: true },
+    ]);
+    const safeVersionByName = new Map([['django-rest-framework', '3.15.2']]);
+    const result = checkPackageReachability(
+      'django-rest-framework@3.15.2',
+      graph,
+      safeVersionByName,
+      1,
+    );
+    expect(result.reachable).toBe(true);
+  });
 });
 
 // ─── buildGraphFromDetection ──────────────────────────────────────────────────
@@ -345,24 +418,57 @@ describe('buildGraphFromDetection', () => {
     mockedResolveWithUv.mockReset();
   });
 
-  it('tier 1 poetry: reads lockfile and parses it', async () => {
-    // Minimal valid poetry.lock content
-    const poetryLock = `
-[[package]]
-name = "django"
-version = "3.2.15"
-description = "A high-level Python web framework"
-`;
-    mockedReadFile.mockResolvedValue(poetryLock);
+  it.each([
+    {
+      tooling: 'poetry' as const,
+      lockContent: '\n[[package]]\nname = "django"\nversion = "3.2.15"\ndescription = "A high-level Python web framework"\n',
+    },
+    {
+      tooling: 'uv' as const,
+      lockContent: '\n[[package]]\nname = "requests"\nversion = "2.32.0"\n',
+    },
+    {
+      tooling: 'pipenv' as const,
+      lockContent: JSON.stringify({ default: { requests: { version: '==2.32.0' } } }),
+    },
+    {
+      tooling: 'pdm' as const,
+      lockContent: '\n[[package]]\nname = "requests"\nversion = "2.32.0"\n',
+    },
+  ])('tier 1 $tooling: reads the lockfile and parses it into a non-empty graph', async ({ tooling, lockContent }) => {
+    mockedReadFile.mockResolvedValue(lockContent);
     const detection = {
       tier: 1 as const,
-      tooling: 'poetry' as const,
-      lockfile: '/project/poetry.lock',
+      tooling,
+      lockfile: `/project/${tooling}.lock`,
       manifest: '/project/requirements.txt',
     };
     const graph = await buildGraphFromDetection(detection, '/project');
     expect(graph).toBeDefined();
     expect(graph!.size).toBeGreaterThan(0);
+  });
+
+  it('tier 1 with no recorded lockfile path returns undefined without reading a file', async () => {
+    const detection: PipToolingDetection = {
+      tier: 1,
+      tooling: 'poetry',
+      manifest: '/project/requirements.txt',
+    };
+    const graph = await buildGraphFromDetection(detection, '/project');
+    expect(graph).toBeUndefined();
+    expect(mockedReadFile).not.toHaveBeenCalled();
+  });
+
+  it('tier 1 with an unrecognized tooling value returns undefined after reading the lockfile', async () => {
+    mockedReadFile.mockResolvedValue('');
+    const detection: PipToolingDetection = {
+      tier: 1,
+      tooling: 'pip-tools',
+      lockfile: '/project/unknown.lock',
+      manifest: '/project/requirements.txt',
+    };
+    const graph = await buildGraphFromDetection(detection, '/project');
+    expect(graph).toBeUndefined();
   });
 
   it('tier 2: reads manifest and calls parseViaAnnotations', async () => {
@@ -402,6 +508,20 @@ description = "A high-level Python web framework"
     };
     const graph = await buildGraphFromDetection(detection, '/project');
     expect(graph).toBeUndefined();
+  });
+
+  it('tier 3: warns and returns undefined when resolveWithUv throws', async () => {
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    mockedResolveWithUv.mockRejectedValue(new Error('uv executable not found'));
+    const detection = {
+      tier: 3 as const,
+      tooling: 'bare-pip' as const,
+      manifest: '/project/requirements.txt',
+    };
+    const graph = await buildGraphFromDetection(detection, '/project');
+    expect(graph).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('uv executable not found'));
+    warnSpy.mockRestore();
   });
 });
 
@@ -502,6 +622,37 @@ requests==2.32.0
     );
     expect(results).toHaveLength(2);
     expect(results.every((r) => r.reachable)).toBe(true);
+  });
+
+  it('detection throws a non-Error value: still returns all reachable (conservative fallback)', async () => {
+    const warnSpy = vi.spyOn(logger, 'warn').mockImplementation(() => {});
+    mockedDetectPipTooling.mockRejectedValue('permission denied');
+
+    const adapter = new PipReachabilityAdapter();
+    const results = await adapter.checkReachability(['django@4.2.0'], { cwd: '/project' });
+    expect(results.every((r) => r.reachable)).toBe(true);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('permission denied'));
+    warnSpy.mockRestore();
+  });
+
+  it('ignores a malformed package ref (no @) when building the safe-version lookup', async () => {
+    const fakeGraph: PythonDependencyGraph = makeGraph([
+      { name: 'flask', version: '3.0.0', direct: true },
+    ]);
+    mockedDetectPipTooling.mockResolvedValue({
+      tier: 3,
+      tooling: 'bare-pip',
+      manifest: '/project/requirements.txt',
+    });
+    mockedResolveWithUv.mockResolvedValue(fakeGraph);
+
+    const adapter = new PipReachabilityAdapter();
+    const results = await adapter.checkReachability(
+      ['malformed-no-version', 'flask@3.1.0'],
+      { cwd: '/project' },
+    );
+    expect(results.find((r) => r.packageRef === 'malformed-no-version')!.reachable).toBe(true);
+    expect(results.find((r) => r.packageRef === 'flask@3.1.0')!.reachable).toBe(true);
   });
 
   it('empty graph returns all reachable (conservative fallback)', async () => {
