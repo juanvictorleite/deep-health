@@ -204,6 +204,17 @@ describe('DockerSonarScannerRunner', () => {
       expect(args).toContain('-Dsonar.host.url=http://host.docker.internal:9000');
     });
 
+    it('writes scanner metadata into the mounted project directory', () => {
+      const runner = new DockerSonarScannerRunner({
+        projectDir: '/app',
+        sonarHostUrl: 'http://localhost:9000',
+      });
+
+      const args = runner._buildDockerArgs('http://host.docker.internal:9000', []);
+
+      expect(args).toContain('-Dsonar.working.directory=/usr/src/.scannerwork');
+    });
+
     it('appends all extraArgs', () => {
       const runner = new DockerSonarScannerRunner({
         projectDir: '/app',

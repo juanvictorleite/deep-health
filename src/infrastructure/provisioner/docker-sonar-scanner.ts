@@ -171,9 +171,12 @@ export class DockerSonarScannerRunner implements EphemeralContainerRunner<string
 
     // sonar-scanner args injected as individual elements — no shell quoting needed.
     args.push(`-Dsonar.host.url=${containerHostUrl}`);
+    // The scanner image defaults its working directory to /tmp/.scannerwork,
+    // which is not mounted on the host. Keep report-task.txt in the project
+    // volume so the engine can read ceTaskId and wait for the CE task.
+    args.push('-Dsonar.working.directory=/usr/src/.scannerwork');
     args.push(...extraArgs);
 
     return args;
   }
 }
-
