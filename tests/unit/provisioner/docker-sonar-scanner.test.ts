@@ -10,6 +10,7 @@
 import { DockerSonarScannerRunner } from '@infra/provisioner/docker-sonar-scanner';
 import type { EphemeralContainerRunner, ContainerRunResult } from '@infra/provisioner/types';
 import { resolvePlatform } from '@infra/utils/docker-platform';
+import { logger } from '@infra/utils/logger';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 
@@ -32,6 +33,9 @@ vi.mock('node:os', async (importOriginal) => {
 import { execa } from 'execa';
 
 import { arch as osArch, platform as osPlatform } from 'node:os';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const mockExeca = vi.mocked(execa);
 const mockArch = vi.mocked(osArch);
@@ -215,6 +219,23 @@ describe('DockerSonarScannerRunner', () => {
       expect(args).toContain('-Dsonar.working.directory=/usr/src/.scannerwork');
     });
 
+    it('disables SCM when projectDir is a linked Git worktree', () => {
+      const projectDir = mkdtempSync(join(tmpdir(), 'deep-health-sonar-worktree-'));
+      writeFileSync(join(projectDir, '.git'), 'gitdir: /host/repo/.git/worktrees/task\n');
+
+      try {
+        const runner = new DockerSonarScannerRunner({
+          projectDir,
+          sonarHostUrl: 'http://localhost:9000',
+        });
+        const args = runner._buildDockerArgs('http://host.docker.internal:9000', []);
+
+        expect(args).toContain('-Dsonar.scm.disabled=true');
+      } finally {
+        rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+
     it('appends all extraArgs', () => {
       const runner = new DockerSonarScannerRunner({
         projectDir: '/app',
@@ -224,6 +245,20 @@ describe('DockerSonarScannerRunner', () => {
       const args = runner._buildDockerArgs('http://host.docker.internal:9000', extraArgs);
       expect(args).toContain('-Dsonar.projectKey=my-proj');
       expect(args).toContain('-Dsonar.token=mytoken');
+    });
+
+    it('translates a project.settings path inside projectDir to the container mount', () => {
+      const runner = new DockerSonarScannerRunner({
+        projectDir: '/Users/dev/project',
+        sonarHostUrl: 'http://localhost:9000',
+      });
+
+      const args = runner._buildDockerArgs('http://host.docker.internal:9000', [
+        '-Dproject.settings=/Users/dev/project/.security-scan-sonar-project.properties',
+      ]);
+
+      expect(args).toContain('-Dproject.settings=/usr/src/.security-scan-sonar-project.properties');
+      expect(args).not.toContain('-Dproject.settings=/Users/dev/project/.security-scan-sonar-project.properties');
     });
 
     it('uses default image when none specified', () => {
@@ -373,6 +408,25 @@ describe('DockerSonarScannerRunner', () => {
   // ── run() ───────────────────────────────────────────────────────────────────
 
   describe('run()', () => {
+    it('redacts Sonar credentials from the debug command', async () => {
+      const debugSpy = vi.spyOn(logger, 'debug').mockImplementation(() => undefined);
+      const runner = new DockerSonarScannerRunner({
+        projectDir: '/app',
+        sonarHostUrl: 'http://localhost:9000',
+      });
+
+      await runner.run([
+        '-Dsonar.login=login-secret',
+        '-Dsonar.token=token-secret',
+      ]);
+
+      const debugOutput = debugSpy.mock.calls.map(([message]) => String(message)).join('\n');
+      expect(debugOutput).not.toContain('login-secret');
+      expect(debugOutput).not.toContain('token-secret');
+      expect(debugOutput).toContain('-Dsonar.login=<REDACTED>');
+      expect(debugOutput).toContain('-Dsonar.token=<REDACTED>');
+    });
+
     it('returns exitCode 0 and stdout on success', async () => {
       resolveExeca('INFO: ANALYSIS SUCCESSFUL', '');
       const runner = new DockerSonarScannerRunner({

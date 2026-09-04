@@ -157,6 +157,17 @@ export async function executeScannerSweep(
 
       // on_failure='warn' — record warning and continue
       warnings.push({ engineId: engine.id, message: resultOrError.message });
+      engineEntries.push({
+        engineId: engine.id,
+        result: {
+          $schema: `${engine.id}-scan-result/v1`,
+          agent: engine.id,
+          status: 'error',
+          environment: ctx.runner.environment,
+          ecosystems: {},
+          error: resultOrError.message,
+        },
+      });
       continue;
     }
 
@@ -183,6 +194,7 @@ export async function executeScannerSweep(
 
       // on_failure='warn'
       warnings.push({ engineId: engine.id, message });
+      engineEntries.push({ engineId: engine.id, result });
       continue;
     }
 

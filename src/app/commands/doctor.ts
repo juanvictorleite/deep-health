@@ -1,4 +1,4 @@
-import { access } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { execa } from 'execa';
@@ -76,6 +76,43 @@ export async function checkOsvScanner(): Promise<DoctorCheck> {
     status: 'pass',
     detail: versionLine || undefined,
   };
+}
+
+async function resolveOsvRunnerForConfig(
+  cwd: string,
+  configPath: string,
+): Promise<'docker' | 'local'> {
+  try {
+    const raw = JSON.parse(await readFile(resolve(cwd, configPath), 'utf8')) as {
+      scanners?: { osv?: { runner?: string } };
+    };
+    const runner = raw.scanners?.osv?.runner;
+    return runner === undefined || runner === 'docker' ? 'docker' : 'local';
+  } catch {
+    // The independent config check reports missing or unreadable files. Preserve
+    // the legacy host probe here so doctor still provides useful OSV feedback.
+    return 'local';
+  }
+}
+
+function checkOsvScannerForRunner(runner: 'docker' | 'local'): Promise<DoctorCheck> | DoctorCheck {
+  if (runner === 'docker') {
+    return {
+      name: __('OSV Scanner'),
+      required: true,
+      status: 'pass',
+      detail: __('Docker'),
+    };
+  }
+  return checkOsvScanner();
+}
+
+export async function checkOsvScannerForConfig(
+  cwd: string,
+  configPath: string,
+): Promise<DoctorCheck> {
+  const runner = await resolveOsvRunnerForConfig(cwd, configPath);
+  return checkOsvScannerForRunner(runner);
 }
 
 export async function checkGhCli(): Promise<DoctorCheck> {
@@ -193,10 +230,11 @@ export function formatDoctorResults(checks: DoctorCheck[]): string {
 // ─── Main entry point ─────────────────────────────────────────────────────────
 
 export async function runDoctorCommand(opts: DoctorCommandOptions): Promise<number> {
+  const osvRunner = await resolveOsvRunnerForConfig(opts.cwd, opts.config);
   const checks: DoctorCheck[] = await Promise.all([
     checkNodeVersion(),
     checkDocker(),
-    checkOsvScanner(),
+    checkOsvScannerForRunner(osvRunner),
     checkGhCli(),
     checkConfig(opts.cwd, opts.config),
     checkSonarToken(),

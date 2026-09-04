@@ -10,6 +10,9 @@ export interface ExecLocale {
   task_title: string;
   task_description: string;
   section_resolution: string;
+  dependency_changes_title: string;
+  dependency_changes_empty: string;
+  dependency_changes_table_header: string;
   no_vulns: string;
   found_and_fixed: string;
   pending_intro: string;

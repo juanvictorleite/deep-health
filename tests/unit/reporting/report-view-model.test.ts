@@ -49,9 +49,10 @@ describe('buildExecutiveReportViewModel() — shape', () => {
     const vm = buildExecutiveReportViewModel(baseOpts);
     expect(Object.keys(vm).sort()).toEqual(
       [
-        'allFixed', 'advisorSection', 'blockedVulns', 'branch', 'client', 'evidenceSections',
+        'allFixed', 'advisorSection', 'blockedVulns', 'branch', 'client', 'dependencyChanges',
+        'evidenceSections',
         'fixedVulns', 'hasBlockedVulns', 'hasBranch', 'hasPending', 'monthFull', 'noVulns',
-        'pendingVulns', 'project', 'scanAfterSummary', 'scanBeforeSummary', 'scannerEngines',
+        'hasDependencyChanges', 'pendingVulns', 'project', 'scanAfterSummary', 'scanBeforeSummary', 'scannerEngines',
         'sonarSection', 't', 'totalBefore', 'year',
       ].sort(),
     );
@@ -70,6 +71,32 @@ describe('buildExecutiveReportViewModel() — shape', () => {
     const vm = buildExecutiveReportViewModel(baseOpts);
     expect(vm.client).toBe('Acme');
     expect(vm.project).toBe('Project');
+  });
+
+  it('builds dependency changes only from packages_updated evidence', () => {
+    const vm = buildExecutiveReportViewModel({
+      ...baseOpts,
+      ecosystems: [{ id: 'npm', path: 'app', label: 'app' }],
+      updates: {
+        'npm:app': {
+          $schema: 'osv-update-result/v1', agent: 'npm-safe-update', status: 'success',
+          packages_updated: ['lodash@4.17.21', 'ws@7.5.10'], packages_skipped: [],
+          packages_pending_breaking: [], validations: [], error: null,
+        },
+      },
+    });
+
+    expect(vm.hasDependencyChanges).toBe(true);
+    expect(vm.dependencyChanges).toEqual([
+      { ecosystem: 'npm (app)', packageRef: 'lodash@4.17.21' },
+      { ecosystem: 'npm (app)', packageRef: 'ws@7.5.10' },
+    ]);
+  });
+
+  it('uses an explicit empty state when packages_updated has no evidence', () => {
+    const vm = buildExecutiveReportViewModel(baseOpts);
+    expect(vm.hasDependencyChanges).toBe(false);
+    expect(vm.dependencyChanges).toEqual([]);
   });
 });
 
@@ -223,6 +250,32 @@ describe('buildExecutiveReportViewModel() — summary labels', () => {
     const vm = buildExecutiveReportViewModel({ ...baseOpts, scanBefore: scan });
     expect(vm.scanBeforeSummary).toContain(',');
     expect(vm.totalBefore).toBe(2);
+  });
+
+  it('uses the real post-fix scan instead of deriving the total from actionable findings', () => {
+    const blocked = makeVuln({
+      ecosystem: 'npm', package: 'blocked-package', classification: 'auto_safe', reachable: false,
+    });
+    const actionable = makeVuln({
+      ecosystem: 'npm', package: 'actionable-package', classification: 'breaking',
+    });
+    const scan: ScanResultJson = {
+      ...emptyScan,
+      ecosystems: {
+        npm: {
+          vulnerabilities_total: 2, auto_safe: 1, breaking: 1, manual: 0,
+          auto_safe_packages: ['blocked-package'], breaking_packages: ['actionable-package'], manual_packages: [],
+          vulnerabilities: [blocked, actionable],
+        },
+      },
+    };
+
+    const vm = buildExecutiveReportViewModel({ ...baseOpts, scanBefore: scan, scanAfter: scan });
+
+    expect(vm.blockedVulns).toHaveLength(1);
+    expect(vm.pendingVulns).toHaveLength(1);
+    expect(vm.scanAfterSummary).toContain('**2 vulnerabilities remaining**');
+    expect(vm.scanAfterSummary).not.toContain('**1 vulnerabilities remaining**');
   });
 });
 

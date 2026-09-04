@@ -183,7 +183,7 @@ describe('Scanner Sweep: success path', () => {
 // ─── Tests: secondary engine errors ──────────────────────────────────────────
 
 describe('Scanner Sweep: secondary throws + on_failure="warn"', () => {
-  it('records a warning and excludes the failed engine from engineEntries', async () => {
+  it('records a warning and preserves a synthetic failed engine result for reporting', async () => {
     const engines = [
       makeEngine('osv', () => Promise.resolve(successResult())),
       makeEngine('sonar', () => Promise.reject(new Error('sonar down'))),
@@ -199,8 +199,12 @@ describe('Scanner Sweep: secondary throws + on_failure="warn"', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
 
-    expect(result.value.engineEntries).toHaveLength(1);
+    expect(result.value.engineEntries).toHaveLength(2);
     expect(result.value.engineEntries[0]?.engineId).toBe('osv');
+    expect(result.value.engineEntries[1]).toMatchObject({
+      engineId: 'sonar',
+      result: { agent: 'sonar', status: 'error', error: 'sonar down' },
+    });
     expect(result.value.warnings).toHaveLength(1);
     expect(result.value.warnings[0]).toMatchObject({ engineId: 'sonar', message: 'sonar down' });
   });
@@ -236,7 +240,7 @@ describe('Scanner Sweep: secondary throws + on_failure="fail"', () => {
 });
 
 describe('Scanner Sweep: secondary returns status="error" + on_failure="warn"', () => {
-  it('records a warning with the result.error message', async () => {
+  it('records a warning and preserves the failed engine result for reporting', async () => {
     const engines = [
       makeEngine('osv', () => Promise.resolve(successResult())),
       makeEngine('sonar', () => Promise.resolve(errorResult('sonar reported error'))),
@@ -254,7 +258,11 @@ describe('Scanner Sweep: secondary returns status="error" + on_failure="warn"', 
 
     expect(result.value.warnings).toHaveLength(1);
     expect(result.value.warnings[0]).toMatchObject({ engineId: 'sonar', message: 'sonar reported error' });
-    expect(result.value.engineEntries).toHaveLength(1); // only osv
+    expect(result.value.engineEntries).toHaveLength(2);
+    expect(result.value.engineEntries[1]).toMatchObject({
+      engineId: 'sonar',
+      result: { status: 'error', error: 'sonar reported error' },
+    });
   });
 });
 

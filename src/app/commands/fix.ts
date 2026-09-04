@@ -176,6 +176,8 @@ async function persistAuditTrailAndSummary(
     updates: result.updates,
     overall_status: result.overallStatus,
     has_pending_vulns: result.hasPendingVulns,
+    warnings: result.warnings,
+    engine_results: result.aggregated?.engineResults,
   }, reportsDir);
 
   const safeTimestamp = auditTimestamp.replace(/:/g, '-');

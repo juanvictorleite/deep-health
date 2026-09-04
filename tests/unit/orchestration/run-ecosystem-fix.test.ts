@@ -40,6 +40,7 @@ import type { ProjectConfig } from '@core/types/config';
 import type { AdvisorResult } from '@core/types/report';
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
+import { resolveEcosystemRuntime } from '@infra/ecosystem-runtime';
 import { logger } from '@infra/utils/logger';
 import { runAdvisors } from '@modules/advisor/index';
 import type { EcosystemPlugin } from '@modules/ecosystem/types';
@@ -645,7 +646,7 @@ describe('runEcosystemFix', () => {
 
   // ─── Advisors run in the skip path ───────────────────────────────────────────
 
-  it('runs advisors via hostRunner and returns results in skipped outcome when hasUpdates is false', async () => {
+  it('runs advisors via the ecosystem runtime and returns results in skipped outcome when hasUpdates is false', async () => {
     const advisorResults: AdvisorResult[] = [
       {
         name: 'npm-audit',
@@ -657,10 +658,20 @@ describe('runEcosystemFix', () => {
     ];
     vi.mocked(runAdvisors).mockResolvedValueOnce(advisorResults);
 
-    const plugin = makePlugin();
+    const hostRunner = new MockRunner();
+    const ecosystemRunner = new MockRunner();
+    vi.mocked(resolveEcosystemRuntime).mockResolvedValueOnce(ecosystemRunner);
+    const plugin = makePlugin({
+      runtimeSpec: {
+        defaultImage: 'node:16',
+        resolveImage: () => 'node:16',
+        containerBinaries: ['npm'],
+        runMode: { kind: 'direct-exec', binary: 'npm' },
+      },
+    });
     const outcome = await runEcosystemFix({
       plugin,
-      hostRunner: new MockRunner(),
+      hostRunner,
       config: makeConfig({
         ecosystems: [{ id: 'npm', validationCommands: [], advisors: [{ name: 'audit', command: 'npm audit --json', format: 'json' }] }],
       }),
@@ -674,7 +685,9 @@ describe('runEcosystemFix', () => {
 
     // Outcome is skipped but advisor results are populated
     expect(outcome.status).toBe('skipped');
+    expect(resolveEcosystemRuntime).toHaveBeenCalledOnce();
     expect(runAdvisors).toHaveBeenCalledOnce();
+    expect(vi.mocked(runAdvisors).mock.calls[0][0]).toBe(ecosystemRunner);
     if (outcome.status === 'skipped') {
       expect(outcome.advisorResults).toEqual(advisorResults);
     }
@@ -699,6 +712,7 @@ describe('runEcosystemFix', () => {
     });
 
     expect(outcome.status).toBe('skipped');
+    expect(resolveEcosystemRuntime).not.toHaveBeenCalled();
     expect(runAdvisors).not.toHaveBeenCalled();
     if (outcome.status === 'skipped') {
       expect(outcome.advisorResults).toBeUndefined();

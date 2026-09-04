@@ -234,6 +234,19 @@ function buildInstalledVersionsByEco(ecoEntries: EcoEntry[], updates: ExecutiveR
   return map;
 }
 
+/** Build auditable dependency-change rows exclusively from packages_updated. */
+function buildDependencyChanges(
+  ecoEntries: EcoEntry[],
+  updates: ExecutiveReportOptions['updates'],
+): { ecosystem: string; packageRef: string }[] {
+  return ecoEntries.flatMap((eco) =>
+    (updates[eco.key]?.packages_updated ?? []).map((packageRef) => ({
+      ecosystem: escapeMdTableCell(eco.reportLabel),
+      packageRef: escapeMdTableCell(packageRef),
+    })),
+  );
+}
+
 /**
  * Resolve a display label for a vulnerability's ecosystem.
  * 4-fallback chain: ecoEntries -> findByOsvEcosystem -> get -> raw ecosystem id.
@@ -466,7 +479,7 @@ function buildEvidenceSection(
 function buildSummaryLabels(
   ecoEntries: EcoEntry[],
   effectiveScanBefore: ScanResultJson,
-  pendingOriginal: VulnerabilityEntry[],
+  scanAfter: ScanResultJson,
   locale: Locale,
 ): { ecoBeforeLabels: string; ecoAfterLabels: string } {
   const ecoBeforeLabels = ecoEntries
@@ -478,21 +491,16 @@ function buildSummaryLabels(
     })
     .join(', ');
 
-  const pendingByEco = new Map<string, VulnerabilityEntry[]>();
-  for (const v of pendingOriginal) {
-    const arr = pendingByEco.get(v.ecosystem) ?? [];
-    arr.push(v);
-    pendingByEco.set(v.ecosystem, arr);
-  }
-
   const ecoAfterLabels = ecoEntries
     .map((eco) => {
-      const pending = pendingByEco.get(eco.key) ?? [];
-      const pkgCount = uniqueCount(pending);
+      const afterData = scanAfter.ecosystems[eco.key];
+      const afterVulns = afterData?.vulnerabilities ?? [];
+      const total = afterData?.vulnerabilities_total ?? afterVulns.length;
+      const pkgCount = uniqueCount(afterVulns);
       const pkgAfterNames = pkgCount === 1
-        ? [...new Set(pending.map((v) => v.package))].join(', ')
+        ? [...new Set(afterVulns.map((v) => v.package))].join(', ')
         : undefined;
-      return locale.pkg_count(pending.length, pkgCount, eco.reportLabel, pkgAfterNames);
+      return locale.pkg_count(total, pkgCount, eco.reportLabel, pkgAfterNames);
     })
     .join(', ');
 
@@ -520,6 +528,8 @@ export interface ExecutiveReportViewModel {
   branch: string | null;
   hasBranch: boolean;
   scannerEngines: string | null;
+  dependencyChanges: { ecosystem: string; packageRef: string }[];
+  hasDependencyChanges: boolean;
   noVulns: boolean;
   fixedVulns: Record<string, unknown>[];
   blockedVulns: Record<string, unknown>[];
@@ -547,6 +557,7 @@ export function buildExecutiveReportViewModel(opts: ExecutiveReportOptions): Exe
 
   const updatedNamesByEco = buildUpdatedNamesByEco(ecoEntries, opts.updates);
   const installedVersionsByEco = buildInstalledVersionsByEco(ecoEntries, opts.updates);
+  const dependencyChanges = buildDependencyChanges(ecoEntries, opts.updates);
 
   const allVulnsBefore = [
     ...Object.values(effectiveScanBefore.ecosystems).flatMap((e) => e.vulnerabilities),
@@ -572,8 +583,10 @@ export function buildExecutiveReportViewModel(opts: ExecutiveReportOptions): Exe
     return buildEvidenceSection(eco, effectiveScanBefore, update, updatedNames, installedVersions, residualVerification, locale);
   });
 
-  const { ecoBeforeLabels, ecoAfterLabels } = buildSummaryLabels(ecoEntries, effectiveScanBefore, pendingOriginal, locale);
+  const { ecoBeforeLabels, ecoAfterLabels } = buildSummaryLabels(ecoEntries, effectiveScanBefore, opts.scanAfter, locale);
   const totalBefore = allVulnsBefore.length;
+  const totalAfter = Object.values(opts.scanAfter.ecosystems)
+    .reduce((total, ecosystem) => total + ecosystem.vulnerabilities_total, 0);
 
   const sonarSection = buildSonarQubeExecSection(opts.engineResults, locale.exec, opts.sonarqubeMetrics);
   const advisorSection = buildAdvisorExecSection(opts.advisorResults, locale.exec);
@@ -587,6 +600,8 @@ export function buildExecutiveReportViewModel(opts: ExecutiveReportOptions): Exe
     branch: opts.branch ?? null,
     hasBranch: typeof opts.branch === 'string' && opts.branch.length > 0,
     scannerEngines: opts.scannerEngines && opts.scannerEngines.length > 0 ? opts.scannerEngines.join(', ') : null,
+    dependencyChanges,
+    hasDependencyChanges: dependencyChanges.length > 0,
     noVulns: totalBefore === 0,
     fixedVulns,
     blockedVulns,
@@ -595,7 +610,7 @@ export function buildExecutiveReportViewModel(opts: ExecutiveReportOptions): Exe
     totalBefore,
     scanBeforeSummary: locale.exec.scan_summary(totalBefore, ecoBeforeLabels),
     evidenceSections,
-    scanAfterSummary: locale.exec.scan_after_summary_generic(pendingOriginal.length, ecoAfterLabels),
+    scanAfterSummary: locale.exec.scan_after_summary_generic(totalAfter, ecoAfterLabels),
     allFixed: fixedVulns.length > 0 && pendingOriginal.length === 0 && blockedVulns.length === 0,
     hasPending: pendingOriginal.length > 0,
     sonarSection,

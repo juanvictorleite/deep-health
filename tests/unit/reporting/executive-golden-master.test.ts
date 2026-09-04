@@ -14,7 +14,16 @@
  */
 import type { ExecutiveReportOptions } from '@core/types/report';
 import { generateEntryReport, generateExecutiveReport } from '@reporting/executive';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+
+beforeAll(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-07-15T12:00:00Z'));
+});
+
+afterAll(() => {
+  vi.useRealTimers();
+});
 
 const fixtureOpts: ExecutiveReportOptions = {
   client: 'Acme',

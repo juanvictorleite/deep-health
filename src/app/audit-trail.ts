@@ -3,6 +3,7 @@ import { join } from 'node:path';
 
 import type { ScanResultJson } from '@core/types/scan';
 import type { UpdateResultJson } from '@core/types/update';
+import type { EngineWarning } from '@modules/scanner/types';
 import { DEFAULT_AUDIT_SUBDIR } from '@infra/brand';
 import { logger } from '@infra/utils/logger';
 
@@ -21,6 +22,10 @@ export interface AuditTrailRecord {
   overall_status: string;
   /** True if vulnerabilities remain after the run */
   has_pending_vulns: boolean;
+  /** Non-fatal scanner failures and warnings emitted during orchestration. */
+  warnings?: EngineWarning[];
+  /** Per-engine results, including non-fatal secondary scanner errors. */
+  engine_results?: Record<string, ScanResultJson>;
 }
 
 /**

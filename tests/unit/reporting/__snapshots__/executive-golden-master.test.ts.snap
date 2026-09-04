@@ -40,6 +40,15 @@ The following vulnerabilities could not be fixed automatically and remain pendin
 
 ---
 
+### Dependencies changed automatically
+
+| Ecosystem | Package update evidence |
+|---|---|
+| npm (frontend) | lodash@4.17.21 |
+| PHP/Composer | vendor/audit-pkg@1.2.0 |
+
+---
+
 ### Evidence — Before
 
 Initial scan (before fixes): **4 vulnerabilities** — 1 in npm (frontend) (1 package), 1 in npm (api) (1 package), 2 in PHP/Composer (2 packages)
@@ -64,7 +73,7 @@ PHP/Composer — post-fix scan summary:
 |------|----------|------|---------|-------------------|------|
 | PHP/Composer | GHSA-composer-0003 | 9.1 | symfony/http-kernel | 5.4.0 | blocked (constraint: symfony/framework-bundle) | critical |
 | PHP/Composer | CVE-2024-5555 | — | vendor/audit-pkg | 1.1.0 | fixed (1.2.0) | SQL Injection |
-Post-fix scan: **1 vulnerabilities remaining** — 0 in npm (frontend) (0 packages), 1 in npm (api) (1 package: express), 0 in PHP/Composer (0 packages)
+Post-fix scan: **0 vulnerabilities remaining** — 0 in npm (frontend) (0 packages), 0 in npm (api) (0 packages), 0 in PHP/Composer (0 packages)
 
 ✅ **npm test** (\`npm test\`) — 42 passing
 
@@ -121,6 +130,14 @@ The following vulnerabilities were classified as auto-fixable but are blocked by
 | PHP/Composer | [GHSA-composer-0003](https://osv.dev/vulnerability/GHSA-composer-0003) | 9.1 | symfony/http-kernel | 5.4.0 | Dependency constraint | symfony/framework-bundle |
 
 
+
+---
+
+### Dependencies changed automatically
+
+| Ecosystem | Package update evidence |
+|---|---|
+| PHP/Composer | vendor/audit-pkg@1.2.0 |
 
 ---
 
@@ -188,6 +205,14 @@ After running the scan, the following issues were found and fixed:
 
 
 
+
+---
+
+### Dependencies changed automatically
+
+| Ecosystem | Package update evidence |
+|---|---|
+| npm (frontend) | lodash@4.17.21 |
 
 ---
 

@@ -42,6 +42,17 @@ export default `\
 
 ---
 
+### {{t.dependency_changes_title}}
+
+{{#if hasDependencyChanges}}
+{{t.dependency_changes_table_header}}
+{{#each dependencyChanges}}| {{ecosystem}} | {{packageRef}} |
+{{/each}}{{else}}
+{{t.dependency_changes_empty}}
+{{/if}}
+
+---
+
 ### {{t.section_evidence_before}}
 
 {{scanBeforeSummary}}

@@ -21,3 +21,6 @@ Execution slices — discrete units of work tracing back to ADRs/BDRs. The local
 | [0015](0015-lockfile-format-adapters.md) | Lockfile format adapters v1 + v2/v3; public API unchanged (ADR 0018) | Done |
 | [0016](0016-install-breaking-packages-decomposition.md) | Decompose npm installBreakingPackages into phase helpers (ADR 0013 playbook) | Done |
 | [0017](0017-runner-capability-contract.md) | Runner capability contract; decompose the two hot run methods (ADR 0019) | Done |
+| [0018](0018-containerize-advisors-on-skip.md) | Containerize advisors when no updates are applicable (BDR 0001) | Done |
+| [0019](0019-report-applied-dependency-changes.md) | Add applied dependency changes to the Markdown report (BDR 0002) | Done |
+| [0020](0020-doctor-osv-docker-runtime.md) | Make doctor honor the OSV Docker runtime (BDR 0003) | Done |

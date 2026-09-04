@@ -371,12 +371,24 @@ describe('runFixCommand', () => {
   });
 
   it('calls writeAuditTrail once with cwd and matching dry_run flag', async () => {
+    const sonarError = {
+      ...scanResult,
+      $schema: 'sonarqube-scan-result/v1',
+      agent: 'sonarqube',
+      status: 'error' as const,
+      error: 'Unable to open Git repository',
+    };
+    const warnings = [{ engineId: 'sonarqube', message: 'Unable to open Git repository' }];
     vi.mocked(runOrchestrator).mockResolvedValue({
       scan: scanResult,
       updates: {},
       overallStatus: 'success',
-      warnings: [],
-      aggregated: undefined,
+      warnings,
+      aggregated: {
+        primary: scanResult,
+        warnings,
+        engineResults: { osv: scanResult, sonarqube: sonarError },
+      },
       advisorResults: {},
     });
 
@@ -399,6 +411,8 @@ describe('runFixCommand', () => {
     const [calledCwd, calledRecord] = vi.mocked(writeAuditTrail).mock.calls[0];
     expect(calledCwd).toBe('/repo');
     expect(calledRecord.dry_run).toBe(true);
+    expect(calledRecord.warnings).toEqual(warnings);
+    expect(calledRecord.engine_results?.sonarqube).toEqual(sonarError);
   });
 
   it('includes reportsDir as reportPath in summary when markdown report is generated', async () => {

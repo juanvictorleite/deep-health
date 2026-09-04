@@ -6,12 +6,9 @@
  *   OSV staging-fix → updater → breaking-install → OSV residual verification →
  *   ecosystem gate.
  *
- * Advisors run in both the skip path and the fix path:
- *   - Skip path (!hasUpdates): advisors run via hostRunner (no container spin-up
- *     needed — there is nothing to fix). Results are returned in the skipped outcome.
- *   - Fix path (hasUpdates): advisors run via effectiveRunner (the container runner
- *     when Docker is configured), ensuring they execute with the same Node/Python
- *     version as the fix phase and avoiding result divergence.
+ * Advisors run through the effective ecosystem runner in both the skip path and
+ * the fix path. This keeps ecosystem CLIs inside the configured Docker runtime
+ * even when there is nothing to update.
  *
  * Advisors are informational only — never throws, never blocks the pipeline.
  *
@@ -536,11 +533,20 @@ export async function runEcosystemFix(
     await resolveEcosystemFixContext(params);
 
   if (!hasUpdates) {
-    // Run advisors via hostRunner before skipping — no container resolution needed
-    // when there is nothing to fix, but advisor data is still valuable (informational only,
-    // never throws, never blocks pipeline).
+    const advisors = ecoEntry.advisors ?? plugin.defaultAdvisors;
+    if (advisors.length === 0) {
+      logger.skip(`Skipping ${plugin.name} — no auto-safe vulnerabilities`);
+      return { status: 'skipped', reason: 'no-updates' };
+    }
+
+    const resolvedSkipRunner: CommandRunner = plugin.runtimeSpec
+      ? await resolveEcosystemRuntime({ plugin, hostRunner, config, cwd, runnerConfig: ecoEntry.runner, projectRoot: params.projectRoot })
+      : hostRunner;
+    const effectiveSkipRunner = verbose === false
+      ? createQuietRunner(resolvedSkipRunner)
+      : resolvedSkipRunner;
     const skipAdvisorResults = await resolveAdvisors({
-      ecoEntry, plugin, runner: hostRunner, cwd, nonfatal: true,
+      ecoEntry, plugin, runner: effectiveSkipRunner, cwd, nonfatal: true,
     });
     logger.skip(`Skipping ${plugin.name} — no auto-safe vulnerabilities`);
     return { status: 'skipped', reason: 'no-updates', advisorResults: skipAdvisorResults };

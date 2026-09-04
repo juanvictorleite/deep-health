@@ -184,7 +184,7 @@ interface CommandResult {
 |---|---|---|---|---|
 | `runtime.test_command` | repo owner (Zod-validated) | `run()` — shell | Ecosystem container (per ADR-0001) | Trusted; container-bounded blast radius |
 | `ecosystems[].validationCommands[].command` | repo owner | `run()` → `runShell()` | Ecosystem container | Trusted; container-bounded blast radius |
-| `ecosystems[].advisors[].command` | repo owner | `run()` — shell | Host runner | Trusted, informational only |
+| `ecosystems[].advisors[].command` | repo owner | `run()` — shell | Ecosystem container runner | Trusted, informational only |
 | Branch names (git operations) | git output | `runArgs()` — no shell | Host runner | External value; shell-safe by design |
 | Package names (scan result) | OSV JSON | `runArgs()` — no shell | Ecosystem container | External value; shell-safe by design |
 

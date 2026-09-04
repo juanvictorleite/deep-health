@@ -22,12 +22,13 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
 }));
 
-import { access } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 
 import {
   checkNodeVersion,
   checkDocker,
   checkOsvScanner,
+  checkOsvScannerForConfig,
   checkGhCli,
   checkConfig,
   checkSonarToken,
@@ -39,12 +40,19 @@ import { execa } from 'execa';
 
 const mockExeca = vi.mocked(execa);
 const mockAccess = vi.mocked(access);
+const mockReadFile = vi.mocked(readFile);
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function makeExecaResult(exitCode: number, stdout = '', stderr = '') {
   return { exitCode, stdout, stderr, all: stdout || stderr } as ReturnType<typeof execa>;
 }
+
+beforeEach(() => {
+  mockExeca.mockReset();
+  mockAccess.mockReset();
+  mockReadFile.mockReset();
+});
 
 // ─── checkNodeVersion ─────────────────────────────────────────────────────────
 
@@ -118,6 +126,43 @@ describe('checkOsvScanner', () => {
     const result = await checkOsvScanner();
     expect(result.status).toBe('fail');
     expect(result.hint).toMatch(/osv-scanner/i);
+  });
+});
+
+describe('checkOsvScannerForConfig', () => {
+  it('uses Docker without requiring an osv-scanner binary on the host', async () => {
+    mockReadFile.mockResolvedValueOnce(JSON.stringify({ scanners: { osv: { runner: 'docker' } } }));
+
+    const result = await checkOsvScannerForConfig('/project', 'security-scan.config.json');
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toBe('Docker');
+    expect(mockExeca).not.toHaveBeenCalled();
+  });
+
+  it('uses Docker when the OSV runner is omitted', async () => {
+    mockReadFile.mockResolvedValueOnce(JSON.stringify({ scanners: { primary: 'osv' } }));
+
+    const result = await checkOsvScannerForConfig('/project', 'security-scan.config.json');
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toBe('Docker');
+    expect(mockExeca).not.toHaveBeenCalled();
+  });
+
+  it('checks the host binary when the configured OSV runner is local', async () => {
+    mockReadFile.mockResolvedValueOnce(JSON.stringify({ scanners: { osv: { runner: 'local' } } }));
+    mockExeca.mockResolvedValueOnce(makeExecaResult(0, 'osv-scanner version 2.0.0'));
+
+    const result = await checkOsvScannerForConfig('/project', 'security-scan.config.json');
+
+    expect(result.status).toBe('pass');
+    expect(result.detail).toBe('osv-scanner version 2.0.0');
+    expect(mockExeca).toHaveBeenCalledWith(
+      'osv-scanner',
+      ['--version'],
+      expect.objectContaining({ reject: false }),
+    );
   });
 });
 

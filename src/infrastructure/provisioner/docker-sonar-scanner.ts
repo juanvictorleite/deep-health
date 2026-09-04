@@ -1,4 +1,6 @@
 import { execa } from 'execa';
+import { statSync } from 'node:fs';
+import { join } from 'node:path';
 
 import type {
   DockerSonarScannerRunnerOptions,
@@ -99,7 +101,10 @@ export class DockerSonarScannerRunner implements EphemeralContainerRunner<string
 
     const dockerArgs = this._buildDockerArgs(containerHostUrl, extraArgs);
 
-    logger.debug(`DockerSonarScannerRunner: docker ${dockerArgs.join(' ')}`);
+    const redactedArgs = dockerArgs.map((arg) =>
+      arg.replace(/^(-Dsonar\.(?:login|token)=).+$/, '$1<REDACTED>'),
+    );
+    logger.debug(`DockerSonarScannerRunner: docker ${redactedArgs.join(' ')}`);
 
     try {
       const subprocess = execa('docker', dockerArgs, { reject: false });
@@ -175,7 +180,27 @@ export class DockerSonarScannerRunner implements EphemeralContainerRunner<string
     // which is not mounted on the host. Keep report-task.txt in the project
     // volume so the engine can read ceTaskId and wait for the CE task.
     args.push('-Dsonar.working.directory=/usr/src/.scannerwork');
-    args.push(...extraArgs);
+    try {
+      if (
+        statSync(join(this.projectDir, '.git')).isFile()
+        && !extraArgs.some((arg) => arg.startsWith('-Dsonar.scm.disabled='))
+      ) {
+        args.push('-Dsonar.scm.disabled=true');
+      }
+    } catch {
+      // Non-Git directories and regular clones need no worktree-specific fallback.
+    }
+    const projectPrefix = `${this.projectDir.replace(/\/$/, '')}/`;
+    const containerArgs = extraArgs.map((arg) => {
+      const settingsPrefix = '-Dproject.settings=';
+      if (!arg.startsWith(settingsPrefix)) return arg;
+
+      const settingsPath = arg.slice(settingsPrefix.length);
+      if (!settingsPath.startsWith(projectPrefix)) return arg;
+
+      return `${settingsPrefix}/usr/src/${settingsPath.slice(projectPrefix.length)}`;
+    });
+    args.push(...containerArgs);
 
     return args;
   }

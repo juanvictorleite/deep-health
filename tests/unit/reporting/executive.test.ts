@@ -35,6 +35,32 @@ describe('executiveReportFilename()', () => {
   });
 });
 
+describe('generateExecutiveReport() — applied dependency changes', () => {
+  it('states explicitly when no dependency was changed automatically', () => {
+    const result = generateExecutiveReport({ ...baseOpts, locale: 'pt-br' });
+    expect(result).toContain('### Dependências alteradas automaticamente');
+    expect(result).toContain('Nenhuma dependência foi alterada automaticamente nesta execução.');
+  });
+
+  it('lists exact packages_updated evidence grouped by ecosystem entry', () => {
+    const result = generateExecutiveReport({
+      ...baseOpts,
+      locale: 'pt-br',
+      ecosystems: [{ id: 'npm', path: 'app', label: 'app' }],
+      updates: {
+        'npm:app': {
+          $schema: 'osv-update-result/v1', agent: 'npm-safe-update', status: 'success',
+          packages_updated: ['lodash@4.17.21'], packages_skipped: [],
+          packages_pending_breaking: [], validations: [], error: null,
+        },
+      },
+    });
+
+    expect(result).toContain('| npm (app) | lodash@4.17.21 |');
+    expect(result).not.toContain('Nenhuma dependência foi alterada automaticamente nesta execução.');
+  });
+});
+
 describe('generateExecutiveReport() — advisor section branches', () => {
   it('generates report with no advisorResults (absent)', () => {
     const result = generateExecutiveReport({ ...baseOpts });

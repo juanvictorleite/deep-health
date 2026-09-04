@@ -57,6 +57,11 @@ export function buildLocale(): Locale {
         'Monthly scan of installed dependencies to identify packages with known vulnerabilities and apply available fixes.',
       ),
       section_resolution: __('Resolution'),
+      dependency_changes_title: __('Dependencies changed automatically'),
+      dependency_changes_empty: __('No dependencies were changed automatically in this run.'),
+      dependency_changes_table_header: __(
+        '| Ecosystem | Package update evidence |\n|---|---|',
+      ),
       no_vulns: __(
         'No vulnerabilities were identified in the project dependencies. The project is up to date and secure.',
       ),

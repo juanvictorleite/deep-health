@@ -73,6 +73,11 @@ When both a `native_deps` preamble (from config) and a plugin preamble (from `ru
 
 **Host-only commands** are `git`, `gh`, `open`. They never enter the container regardless of which spec is active.
 
+Advisor commands are ecosystem commands and always use this resolved runner,
+including when the fix phase has no applicable dependency updates. The
+no-advisor path may skip runtime resolution because no ecosystem command will
+run. See [BDR 0001](/bdr/0001-advisors-use-ecosystem-runtime.md).
+
 ## Adding a new ecosystem (runtime side)
 
 For a hypothetical `cargo` plugin:
