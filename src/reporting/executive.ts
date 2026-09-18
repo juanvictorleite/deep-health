@@ -1,3 +1,5 @@
+import { stripVTControlCharacters } from 'node:util';
+
 import type { ExecutiveReportOptions } from '@core/types/report';
 
 import { render } from './renderer';
@@ -19,13 +21,21 @@ export { escapeMdTableCell, vulnLink };
 export const buildExecutiveReportContext = buildExecutiveReportViewModel;
 export const buildEntryReportContext = buildEntryReportViewModel;
 
+// Preserve Markdown whitespace (tab, LF, CR) while removing residual C0/C1 controls.
+// oxlint-disable-next-line no-control-regex
+const NON_MARKDOWN_CONTROL_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g;
+
+function sanitizeMarkdownOutput(markdown: string): string {
+  return stripVTControlCharacters(markdown).replace(NON_MARKDOWN_CONTROL_CHARACTERS, '');
+}
+
 function monthName(date: Date): string {
   return date.toLocaleString('en-US', { month: 'long' });
 }
 
 export function generateExecutiveReport(opts: ExecutiveReportOptions): string {
   const viewModel = buildExecutiveReportViewModel(opts);
-  return render(executiveTemplate, viewModel);
+  return sanitizeMarkdownOutput(render(executiveTemplate, viewModel));
 }
 
 export function executiveReportFilename(client: string, project: string): string {
@@ -41,7 +51,7 @@ export function executiveReportFilename(client: string, project: string): string
  */
 export function generateEntryReport(opts: ExecutiveReportOptions, entryKey: string): string {
   const viewModel = buildEntryReportViewModel(opts, entryKey);
-  return render(executiveTemplate, viewModel);
+  return sanitizeMarkdownOutput(render(executiveTemplate, viewModel));
 }
 
 /**

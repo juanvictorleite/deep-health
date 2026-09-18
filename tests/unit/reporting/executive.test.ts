@@ -7,7 +7,7 @@
 import type { ExecutiveReportOptions } from '@core/types/report';
 import type { ScanResultJson } from '@core/types/scan';
 import { generateExecutiveReportDocx } from '@reporting/docx-executive';
-import { generateExecutiveReport, executiveReportFilename, escapeMdTableCell, vulnLink, buildExecutiveReportContext } from '@reporting/executive';
+import { generateEntryReport, generateExecutiveReport, executiveReportFilename, escapeMdTableCell, vulnLink, buildExecutiveReportContext } from '@reporting/executive';
 import { describe, it, expect } from 'vitest';
 
 const emptyScan: ScanResultJson = {
@@ -1627,6 +1627,34 @@ describe('generateExecutiveReport() — validation entries with command field (A
     expect(result).toContain('**build**');
     expect(result).toContain('`npm run build`');
     expect(result).toContain('Build succeeded');
+  });
+
+  it('strips terminal control sequences from Markdown while preserving valid content', () => {
+    const options: ExecutiveReportOptions = {
+      ...baseOpts,
+      scanBefore: scanWithNpm,
+      scanAfter: scanWithNpm,
+      updates: {
+        npm: {
+          ...updateWithCommandEntry,
+          validations: [{
+            name: 'tests',
+            status: 'pass',
+            detail: '\u001B[32m✅ Sucesso — ação concluída: café @ 100%\u001B[39m\u001B]0;scan title\u0007\u0000',
+            command: 'npm test',
+          }],
+        },
+      },
+    };
+
+    for (const result of [generateExecutiveReport(options), generateEntryReport(options, 'npm')]) {
+      expect(result).not.toContain('\u001B');
+      expect(result).not.toContain('\u0007');
+      expect(result).not.toContain('\u0000');
+      expect(result).toContain('✅ Sucesso — ação concluída: café @ 100%');
+      expect(result).toContain('**tests**');
+      expect(result).toContain('`npm test`');
+    }
   });
 
   it('(AC5) backward compat: validation entry WITHOUT command uses locale fallback', () => {
