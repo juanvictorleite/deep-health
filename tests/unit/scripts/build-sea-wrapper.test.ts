@@ -20,9 +20,9 @@ const BUILD_SEA_SH = path.resolve(__dirname, '../../../scripts/build-sea.sh');
 /** Run build-sea.sh inside a sandboxed tmpdir with a fake environment. */
 function runBuildSea(
   tmpDir: string,
-  opts: { cliName?: string; targetSuffix: string },
+  opts: { cliName?: string; targetSuffix: string; version?: string },
 ): ReturnType<typeof spawnSync> {
-  const { cliName = 'security-scan', targetSuffix } = opts;
+  const { cliName = 'security-scan', targetSuffix, version } = opts;
   const distBin = path.join(tmpDir, 'dist-bin');
   const distSea = path.join(tmpDir, 'dist-sea');
   fs.mkdirSync(distBin, { recursive: true });
@@ -58,10 +58,39 @@ function runBuildSea(
       PATH: patchedPath,
       CLI_NAME: cliName,
       TARGET_SUFFIX: targetSuffix,
+      ...(version ? { VERSION: version } : {}),
     },
     encoding: 'utf8',
   });
 }
+
+describe('build-sea.sh — release version validation', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'build-sea-version-test-'));
+    fs.writeFileSync(
+      path.join(tmpDir, 'package.json'),
+      JSON.stringify({ name: 'security-scan', version: '0.2.7' }),
+    );
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('rejects a release version that differs from package.json', () => {
+    const result = runBuildSea(tmpDir, {
+      targetSuffix: 'macos-arm64',
+      version: '0.2.8',
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      'Release version 0.2.8 does not match package.json version 0.2.7',
+    );
+  });
+});
 
 describe('build-sea.sh — Linux wrapper generation', () => {
   let tmpDir: string;

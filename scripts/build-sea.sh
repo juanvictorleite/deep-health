@@ -35,6 +35,21 @@ BUILD_TIMESTAMP="${BUILD_TIMESTAMP:-}"
 BLOB="dist-sea/sea-prep.blob"
 DIST_DIR="dist-bin"
 
+if [ -n "${VERSION}" ]; then
+  PACKAGE_VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' package.json | head -n 1)"
+  RELEASE_VERSION="${VERSION#v}"
+
+  if [ -z "${PACKAGE_VERSION}" ]; then
+    echo "Error: package.json version could not be read." >&2
+    exit 1
+  fi
+
+  if [ "${RELEASE_VERSION}" != "${PACKAGE_VERSION}" ]; then
+    echo "Error: Release version ${RELEASE_VERSION} does not match package.json version ${PACKAGE_VERSION}." >&2
+    exit 1
+  fi
+fi
+
 # On Windows (MSYS/Git Bash/Cygwin), append .exe
 case "$TARGET_SUFFIX" in
   win-*) EXT=".exe" ;;
